@@ -47,3 +47,41 @@ describe.skipIf(files.length === 0)('golden: local MIDI fixtures', () => {
     });
   }
 });
+
+// Phase 4 acceptance: every local file autoplays to 100% through the real input path on a 25-key window.
+import { GameClock } from '../src/audio/clock.ts';
+import { DEFAULT_JUDGE_CONFIG } from '../src/game/judge.ts';
+import { PlaySession } from '../src/game/session.ts';
+import { buildChart, chooseWindow } from '../src/midi/chart.ts';
+
+describe.skipIf(files.length === 0)('golden: autoplay to 100% on 25 keys', () => {
+  for (const file of files) {
+    it(`autoplays ${file}`, () => {
+      const song = parseSong(new Uint8Array(readFileSync(join(dir, file))));
+      const parts = buildParts(song);
+      const def = defaultPart(parts)!;
+      const unfolded = buildChart(song, { parts: [def] });
+      const window = chooseWindow(unfolded.notes.map((n) => n.origPitch), 24);
+      const chart = buildChart(song, { parts: [def], window });
+      expect(chart.notes.length).toBeGreaterThan(0);
+      const t = { perfMs: 0 };
+      const clock = new GameClock(() => t.perfMs);
+      const session = new PlaySession({
+        chart, clock, judgeConfig: DEFAULT_JUDGE_CONFIG, rate: 1, inputOffsetMs: 0, synth: null, relative: true,
+        visibleSeconds: 1, barSeconds: 1, autoplay: { jitterMs: 0 }, hint: '',
+      });
+      session.octaveOffset = 12; // pretend the keyboard is an octave low; autoplay must go through the offset path
+      const step = 1000 / 60;
+      let guard = 0;
+      while (session.status === 'playing' && guard++ < 200_000) {
+        t.perfMs += step;
+        session.update();
+      }
+      expect(session.status).toBe('finished');
+      const r = session.result();
+      expect(r.counts.miss + r.counts.wrong + r.counts.late).toBe(0);
+      expect(r.accuracy).toBe(1);
+      expect(r.maxCombo).toBe(chart.notes.length);
+    });
+  }
+});
