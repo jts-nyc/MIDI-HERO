@@ -4,4 +4,5 @@ dist/
 *.log
 
 # Local-only MIDI test files (commercial arrangements). Never commit.
-fixtures/
+fixtures/*
+!fixtures/README.md
