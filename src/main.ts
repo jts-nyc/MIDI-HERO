@@ -614,24 +614,30 @@ let lastDebug = 0;
 let frameCount = 0;
 let fpsWindowStart = 0;
 let fps = 0;
+let workMs = 0; // accumulated update+draw time in the current window
+let frameMs = 0; // average work per frame over the last window
 function frame(): void {
   frameCount++;
   const nowMs = performance.now();
   if (nowMs - fpsWindowStart >= 1000) {
     fps = (frameCount * 1000) / (nowMs - fpsWindowStart);
+    frameMs = workMs / Math.max(1, frameCount);
     frameCount = 0;
+    workMs = 0;
     fpsWindowStart = nowMs;
   }
   if (session && renderState) {
+    const w0 = performance.now();
     session.update();
     renderState.time = session.now() + (settings.audioOffsetMs / 1000) * settings.rate;
     renderState.hud = session.hud();
     renderer.draw(renderState);
+    workMs += performance.now() - w0;
     const t = performance.now();
     if (t - lastDebug > 250) {
       lastDebug = t;
       const j = session.judge;
-      canvas.dataset.state = JSON.stringify({ status: session.status, now: +session.now().toFixed(2), score: j.score, combo: j.combo, counts: j.counts, offset: session.octaveOffset, locked: session.filter.locked, backing: scheduler?.running ?? false, audio: audioCtx?.state ?? 'none', notes: session.chart.notes.length, fps: +fps.toFixed(1) });
+      canvas.dataset.state = JSON.stringify({ status: session.status, now: +session.now().toFixed(2), score: j.score, combo: j.combo, counts: j.counts, offset: session.octaveOffset, locked: session.filter.locked, backing: scheduler?.running ?? false, audio: audioCtx?.state ?? 'none', notes: session.chart.notes.length, fps: +fps.toFixed(1), frameMs: +frameMs.toFixed(2) });
     }
   }
   requestAnimationFrame(frame);
