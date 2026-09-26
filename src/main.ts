@@ -205,12 +205,20 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) pause();
 });
 
+let lastDebug = 0;
 function frame(): void {
   if (session && renderState) {
     session.update();
     renderState.time = session.now() + (settings.audioOffsetMs / 1000) * settings.rate;
     renderState.hud = session.hud();
     renderer.draw(renderState);
+    // Inspection: mirror a summary into the DOM a few times a second (readable by tests and devtools).
+    const t = performance.now();
+    if (t - lastDebug > 250) {
+      lastDebug = t;
+      const j = session.judge;
+      canvas.dataset.state = JSON.stringify({ status: session.status, now: +session.now().toFixed(2), score: j.score, combo: j.combo, counts: j.counts, offset: session.octaveOffset, locked: session.filter.locked });
+    }
   }
   requestAnimationFrame(frame);
 }
