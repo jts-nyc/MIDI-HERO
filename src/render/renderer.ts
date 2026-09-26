@@ -20,7 +20,7 @@ export interface KeyVisual {
 
 export interface Popup {
   text: string;
-  x: number;
+  pitch: number;
   time: number;
   color: string;
 }
@@ -276,13 +276,14 @@ export class Renderer {
     for (const p of s.popups) {
       const age = s.time - p.time;
       if (age < 0 || age > POPUP_LIFE) continue;
+      const col = layout.columns.get(p.pitch);
+      if (!col) continue;
       const t = age / POPUP_LIFE;
       ctx.globalAlpha = 1 - t;
       ctx.fillStyle = p.color;
-      ctx.fillText(p.text, p.x, hitY - 40 - t * 30);
+      ctx.fillText(p.text, col.x + col.w / 2, hitY - 40 - t * 30);
     }
     ctx.globalAlpha = 1;
-    void layout;
   }
 
   private drawHud(s: RenderState, width: number): void {

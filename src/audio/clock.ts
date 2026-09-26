@@ -8,8 +8,8 @@
  */
 
 export interface OutputTimestamp {
-  contextTime: number;
-  performanceTime: number;
+  contextTime?: number;
+  performanceTime?: number;
 }
 
 export interface AudioTimeSource {
@@ -44,6 +44,11 @@ export class GameClock {
     return this.ctx !== null;
   }
 
+  /** Current performance-timeline time in ms (injectable for tests). */
+  perfNowMs(): number {
+    return this.perfNow();
+  }
+
   /** Switch to an AudioContext without a jump in song time. */
   attach(ctx: AudioTimeSource): void {
     const song = this.now();
@@ -56,8 +61,10 @@ export class GameClock {
   private refAt(perfMs: number): number {
     if (!this.ctx) return perfMs / 1000;
     const ots = this.ctx.getOutputTimestamp?.();
-    if (ots && (ots.contextTime > 0 || ots.performanceTime > 0)) {
-      return ots.contextTime + (perfMs - ots.performanceTime) / 1000;
+    const ct = ots?.contextTime ?? 0;
+    const pt = ots?.performanceTime ?? 0;
+    if (ct > 0 || pt > 0) {
+      return ct + (perfMs - pt) / 1000;
     }
     // Suspended or unsupported: fall back to currentTime with an estimated offset.
     return this.ctx.currentTime + (perfMs - this.perfNow()) / 1000;
@@ -111,8 +118,8 @@ export class GameClock {
   /** Estimated seconds between scheduling on currentTime and hearing it. */
   outputLatency(): number {
     if (!this.ctx) return 0;
-    const ots = this.ctx.getOutputTimestamp?.();
-    if (ots && ots.contextTime > 0) return Math.max(0, this.ctx.currentTime - ots.contextTime);
+    const ct = this.ctx.getOutputTimestamp?.()?.contextTime ?? 0;
+    if (ct > 0) return Math.max(0, this.ctx.currentTime - ct);
     return (this.ctx.baseLatency ?? 0) + (this.ctx.outputLatency ?? 0);
   }
 
