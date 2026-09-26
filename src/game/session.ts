@@ -105,7 +105,9 @@ export class PlaySession {
     const pitch = ev.pitch + (this.opts.relative ? this.octaveOffset : 0);
     if (ev.type === 'off') {
       this.heldKeys.delete(pitch);
-      this.keyVisuals.delete(pitch);
+      // The key highlight stays for KEY_FLASH after release so a quick tap is still visible.
+      const kv = this.keyVisuals.get(pitch);
+      if (kv) kv.since = Math.max(kv.since, this.now() - KEY_FLASH * 0.6);
       this.opts.synth?.noteOff(0, pitch, 0);
       return;
     }

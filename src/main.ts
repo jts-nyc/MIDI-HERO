@@ -151,6 +151,8 @@ function play(): void {
     synth: settings.synth ? synth : null, relative, visibleSeconds, barSeconds, autoplay,
     hint: relative ? PlaySession.keysHint(window) : part.name,
   });
+  // Debug/inspection handle (used by the browser checks and handy in devtools).
+  (window as unknown as { __midihero: unknown }).__midihero = { session, chart, settings };
   session.onOctave = (ev) => {
     if (ev.type === 'reoffset') toast(`Octave adjusted (${ev.delta > 0 ? '+' : ''}${ev.delta / 12}). Keep playing.`);
     else toast('Keyboard seems transposed. Check the transpose setting.', 'error');
