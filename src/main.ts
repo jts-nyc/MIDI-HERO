@@ -1,4 +1,5 @@
 import { GameClock } from './audio/clock.ts';
+import { BackingScheduler } from './audio/scheduler.ts';
 import { WebAudioSynth, type Synth } from './audio/synth.ts';
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type TimingPreset } from './game/judge.ts';
 import { PlaySession } from './game/session.ts';
@@ -62,6 +63,8 @@ let settings: Settings = loadSettings();
 const clock = new GameClock();
 let audioCtx: AudioContext | null = null;
 let synth: Synth | null = null;
+let backingSynth: WebAudioSynth | null = null;
+let scheduler: BackingScheduler | null = null;
 let session: PlaySession | null = null;
 let renderState: RenderState | null = null;
 let library: LibrarySong[] = [];
@@ -123,10 +126,22 @@ function ensureAudio(): void {
     return;
   }
   try {
-    audioCtx = new AudioContext({ latencyHint: 'interactive' });
-    void audioCtx.resume();
-    synth = new WebAudioSynth(audioCtx);
-    clock.attach(audioCtx);
+    const ctx = new AudioContext({ latencyHint: 'interactive' });
+    audioCtx = ctx;
+    synth = new WebAudioSynth(ctx);
+    backingSynth = new WebAudioSynth(ctx);
+    // Only drive the game clock from the audio clock once it is actually running;
+    // a context created without a user gesture may stay suspended.
+    const attachWhenRunning = () => {
+      if (ctx.state === 'running' && !clock.hasAudio) clock.attach(ctx);
+      if (ctx.state === 'suspended') toast('Click anywhere to enable sound');
+    };
+    ctx.onstatechange = attachWhenRunning;
+    void ctx.resume().then(attachWhenRunning, attachWhenRunning);
+    attachWhenRunning();
+    const unlock = () => void ctx.resume();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
   } catch (e) {
     console.warn('AudioContext unavailable', e);
   }
@@ -194,10 +209,10 @@ async function importFiles(files: File[]): Promise<void> {
       if (/\.json$/i.test(file.name)) {
         const v = parsePackJson(await file.text());
         if (!v.ok) throw new Error(v.error);
-        for (const { song, bytes } of v.songs) {
+        for (const [i, { song, bytes }] of v.songs.entries()) {
           const id = song.id || (await sha256Hex(bytes));
           const stored: StoredSong = {
-            id, name: song.title, bytes, parts: song.defaultParts, addedAt: Date.now(), packName: v.pack.name,
+            id, name: song.title, bytes, parts: song.defaultParts, addedAt: Date.now() + i, packName: v.pack.name,
             ...(song.split !== undefined ? { split: song.split } : {}), ...(song.timingPreset ? { timingPreset: song.timingPreset } : {}),
           };
           await putSong(stored);
@@ -240,10 +255,10 @@ async function loadPackFromUrl(path: string): Promise<void> {
   if (!res.ok) throw new Error(`Pack not found: ${path}`);
   const v = parsePackJson(await res.text());
   if (!v.ok) throw new Error(v.error);
-  for (const { song, bytes } of v.songs) {
+  for (const [i, { song, bytes }] of v.songs.entries()) {
     const id = song.id || (await sha256Hex(bytes));
     await putSong({
-      id, name: song.title, bytes, parts: song.defaultParts, addedAt: Date.now(), packName: v.pack.name,
+      id, name: song.title, bytes, parts: song.defaultParts, addedAt: Date.now() + i, packName: v.pack.name,
       ...(song.split !== undefined ? { split: song.split } : {}), ...(song.timingPreset ? { timingPreset: song.timingPreset } : {}),
     });
   }
@@ -273,6 +288,7 @@ async function exportPack(name: string, ids: string[]): Promise<void> {
 // Screens
 // ---------------------------------------------------------------------------
 function songSelect(): void {
+  stopBacking();
   session = null;
   renderState = null;
   gateHandler = null;
@@ -360,7 +376,7 @@ async function openSong(id: string): Promise<void> {
     }
     current = {
       lib, song, parts,
-      picker: { selected: new Set(selected), split: lib.split ?? 60, hands: lib.hands ?? ['L', 'R'], timing: lib.timingPreset ?? settings.timing },
+      picker: { selected: new Set(selected), split: lib.split ?? 60, hands: lib.hands ?? ['L', 'R'], timing: lib.timingPreset ?? settings.timing, guideTrack: false },
     };
     partPicker();
   } catch (e) {
@@ -453,6 +469,23 @@ function play(): void {
   const partName = partIds.map((id) => current!.parts.find((x) => x.key === partKey(id))?.name ?? '').join(' + ');
 
   gateHandler = null;
+  stopBacking();
+  if (backingSynth) {
+    backingSynth.setMasterGain(settings.backingVolume);
+    backingSynth.setDrumChannels(song.drumChannels);
+    // Duplicates of the player's part are muted unless the guide track is on.
+    const muted = new Set<string>();
+    if (!picker.guideTrack) {
+      for (const p of current.parts) {
+        if (p.duplicateOf && picker.selected.has(p.duplicateOf)) muted.add(p.key);
+        if (picker.selected.has(p.key) && p.duplicateOf) muted.add(p.duplicateOf);
+      }
+    }
+    scheduler = new BackingScheduler(chart.backing, backingSynth, clock, {
+      mutedParts: muted,
+      countIn: { beats: sig.numerator, beatSeconds: barSeconds / sig.numerator },
+    });
+  }
   session = new PlaySession({
     chart, clock, judgeConfig, rate: settings.rate, inputOffsetMs: settings.inputOffsetMs,
     synth: settings.synth ? synth : null, relative, visibleSeconds, barSeconds, autoplay,
@@ -471,6 +504,7 @@ function play(): void {
     }
   };
   s.onFinished = (result) => {
+    stopBacking();
     const badges = [...(settings.easy ? ['Easy mode'] : []), ...(settings.rate < 1 ? [`${Math.round(settings.rate * 100)}% speed`] : []), ...(autoplay ? ['Autoplay'] : [])];
     const detail = `${partName} · ${timing} timing · ${Math.round(settings.rate * 100)}% speed`;
     const show = (extra: string[]) =>
@@ -507,7 +541,13 @@ function play(): void {
 }
 
 function playHud(s: PlaySession): void {
-  showPlayHud({ onPause: pause, onSkip: s.chart.firstNoteTime > 8 ? () => s.skipToFirstNote() : null });
+  showPlayHud({ onPause: pause, onSkip: s.chart.firstNoteTime > 8 ? () => { s.skipToFirstNote(); scheduler?.stop(); scheduler?.start(); } : null });
+  if (s.status === 'playing') scheduler?.start();
+}
+
+function stopBacking(): void {
+  scheduler?.stop();
+  scheduler = null;
 }
 
 /** "Press your lowest C": learns the octave shift and the input channel, then resumes. */
@@ -540,6 +580,7 @@ function runGate(window: PitchWindow, s: PlaySession): void {
 function pause(): void {
   if (!session || session.status !== 'playing') return;
   session.pause();
+  scheduler?.stop();
   showPause({
     onResume: resume,
     onRestart: () => { session = null; play(); },
@@ -570,7 +611,17 @@ document.addEventListener('visibilitychange', () => {
 // Frame loop
 // ---------------------------------------------------------------------------
 let lastDebug = 0;
+let frameCount = 0;
+let fpsWindowStart = 0;
+let fps = 0;
 function frame(): void {
+  frameCount++;
+  const nowMs = performance.now();
+  if (nowMs - fpsWindowStart >= 1000) {
+    fps = (frameCount * 1000) / (nowMs - fpsWindowStart);
+    frameCount = 0;
+    fpsWindowStart = nowMs;
+  }
   if (session && renderState) {
     session.update();
     renderState.time = session.now() + (settings.audioOffsetMs / 1000) * settings.rate;
@@ -580,7 +631,7 @@ function frame(): void {
     if (t - lastDebug > 250) {
       lastDebug = t;
       const j = session.judge;
-      canvas.dataset.state = JSON.stringify({ status: session.status, now: +session.now().toFixed(2), score: j.score, combo: j.combo, counts: j.counts, offset: session.octaveOffset, locked: session.filter.locked });
+      canvas.dataset.state = JSON.stringify({ status: session.status, now: +session.now().toFixed(2), score: j.score, combo: j.combo, counts: j.counts, offset: session.octaveOffset, locked: session.filter.locked, backing: scheduler?.running ?? false, audio: audioCtx?.state ?? 'none', notes: session.chart.notes.length, fps: +fps.toFixed(1) });
     }
   }
   requestAnimationFrame(frame);
@@ -604,7 +655,16 @@ async function boot(): Promise<void> {
     }
   }
   const quick = params.get('song');
+  const filePath = params.get('file');
+  if (filePath && !/^[a-z]+:|^\/\/|\.\./i.test(filePath)) {
+    library.unshift({ id: `file:${filePath}`, title: filePath.split('/').pop() ?? filePath, source: 'bundled', file: `../${filePath.replace(/^\/+/, '')}`, defaultParts: [], parts: [] });
+  }
   const start = async () => {
+    if (filePath) {
+      await openSong(`file:${filePath}`);
+      if (params.get('autoplay')) await startPlay({ jitterMs: Number(params.get('jitter') ?? 0) });
+      return;
+    }
     if (quick && params.get('autoplay')) {
       const lib = library.find((l) => l.id === quick);
       if (lib) {

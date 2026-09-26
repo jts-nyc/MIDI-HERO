@@ -191,6 +191,8 @@ export interface PartPickerState {
   split: number;
   hands: Hand[];
   timing: TimingPreset;
+  /** keep a duplicate of the player's part audible in the backing */
+  guideTrack: boolean;
 }
 
 export interface PartPickerOptions {
@@ -228,6 +230,7 @@ export function showPartPicker(o: PartPickerOptions): void {
     })
     .join('');
   const single = [...st.selected].length === 1 ? o.rows.find((r) => r.part.key === [...st.selected][0]) : undefined;
+  const hasGuide = o.rows.some((r) => r.part.duplicateOf && st.selected.has(r.part.duplicateOf));
   const wide = !!single && single.part.maxPitch - single.part.minPitch > 24;
   const splitOptions = [48, 53, 55, 57, 60, 62, 64, 65, 67, 72].map((p) => `<option value="${p}" ${st.split === p ? 'selected' : ''}>${noteName(p)}</option>`).join('');
   const el = screen(`<div class="panel" style="width:min(900px,100%)">
@@ -245,6 +248,7 @@ export function showPartPicker(o: PartPickerOptions): void {
         <option value="L" ${st.hands.length === 1 && st.hands[0] === 'L' ? 'selected' : ''}>left hand only</option>
       </select></label></div>` : ''}
     <div class="row" style="margin-top:12px">
+      ${hasGuide ? `<label class="field"><input type="checkbox" id="guide" ${st.guideTrack ? 'checked' : ''} /> Keep the guide track (a copy of my part) audible</label>` : ''}
       <label class="field">Timing <select id="timing">
         ${(['strict', 'normal', 'relaxed'] as TimingPreset[]).map((t) => `<option value="${t}" ${st.timing === t ? 'selected' : ''}>${t}</option>`).join('')}
       </select></label>
@@ -269,6 +273,10 @@ export function showPartPicker(o: PartPickerOptions): void {
   el.querySelector<HTMLSelectElement>('#hands')?.addEventListener('change', (e) => {
     const v = (e.target as HTMLSelectElement).value;
     st.hands = v === 'both' ? ['L', 'R'] : [v as Hand];
+    o.onChange(st);
+  });
+  el.querySelector<HTMLInputElement>('#guide')?.addEventListener('change', (e) => {
+    st.guideTrack = (e.target as HTMLInputElement).checked;
     o.onChange(st);
   });
   el.querySelector<HTMLSelectElement>('#timing')!.addEventListener('change', (e) => {

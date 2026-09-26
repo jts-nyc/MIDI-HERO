@@ -6,3 +6,6 @@ dist/
 # Local-only MIDI test files (commercial arrangements). Never commit.
 fixtures/*
 !fixtures/README.md
+
+# Local-only files served by the dev server for manual checks
+public/fixtures/
