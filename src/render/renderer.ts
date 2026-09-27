@@ -3,6 +3,7 @@ import type { BeatLine } from '../midi/parse.ts';
 import { fitCanvas } from './canvas.ts';
 import { Tint, type FxState } from './fx.ts';
 import { isBlackKey, layoutKeys, noteName, type KeyboardLayout } from './layout.ts';
+import type { PracticeView } from './practice.ts';
 
 export type NoteState = 'pending' | 'hit' | 'missed';
 
@@ -61,6 +62,8 @@ export interface RenderState {
   physical: { low: number; high: number } | null;
   /** effects and meters, filled by the session (see fx.ts) */
   fx: FxState;
+  /** practice mode (sections, loop, wait); absent or NO_PRACTICE when off. See practice.ts */
+  practice?: PracticeView;
 }
 
 export const theme = {
