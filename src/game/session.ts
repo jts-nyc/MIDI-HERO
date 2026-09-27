@@ -167,6 +167,8 @@ export class PlaySession {
   private autoOffs: { time: number; pitch: number }[] = [];
   private autoJitter: number[] = [];
   private heldKeys = new Set<number>();
+  /** chart pitch each key that is down was pressed as: a release keeps it, whatever the octave offset is now */
+  private readonly pressedAs = new Map<number, number>();
   /** performance time of the last frame, for the effects' real-time step (song time may be held) */
   private lastPerfMs = -Infinity;
   private readonly feedback: FeedbackSound;
@@ -287,8 +289,9 @@ export class PlaySession {
       if (ev.velocity >= 64) this.activateStar();
       return;
     }
-    const pitch = ev.pitch + (this.opts.relative ? this.octaveOffset : 0);
     if (ev.type === 'off') {
+      const pitch = this.pressedAs.get(ev.pitch) ?? ev.pitch + (this.opts.relative ? this.octaveOffset : 0);
+      this.pressedAs.delete(ev.pitch);
       this.heldKeys.delete(pitch);
       // The key highlight stays for KEY_FLASH after release so a quick tap is still visible.
       const kv = this.keyVisuals.get(pitch);
@@ -298,6 +301,8 @@ export class PlaySession {
       if (this.judge.events.length) this.drainEvents(this.now()); // a released hold loses its trail at once
       return;
     }
+    const pitch = ev.pitch + (this.opts.relative ? this.octaveOffset : 0);
+    this.pressedAs.set(ev.pitch, pitch);
     // Sound first: synchronous, at the audio clock's current time.
     press?.noteOn(0, pitch, ev.velocity, 0);
     this.heldKeys.add(pitch);

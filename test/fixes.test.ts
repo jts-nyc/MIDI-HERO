@@ -106,3 +106,21 @@ describe('fix 2: a note-off stops the voice its note started, not a retriggered 
     expect(offs.map((c) => [c.args[2], c.args[3]])).toEqual([[1.5, 1], [2, 2]]);
   });
 });
+
+describe('fix 3: a key released after an octave re-offset releases the pitch it pressed', () => {
+  it('the hold ends when the key comes up; no overhold, and the key is no longer held', () => {
+    const chart = makeChart([[1, 60, 1], [4, 62]]);
+    const { session, goTo, down, up } = harness({ chart, relative: true, judgeConfig: { ...DEFAULT_JUDGE_CONFIG, overhold: OVERHOLD_COST.expert } });
+    session.octaveOffset = 12;
+    goTo(1);
+    down(48); // played as 60
+    expect(session.judge.counts.perfect).toBe(1);
+    goTo(1.3);
+    session.octaveOffset = 0; // the tracker re-offset while the key is down
+    up(48);
+    goTo(3);
+    expect(session.noteVisuals[0]!.hold).toBe('released'); // let go early: the hold is not paid in full
+    expect(session.judge.counts.overheld).toBe(0);
+    expect((session as unknown as { heldKeys: Set<number> }).heldKeys.size).toBe(0);
+  });
+});
