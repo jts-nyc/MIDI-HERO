@@ -350,7 +350,7 @@ export class PlaySession {
   /** Switch star power on, if the gauge allows: the sustain pedal, or Space. */
   activateStar(): boolean {
     if (this.status !== 'playing') return false;
-    return this.judge.activateStar(this.now());
+    return this.judge.activateStar(this.judgeTimeAt(this.now()));
   }
 
   /** The hit note as written in the file: original pitch, velocity and instrument, for its written length. */

@@ -194,3 +194,17 @@ describe('fix 6: all-notes-off stops drum clicks already scheduled (a cancelled 
     expect(ctx.gains.slice(later).every((g) => g.gain.value > 0)).toBe(true);
   });
 });
+
+describe('star power starts on the input-offset time, like every judgment', () => {
+  it('with a 200 ms input offset the judge is told the time the player heard', () => {
+    const { session, goTo } = harness({ inputOffsetMs: 200 });
+    goTo(2);
+    const seen: number[] = [];
+    const orig = session.judge.activateStar.bind(session.judge);
+    session.judge.activateStar = (t: number) => (seen.push(t), orig(t));
+    session.activateStar();
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBeCloseTo(session.judgeTimeAt(session.now()), 6);
+    expect(seen[0]).toBeLessThan(session.now());
+  });
+});
