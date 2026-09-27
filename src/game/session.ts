@@ -3,7 +3,7 @@ import { FEEDBACK_CHANNEL, FEEDBACK_CHANNELS, type Synth } from '../audio/synth.
 import { ChannelFilter, OctaveTracker, type InputEvent, type OctaveEvent } from '../input/normalize.ts';
 import type { CarriedNote, Chart } from '../midi/chart.ts';
 import {
-  createFx, emitBreak, emitCallout, emitHit, emitLevel, emitMilestone, emitMiss, emitStreak, emitWrong, setCountdown, stepFx, type FxState,
+  createFx, emitBreak, emitCallout, emitHit, emitLevel, emitMilestone, emitMiss, emitStar, emitStreak, emitWrong, setCountdown, stepFx, type FxState,
 } from '../render/fx.ts';
 import { noteName } from '../render/layout.ts';
 import type { Hud, KeyVisual, NoteVisual, Popup } from '../render/renderer.ts';
@@ -167,6 +167,7 @@ export class PlaySession {
     const chartSound = this.feedback === 'chart' ? this.opts.synth : null;
     if (ev.type === 'pedal') {
       press?.control(0, 64, ev.velocity, 0);
+      if (ev.velocity >= 64) this.activateStar();
       return;
     }
     const pitch = ev.pitch + (this.opts.relative ? this.octaveOffset : 0);
@@ -213,6 +214,12 @@ export class PlaySession {
       }
     }
     this.trimPopups();
+  }
+
+  /** Switch star power on, if the gauge allows: the sustain pedal, or Space. */
+  activateStar(): boolean {
+    if (this.status !== 'playing') return false;
+    return this.judge.activateStar(this.now());
   }
 
   /** The hit note as written in the file: original pitch, velocity and instrument, for its written length. */
@@ -293,10 +300,23 @@ export class PlaySession {
         case 'milestone': emitMilestone(this.fx, e.streak ?? 0); break;
         case 'level': emitLevel(this.fx, e.streak ?? 1); break;
         case 'fail': emitCallout(this.fx, 'SONG FAILED', 'fail', 2); break;
+        case 'star': emitCallout(this.fx, this.judge.starReady ? 'STAR POWER READY' : 'STAR PHRASE!', 'star', 1); break;
+        case 'starOn': emitStar(this.fx); break;
+        case 'starLost': this.dimPhrase(e.streak ?? -1); break;
         default: break;
       }
     }
     events.length = 0;
+  }
+
+  /** A spoiled star phrase loses its gold: what is left of it looks like any other note. */
+  private dimPhrase(phrase: number): void {
+    const p = this.chart.phrases[phrase];
+    if (!p) return;
+    for (let i = p.first; i <= p.last; i++) {
+      const n = this.chart.notes[i]!;
+      if (n.star) n.star = false;
+    }
   }
 
   private syncMeters(): void {
@@ -307,6 +327,9 @@ export class PlaySession {
     m.health = j.meter.health;
     m.zone = j.meter.zone;
     m.low = j.meter.low;
+    m.starGauge = j.starGauge;
+    m.starReady = j.starReady;
+    m.starActive = j.starActive;
   }
 
   private trimPopups(): void {
@@ -360,6 +383,7 @@ export class PlaySession {
     const notes = this.chart.notes;
     const perfNow = this.opts.clock.perfNowMs();
     const perfFor = (songTime: number) => perfNow - ((now - songTime) * 1000) / this.opts.rate;
+    if (this.judge.starReady) this.activateStar();
     while (this.autoCursor < notes.length) {
       const n = notes[this.autoCursor]!;
       const at = n.time + (this.autoJitter[this.autoCursor] ?? 0);

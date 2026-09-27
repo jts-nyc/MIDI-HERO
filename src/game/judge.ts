@@ -1,4 +1,4 @@
-import type { Chart } from '../midi/chart.ts';
+import { beatAt, type Chart } from '../midi/chart.ts';
 import { isMilestone, PerformanceMeter } from './meter.ts';
 
 export type Judgment = 'perfect' | 'great' | 'good' | 'late' | 'miss';
@@ -43,9 +43,11 @@ export type HitResult =
 export interface JudgeEvent {
   /**
    * 'milestone': the streak reached `streak`; 'break': a streak of `streak` notes ended;
-   * 'level': the combo multiplier rose to `streak`; 'fail': the performance meter ran out.
+   * 'level': the combo multiplier rose to `streak`; 'fail': the performance meter ran out;
+   * 'star': star phrase `streak` was played clean and filled the gauge; 'starLost': star
+   * phrase `streak` was spoiled; 'starOn' / 'starOff': star power went on / ran out.
    */
-  type: 'hit' | 'miss' | 'wrong' | 'milestone' | 'break' | 'level' | 'fail';
+  type: 'hit' | 'miss' | 'wrong' | 'milestone' | 'break' | 'level' | 'fail' | 'star' | 'starLost' | 'starOn' | 'starOff';
   time: number;
   pitch: number;
   noteId: number;
@@ -62,6 +64,14 @@ export interface Counts {
   miss: number;
   wrong: number;
 }
+
+/** A clean star phrase adds this much to the star gauge. */
+export const STAR_GAIN = 0.25;
+/** Gauge needed to switch star power on. */
+export const STAR_MIN = 0.5;
+/** A full gauge lasts this many beats, so the minimum lasts 16. */
+export const STAR_FULL_BEATS = 32;
+export const STAR_MULTIPLIER = 2;
 
 /** Streak lengths at which the multiplier rises to 2x, 3x, 4x. */
 export const MULTIPLIER_STEPS = [10, 30, 50] as const;
@@ -97,6 +107,14 @@ export class Judge {
   combo = 0;
   maxCombo = 0;
   judged = 0;
+  /** 0..1; filled by clean star phrases, drained while star power is on */
+  starGauge = 0;
+  starActive = false;
+  /** beat position up to which the gauge has been drained */
+  private starBeat = 0;
+  /** per phrase: notes not judged yet, and whether a miss or a wrong note spoiled it */
+  private readonly phraseLeft: number[];
+  private readonly phraseSpoiled: boolean[];
   private weightSum = 0;
   private failNoted = false;
   private cursor = 0;
@@ -122,6 +140,8 @@ export class Judge {
     this.good = config.good * scale;
     this.miss = config.miss * scale;
     const notes = chart.notes;
+    this.phraseLeft = chart.phrases.map((p) => p.last - p.first + 1);
+    this.phraseSpoiled = chart.phrases.map(() => false);
     this.states = notes.map(() => 'pending');
     this.judgments = notes.map(() => null);
     this.windows = notes.map(() => this.miss);
@@ -167,8 +187,68 @@ export class Judge {
     return multiplierProgress(this.combo);
   }
 
+  /** Combo multiplier times the star multiplier: what a hit is worth right now. */
+  get scoreMultiplier(): number {
+    return comboMultiplier(this.combo) * (this.starActive ? STAR_MULTIPLIER : 1);
+  }
+
   get failed(): boolean {
     return this.meter.failed;
+  }
+
+  /** Enough gauge to switch star power on, and it is not on already. */
+  get starReady(): boolean {
+    return !this.starActive && this.starGauge >= STAR_MIN - 1e-9;
+  }
+
+  /** Switch star power on (sustain pedal or Space). Returns false when the gauge is below half. */
+  activateStar(t: number): boolean {
+    if (!this.starReady) return false;
+    this.starActive = true;
+    this.starBeat = beatAt(this.chart.beats, t);
+    this.note('starOn', t, 0);
+    return true;
+  }
+
+  /** While star power is on the gauge runs down with the beats of the song. */
+  private drainStar(t: number): void {
+    if (!this.starActive) return;
+    const beat = beatAt(this.chart.beats, t);
+    if (beat <= this.starBeat) return;
+    this.starGauge -= (beat - this.starBeat) / STAR_FULL_BEATS;
+    this.starBeat = beat;
+    if (this.starGauge <= 1e-9) {
+      this.starGauge = 0;
+      this.starActive = false;
+      this.note('starOff', t, 0);
+    }
+  }
+
+  private spoil(phrase: number, t: number): void {
+    if (this.phraseSpoiled[phrase]) return;
+    this.phraseSpoiled[phrase] = true;
+    if (this.chart.phrases[phrase]!.star) this.note('starLost', t, phrase);
+  }
+
+  /** A wrong note spoils the star phrase that is being played at that moment. */
+  private spoilAt(t: number): void {
+    const phrases = this.chart.phrases;
+    for (let p = 0; p < phrases.length; p++) {
+      const ph = phrases[p]!;
+      if (ph.start - this.miss > t) break;
+      if (ph.star && this.phraseLeft[p]! > 0 && t <= ph.end + this.miss) this.spoil(p, t);
+    }
+  }
+
+  /** Book a judged note on its phrase; a star phrase played clean to its last note fills the gauge. */
+  private phraseNote(id: number, clean: boolean, t: number): void {
+    const phrase = this.chart.notes[id]!.phrase;
+    if (phrase === undefined || this.phraseLeft[phrase] === undefined) return;
+    if (!clean) this.spoil(phrase, t);
+    if (--this.phraseLeft[phrase]! === 0 && !this.phraseSpoiled[phrase] && this.chart.phrases[phrase]!.star) {
+      this.starGauge = Math.min(1, this.starGauge + STAR_GAIN);
+      this.note('star', t, phrase);
+    }
   }
 
   private note(type: JudgeEvent['type'], time: number, streak: number): void {
@@ -230,6 +310,7 @@ export class Judge {
         this.breakStreak(t);
         this.meter.wrong();
         this.checkFail(t);
+        this.spoilAt(t);
       }
       return { kind: 'wrong' };
     }
@@ -256,16 +337,18 @@ export class Judge {
       const before = comboMultiplier(this.combo);
       this.combo++;
       if (this.combo > this.maxCombo) this.maxCombo = this.combo;
-      this.score += POINTS[judgment] * comboMultiplier(this.combo);
+      this.score += POINTS[judgment] * this.scoreMultiplier;
       this.meter.hit();
       if (comboMultiplier(this.combo) > before) this.note('level', t, comboMultiplier(this.combo));
       if (isMilestone(this.combo)) this.note('milestone', t, this.combo);
     }
     this.counts[judgment]++;
+    this.phraseNote(id, judgment !== 'miss' && judgment !== 'late', t);
   }
 
   /** Mark notes whose window has passed as missed. */
   advance(t: number): void {
+    this.drainStar(t);
     const notes = this.chart.notes;
     while (this.cursor < notes.length) {
       const id = this.cursor;

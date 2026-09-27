@@ -680,13 +680,18 @@ function resume(): void {
   playHud(session);
 }
 
+// Esc pauses and resumes. Space switches star power on while playing, and resumes a paused song.
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Escape' || e.code === 'Space') {
-    if (!session || gateHandler) return;
-    e.preventDefault();
-    if (session.status === 'playing') pause();
-    else if (session.status === 'paused') resume();
-  }
+  if (e.code !== 'Escape' && e.code !== 'Space') return;
+  if (!session || gateHandler) return;
+  const target = e.target as HTMLElement | null;
+  if (target && /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(target.tagName)) return;
+  e.preventDefault();
+  if (e.repeat) return;
+  if (session.status === 'paused') resume();
+  else if (session.status !== 'playing') return;
+  else if (e.code === 'Space') session.activateStar();
+  else pause();
 });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && session?.status === 'playing' && !gateHandler) pause();
@@ -750,7 +755,7 @@ function frame(): void {
     if (t - lastDebug > 250) {
       lastDebug = t;
       const j = session.judge;
-      canvas.dataset.state = JSON.stringify({ status: session.status, now: +session.now().toFixed(2), score: j.score, combo: j.combo, multiplier: j.multiplier, health: +j.meter.health.toFixed(2), mix: +mix.toFixed(2), counts: j.counts, offset: session.octaveOffset, locked: session.filter.locked, backing: scheduler?.running ?? false, audio: audioCtx?.state ?? 'none', notes: session.chart.notes.length, fps: +fps.toFixed(1), frameMs: +frameMs.toFixed(2) });
+      canvas.dataset.state = JSON.stringify({ status: session.status, now: +session.now().toFixed(2), score: j.score, combo: j.combo, multiplier: j.scoreMultiplier, star: +j.starGauge.toFixed(2), starOn: j.starActive, health: +j.meter.health.toFixed(2), mix: +mix.toFixed(2), counts: j.counts, offset: session.octaveOffset, locked: session.filter.locked, backing: scheduler?.running ?? false, audio: audioCtx?.state ?? 'none', notes: session.chart.notes.length, fps: +fps.toFixed(1), frameMs: +frameMs.toFixed(2) });
     }
   }
   requestAnimationFrame(frame);

@@ -1,8 +1,12 @@
 import type { PartId, SongData, SongNote } from '../types.ts';
 import { partKey } from '../types.ts';
-import { simplify, type Difficulty } from './difficulty.ts';
+import { BeatGrid, simplify, type Difficulty } from './difficulty.ts';
+import { ticksToSeconds } from './parse.ts';
+import { markPhrases, phraseSpans, type Phrase } from './phrases.ts';
 
 export { DIFFICULTIES, DIFFICULTY_LABEL, isDifficulty, levelStats, simplify, type Difficulty, type LevelStats } from './difficulty.ts';
+
+export { type Phrase } from './phrases.ts';
 
 export type Hand = 'L' | 'R';
 
@@ -92,6 +96,25 @@ export interface Chart {
   duration: number;
   firstNoteTime: number;
   maxDuration: number;
+  /** phrases of the player's part; every few of them is a star phrase */
+  phrases: Phrase[];
+  /** time in seconds of every beat from the start of the song to its end */
+  beats: number[];
+}
+
+/** Position of a song time in beats (fractional), by the beat times of a chart. */
+export function beatAt(beats: readonly number[], time: number): number {
+  const n = beats.length;
+  if (n < 2) return n === 1 ? time - beats[0]! : time;
+  let lo = 0;
+  let hi = n - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (beats[mid]! <= time) lo = mid;
+    else hi = mid - 1;
+  }
+  const i = Math.min(lo, n - 2);
+  return i + (time - beats[i]!) / (beats[i + 1]! - beats[i]!);
 }
 
 const COLLISION_WINDOW = 0.03; // s
@@ -229,6 +252,15 @@ export function buildChart(song: SongData, opts: ChartOptions): Chart {
   const backing = buildBacking(song, backingNotes);
   for (const n of backingNotes) if (!(n.channel === 9 || song.drumChannels.includes(n.channel))) lastEnd = Math.max(lastEnd, n.time + n.duration);
 
+  const grid = new BeatGrid(song);
+  const phrases = markPhrases(notes, phraseSpans(fullPart, grid));
+  const beats: number[] = [];
+  for (let b = 0; b < 100_000; b++) {
+    const t = ticksToSeconds(song.tempoMap, song.ppq, grid.tickOf(b));
+    beats.push(t);
+    if (t > lastEnd + 2) break;
+  }
+
   return {
     notes,
     minPitch,
@@ -240,6 +272,8 @@ export function buildChart(song: SongData, opts: ChartOptions): Chart {
     duration: lastEnd + 2,
     firstNoteTime: notes[0]?.time ?? 0,
     maxDuration,
+    phrases,
+    beats,
   };
 }
 

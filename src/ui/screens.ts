@@ -345,7 +345,7 @@ export function showPause(o: { onResume: () => void; onRestart: () => void; onSe
       <button id="settings">Settings</button>
       <button id="quit">Song select</button>
     </div>
-    <p>Space or Esc to resume</p>
+    <p>Esc or Space to resume</p>
   </div>`);
   el.querySelector('#resume')!.addEventListener('click', o.onResume);
   el.querySelector('#restart')!.addEventListener('click', o.onRestart);
