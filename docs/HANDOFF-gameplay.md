@@ -6,10 +6,9 @@ the assessment's "Constraints" section.
 
 ## Status (2026-09-27)
 
-Done on branch `claude/gameplay-handoff-execution-987c4b`, one commit per package: WP1 to WP7
-and the calibration half of WP8. The perspective highway is on `codex/graphics-highway`
-(not merged here); `docs/RENDER-CONTRACT.md` says what it has to draw and where the two branches
-overlap. Checklist items 1 to 5 pass; item 6 (real hardware) is the owner's.
+All merged to `main` (PRs #1 and #2): WP1 to WP7, the calibration half of WP8, and the
+perspective highway, which draws everything in `docs/RENDER-CONTRACT.md`. Checklist items 1 to 5
+pass; item 6 (real hardware) is the owner's. **The next round is `docs/HANDOFF-next.md`.**
 
 Where the work departs from the text below, and why:
 

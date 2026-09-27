@@ -58,12 +58,8 @@ everything on, the flat renderer measures 0.10 ms mean and 0.2 ms p95 per frame 
 draw) on the 4.3k-note Sandstorm pad part on the owner's Mac; the budget is 2 ms.
 In a dev build: `await window.midihero.bench(5)`.
 
-## Merging `codex/graphics-highway` with the gameplay branch
+## Practice mode
 
-Three small overlaps, none in logic:
-
-- `src/main.ts`: the gameplay branch moved the per-frame work into `step()`; the renderer switch
-  goes on its `renderer.draw(state)` line.
-- `src/ui/settings.ts`: both add fields to `Settings`, `DEFAULT_SETTINGS` and `sanitize`; keep both.
-- `src/ui/screens.ts`: the gameplay branch replaced the "Synthesize my notes" checkbox with the
-  "Sound of my notes" select, next to where the Highway select was added; keep both.
+`RenderState.practice?: PracticeView` (`src/render/practice.ts`) carries sections, the A–B loop,
+passes and the wait-mode state. Absent outside practice mode. What to draw: `docs/HANDOFF-next.md`,
+WP13.
