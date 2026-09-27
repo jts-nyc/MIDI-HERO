@@ -114,8 +114,27 @@ interfaces named below; do not refactor shared files beyond what the package nee
   flat at the bottom. Behind a setting until it is proven readable on a 25-key window.
 
 Suggested order if sequential: WP1 → WP2 → WP3 → WP5 → WP6 → WP4 → WP7 → WP8.
-Suggested split for a team: A = WP1+WP4 (audio/session), B = WP2 (chart math), C = WP3+WP6
-(scoring state + results), D = WP5+WP8 (renderer). One integrator merges and runs the golden tests.
+
+### Assignment by model (per the Fable 5.1 vs GPT-6 Astra comparison)
+
+- **Claude Fable 5.1 — game mechanics, UI production stability, mergeability:** WP1–WP7 and the
+  calibration half of WP8. Run as one session, or as a team: A = WP1+WP4 (audio/session),
+  B = WP2 (chart math), C = WP3+WP6 (scoring state + results), D = WP5+WP7 (renderer VFX,
+  sustains). Each commits per package; keep `npm test` green.
+- **GPT-6 Astra (Codex) — 3D rendering, multi-agent orchestration:** the perspective highway,
+  specified separately in `docs/HANDOFF-codex-highway.md` as its own module behind a stable
+  interface so it cannot conflict with WP5. If the Fable work is run as a team, Astra is also the
+  natural integrator: it owns the merge order, runs the golden tests with `MIDI_FIXTURES_DIR`
+  set, and resolves conflicts in `renderer.ts` and `session.ts`.
+
+### Renderer contract both sides must respect
+- `src/render/renderer.ts` keeps `draw(state: RenderState)` as its only public entry point.
+- WP5 adds `fx: FxState` to `RenderState` and a pure helper module `src/render/fx.ts`
+  (particle pools, shockwaves, call-outs; no canvas calls, only state updates) so any highway
+  renderer can draw the same effects.
+- The 3D highway lives in `src/render/highway3d.ts` and implements the same `draw(RenderState)`;
+  `main.ts` picks the renderer from `settings.highway: 'flat' | 'perspective'`. Nothing in the
+  session or judge may know which renderer is active.
 
 ## Rules for this codebase
 
