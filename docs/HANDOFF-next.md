@@ -20,7 +20,7 @@ then `README.md`, `docs/RENDER-CONTRACT.md`, and the "Rules for this codebase" i
 |---|---|---|
 | **Fable 5.1** | WP9, WP10, WP11 | `session.ts`, `main.ts`, `screens.ts`, `settings.ts`, `pack.ts`, `db.ts`, `results.ts`, new `src/game/practice.ts` |
 | **Codex** | WP13, WP14, integration | `renderer.ts`, `highway3d.ts`, their tests, bench tooling |
-| **Opus 5.5** | WP12 (CI), this doc, review, the Easy options, classroom test script | docs, `.github/` |
+| **Opus 5.5** | WP12 (CI), this doc, review, the Easy options, `docs/CLASSROOM-TEST.md` | docs, `.github/` |
 
 The two coding owners share one seam, `src/render/practice.ts` (`PracticeView`, already on
 `main` as the optional `RenderState.practice`). Fable fills it; Codex draws it. Neither changes
