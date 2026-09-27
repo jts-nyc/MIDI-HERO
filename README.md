@@ -26,6 +26,8 @@ and are scored on timing. Built for classroom use with small keyboards
 
 ## Development
 
+Design research: [Guitar Hero → MIDI-HERO north-star report and evidence](docs/research/guitar-hero/README.md), including the dedicated audio assessment plan and its outstanding verification work.
+
 ```bash
 npm install
 npm run gen-songs   # regenerate the bundled demo songs and the beginner pack
