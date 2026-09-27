@@ -161,7 +161,16 @@ export class PlaySession {
 
   /** Song time an input event happened at, after the input offset. */
   songTimeOf(ev: InputEvent): number {
-    return this.opts.clock.audibleSongTime(ev.perfMs) - (this.opts.inputOffsetMs / 1000) * this.opts.rate;
+    return this.judgeTimeAt(this.opts.clock.audibleSongTime(ev.perfMs));
+  }
+
+  /**
+   * The judge's time for an audible song time: the input offset behind it, so a press at the
+   * note arrives before a frame can mark the note missed. Everything the judge is told about
+   * the clock goes through here, as every input does.
+   */
+  judgeTimeAt(songTime: number): number {
+    return songTime - (this.opts.inputOffsetMs / 1000) * this.opts.rate;
   }
 
   handleInput(ev: InputEvent): void {
@@ -391,7 +400,7 @@ export class PlaySession {
     const dt = Math.min(MAX_FRAME, Math.max(0, (now - this.lastNow) / this.opts.rate));
     this.lastNow = now;
     if (this.opts.autoplay) this.runAutoplay(now);
-    this.judge.advance(now);
+    this.judge.advance(this.judgeTimeAt(now));
     this.playEarned(now);
     this.releaseSounding(now);
     this.drainEvents(now);
@@ -454,7 +463,7 @@ export class PlaySession {
 
   pause(): void {
     if (this.status !== 'playing') return;
-    this.judge.releaseAll(this.now());
+    this.judge.releaseAll(this.judgeTimeAt(this.now()));
     this.drainEvents(this.now());
     this.heldKeys.clear();
     this.opts.clock.pause();
