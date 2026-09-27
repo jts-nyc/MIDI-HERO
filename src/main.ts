@@ -505,7 +505,10 @@ function play(): void {
   const range = displayRange(chart.minPitch, chart.maxPitch, window);
   const lines = beatLines(song, chart.duration);
   const timing = picker.timing;
-  const judgeConfig: JudgeConfig = { ...DEFAULT_JUDGE_CONFIG, preset: timing, easy: settings.easy, wrongNotePenalty: settings.wrongNotePenalty };
+  const judgeConfig: JudgeConfig = {
+    ...DEFAULT_JUDGE_CONFIG, preset: timing, easy: settings.easy, wrongNotePenalty: settings.wrongNotePenalty,
+    failAt: settings.arcade && !autoplay ? 0 : null,
+  };
   const sig = song.timeSigs[0]!;
   const barSeconds = ticksToSeconds(song.tempoMap, song.ppq, (song.ppq * 4 * sig.numerator) / sig.denominator);
   const visibleSeconds = (canvas.clientHeight * 0.82) / settings.speed;
@@ -517,6 +520,7 @@ function play(): void {
   if (backingSynth) {
     backingSynth.setMasterGain(settings.backingVolume);
     backingSynth.setDrumChannels(song.drumChannels);
+    setMix(1);
     // Duplicates of the player's part are muted unless the guide track is on.
     const muted = new Set<string>();
     if (!picker.guideTrack) {
@@ -551,11 +555,11 @@ function play(): void {
   };
   s.onFinished = (result) => {
     stopBacking();
-    const badges = [...(settings.easy ? ['Easy mode'] : []), ...(settings.rate < 1 ? [`${Math.round(settings.rate * 100)}% speed`] : []), ...(autoplay ? ['Autoplay'] : [])];
+    const badges = [...(result.failed ? ['Song failed'] : []), ...(settings.easy ? ['Easy mode'] : []), ...(settings.rate < 1 ? [`${Math.round(settings.rate * 100)}% speed`] : []), ...(autoplay ? ['Autoplay'] : [])];
     const detail = `${partName} · ${DIFFICULTY_LABEL[difficulty]} · ${timing} timing · ${Math.round(settings.rate * 100)}% speed`;
     const show = (extra: string[]) =>
       showResults({ title: lib.title, detail, result, badges: [...badges, ...extra], onRetry: play, onQuit: songSelect });
-    if (autoplay) show([]);
+    if (autoplay || result.failed) show([]);
     else {
       const key = bestKey(lib.id, partIds, wide ? picker.split : undefined, timing, settings.rate, settings.easy, difficulty);
       recordBest({ key, songId: lib.id, score: result.score, accuracy: result.accuracy, maxCombo: result.maxCombo, at: Date.now() })
@@ -589,6 +593,15 @@ function play(): void {
 function playHud(s: PlaySession): void {
   showPlayHud({ onPause: pause, onSkip: s.chart.firstNoteTime > 8 ? () => { s.skipToFirstNote(); scheduler?.stop(); scheduler?.start(); } : null });
   if (s.status === 'playing') scheduler?.start();
+}
+
+/** Thin the band's drums and pads to `level` (the session's mixLevel). */
+let mix = 1;
+function setMix(level: number): void {
+  if (!backingSynth || Math.abs(level - mix) < 0.01) return;
+  mix = level;
+  backingSynth.setChannelGroupGain('drums', level);
+  backingSynth.setChannelGroupGain('pads', level);
 }
 
 function stopBacking(): void {
@@ -675,6 +688,7 @@ function frame(): void {
   if (session && renderState) {
     const w0 = performance.now();
     session.update();
+    setMix(session.mixLevel);
     renderState.time = session.now() + (settings.audioOffsetMs / 1000) * settings.rate;
     renderState.hud = session.hud();
     renderer.draw(renderState);
@@ -683,7 +697,7 @@ function frame(): void {
     if (t - lastDebug > 250) {
       lastDebug = t;
       const j = session.judge;
-      canvas.dataset.state = JSON.stringify({ status: session.status, now: +session.now().toFixed(2), score: j.score, combo: j.combo, counts: j.counts, offset: session.octaveOffset, locked: session.filter.locked, backing: scheduler?.running ?? false, audio: audioCtx?.state ?? 'none', notes: session.chart.notes.length, fps: +fps.toFixed(1), frameMs: +frameMs.toFixed(2) });
+      canvas.dataset.state = JSON.stringify({ status: session.status, now: +session.now().toFixed(2), score: j.score, combo: j.combo, multiplier: j.multiplier, health: +j.meter.health.toFixed(2), mix: +mix.toFixed(2), counts: j.counts, offset: session.octaveOffset, locked: session.filter.locked, backing: scheduler?.running ?? false, audio: audioCtx?.state ?? 'none', notes: session.chart.notes.length, fps: +fps.toFixed(1), frameMs: +frameMs.toFixed(2) });
     }
   }
   requestAnimationFrame(frame);

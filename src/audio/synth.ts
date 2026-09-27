@@ -13,9 +13,14 @@ export interface Synth {
   allNotesOff(when: number): void;
   setDrumChannels(channels: number[]): void;
   setMasterGain(gain: number): void;
+  /** Level of a whole group of channels, on top of each channel's own volume. */
+  setChannelGroupGain(group: ChannelGroup, gain: number): void;
   /** Unpitched "wrong note" thud: a short low-passed noise burst over a 90 Hz body. */
   clunk(velocity: number, when: number): void;
 }
+
+/** Parts of the band that thin out when the player is doing badly: drum channels, and channels playing a pad. */
+export type ChannelGroup = 'drums' | 'pads';
 
 /** Channels 0-15 belong to the MIDI file; chart-note feedback for the player's parts starts here. */
 export const FEEDBACK_CHANNEL = 16;
@@ -81,6 +86,7 @@ interface Voice {
 interface ChannelState {
   program: number;
   gain: GainNode; // CC7 × CC11
+  group: GainNode; // channel-group level (mix thinning)
   volume: number;
   expression: number;
   bendRange: number; // semitones
@@ -97,6 +103,7 @@ export class WebAudioSynth implements Synth {
   private channels: ChannelState[] = [];
   private voices: Voice[] = [];
   private drumChannels = new Set<number>([9]);
+  private groupGains: Record<ChannelGroup, number> = { drums: 1, pads: 1 };
   private noiseBuffer: AudioBuffer;
 
   constructor(private ctx: AudioContext) {
@@ -108,8 +115,9 @@ export class WebAudioSynth implements Synth {
     this.master.connect(comp).connect(ctx.destination);
     for (let c = 0; c < NUM_CHANNELS; c++) {
       const gain = ctx.createGain();
-      gain.connect(this.master);
-      this.channels.push({ program: 0, gain, volume: 100, expression: 127, bendRange: 2, bend: 0, rpnMsb: 127, rpnLsb: 127, sustain: false });
+      const group = ctx.createGain();
+      gain.connect(group).connect(this.master);
+      this.channels.push({ program: 0, gain, group, volume: 100, expression: 127, bendRange: 2, bend: 0, rpnMsb: 127, rpnLsb: 127, sustain: false });
     }
     const len = Math.floor(ctx.sampleRate * 0.5);
     this.noiseBuffer = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -123,10 +131,30 @@ export class WebAudioSynth implements Synth {
 
   setDrumChannels(channels: number[]): void {
     this.drumChannels = new Set([9, ...channels]);
+    for (let c = 0; c < FEEDBACK_CHANNEL; c++) this.applyGroup(c);
   }
 
   program(channel: number, program: number): void {
     this.channels[channel]!.program = program;
+    this.applyGroup(channel);
+  }
+
+  /** The group a channel of the song belongs to right now; the player's feedback channels belong to none. */
+  groupOf(channel: number): ChannelGroup | null {
+    if (channel >= FEEDBACK_CHANNEL) return null;
+    if (this.drumChannels.has(channel)) return 'drums';
+    return familyFor(this.channels[channel]!.program) === 'pad' ? 'pads' : null;
+  }
+
+  setChannelGroupGain(group: ChannelGroup, gain: number): void {
+    this.groupGains[group] = Math.min(1, Math.max(0, gain));
+    for (let c = 0; c < FEEDBACK_CHANNEL; c++) this.applyGroup(c);
+  }
+
+  private applyGroup(channel: number): void {
+    const group = this.groupOf(channel);
+    const target = group ? this.groupGains[group] : 1;
+    this.channels[channel]!.group.gain.setTargetAtTime(target, this.ctx.currentTime, 0.15);
   }
 
   private applyGain(ch: ChannelState, when: number): void {
@@ -381,4 +409,5 @@ export class RecordingSynth implements Synth {
   setDrumChannels(channels: number[]): void { this.rec('setDrumChannels', channels); }
   setMasterGain(gain: number): void { this.rec('setMasterGain', gain); }
   clunk(velocity: number, when: number): void { this.rec('clunk', velocity, when); }
+  setChannelGroupGain(group: ChannelGroup, gain: number): void { this.rec('setChannelGroupGain', group, gain); }
 }

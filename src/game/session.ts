@@ -53,6 +53,10 @@ export interface PlayResult {
   counts: Counts;
   total: number;
   judged: number;
+  /** the performance meter ran out (arcade mode) */
+  failed: boolean;
+  /** how far into the song the play got, 0..1 */
+  progress: number;
 }
 
 const JUDGMENT_LABEL: Record<Judgment, string> = { perfect: 'Perfect', great: 'Great', good: 'Good', late: 'Late', miss: 'Miss' };
@@ -125,6 +129,11 @@ export class PlaySession {
 
   now(): number {
     return this.opts.clock.now();
+  }
+
+  /** 0..1: how much of the band's drums and pads the player has earned; falls when health is low. */
+  get mixLevel(): number {
+    return this.judge.meter.mixLevel;
   }
 
   /** Song time an input event happened at, after the input offset. */
@@ -281,14 +290,22 @@ export class PlaySession {
       for (const c of this.earned) end = Math.max(end, c.time + c.duration);
       this.endAt = end + OUTRO * this.opts.rate;
     }
+    if (this.judge.failed) {
+      this.finish();
+      return;
+    }
     if (now >= this.endAt || now > this.chart.duration) {
       this.judge.finish();
-      this.status = 'finished';
-      this.sounding.length = 0;
-      this.earned.length = 0;
-      this.opts.synth?.allNotesOff(0);
-      this.onFinished(this.result());
+      this.finish();
     }
+  }
+
+  private finish(): void {
+    this.status = 'finished';
+    this.sounding.length = 0;
+    this.earned.length = 0;
+    this.opts.synth?.allNotesOff(0);
+    this.onFinished(this.result());
   }
 
   private runAutoplay(now: number): void {
@@ -345,7 +362,10 @@ export class PlaySession {
 
   result(): PlayResult {
     const j = this.judge;
-    return { score: j.score, accuracy: j.accuracy, maxCombo: j.maxCombo, counts: { ...j.counts }, total: j.total, judged: j.judged };
+    return {
+      score: j.score, accuracy: j.accuracy, maxCombo: j.maxCombo, counts: { ...j.counts }, total: j.total, judged: j.judged,
+      failed: j.failed, progress: Math.min(1, Math.max(0, this.now() / this.chart.duration)),
+    };
   }
 
   static keysHint(window: { low: number; high: number } | null): string {

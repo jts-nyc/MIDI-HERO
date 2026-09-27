@@ -1,4 +1,5 @@
 import type { Chart } from '../midi/chart.ts';
+import { isMilestone, PerformanceMeter } from './meter.ts';
 
 export type Judgment = 'perfect' | 'great' | 'good' | 'late' | 'miss';
 export type NoteState = 'pending' | 'hit' | 'missed';
@@ -18,6 +19,8 @@ export interface JudgeConfig {
   /** octave-agnostic matching */
   easy: boolean;
   wrongNotePenalty: WrongNotePenalty;
+  /** the song fails when the performance meter falls to this value; null or absent = never */
+  failAt?: number | null;
 }
 
 export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
@@ -38,12 +41,17 @@ export type HitResult =
   | { kind: 'wrong' };
 
 export interface JudgeEvent {
-  type: 'hit' | 'miss' | 'wrong';
+  /**
+   * 'milestone': the streak reached `streak`; 'break': a streak of `streak` notes ended;
+   * 'level': the combo multiplier rose to `streak`; 'fail': the performance meter ran out.
+   */
+  type: 'hit' | 'miss' | 'wrong' | 'milestone' | 'break' | 'level' | 'fail';
   time: number;
   pitch: number;
   noteId: number;
   judgment: Judgment | null;
   delta: number;
+  streak?: number;
 }
 
 export interface Counts {
@@ -55,8 +63,22 @@ export interface Counts {
   wrong: number;
 }
 
+/** Streak lengths at which the multiplier rises to 2x, 3x, 4x. */
+export const MULTIPLIER_STEPS = [10, 30, 50] as const;
+export const MAX_MULTIPLIER = MULTIPLIER_STEPS.length + 1;
+
 export function comboMultiplier(combo: number): number {
   return combo >= 50 ? 4 : combo >= 30 ? 3 : combo >= 10 ? 2 : 1;
+}
+
+/** How far the streak is toward the next multiplier level, 0..1; 1 at the top level. */
+export function multiplierProgress(combo: number): number {
+  let from = 0;
+  for (const step of MULTIPLIER_STEPS) {
+    if (combo < step) return (combo - from) / (step - from);
+    from = step;
+  }
+  return 1;
 }
 
 /**
@@ -76,6 +98,7 @@ export class Judge {
   maxCombo = 0;
   judged = 0;
   private weightSum = 0;
+  private failNoted = false;
   private cursor = 0;
   private byPitch = new Map<number, number[]>();
   private pitchCursor = new Map<number, number>();
@@ -84,6 +107,7 @@ export class Judge {
   private readonly good: number;
   private readonly miss: number;
   readonly events: JudgeEvent[] = [];
+  readonly meter: PerformanceMeter;
 
   constructor(
     readonly chart: Chart,
@@ -91,6 +115,7 @@ export class Judge {
     /** playback rate: windows shrink in song time so they stay constant in real time */
     readonly rate = 1,
   ) {
+    this.meter = new PerformanceMeter({ failAt: config.failAt ?? null });
     const scale = TIMING_SCALE[config.preset] * rate;
     this.perfect = config.perfect * scale;
     this.great = config.great * scale;
@@ -133,6 +158,36 @@ export class Judge {
     return this.judged >= this.total;
   }
 
+  get multiplier(): number {
+    return comboMultiplier(this.combo);
+  }
+
+  /** 0..1 toward the next multiplier level. */
+  get multiplierProgress(): number {
+    return multiplierProgress(this.combo);
+  }
+
+  get failed(): boolean {
+    return this.meter.failed;
+  }
+
+  private note(type: JudgeEvent['type'], time: number, streak: number): void {
+    this.events.push({ type, time, pitch: -1, noteId: -1, judgment: null, delta: 0, streak });
+  }
+
+  /** End the streak, if there is one. */
+  private breakStreak(time: number): void {
+    if (this.combo > 0) this.note('break', time, this.combo);
+    this.combo = 0;
+  }
+
+  private checkFail(time: number): void {
+    if (this.meter.failed && !this.failNoted) {
+      this.failNoted = true;
+      this.note('fail', time, 0);
+    }
+  }
+
   private key(pitch: number): number {
     return this.config.easy ? ((pitch % 12) + 12) % 12 : pitch;
   }
@@ -169,31 +224,42 @@ export class Judge {
     const id = this.findCandidate(pitch, t);
     if (id < 0) {
       this.counts.wrong++;
-      if (this.config.wrongNotePenalty !== 'none') this.combo = 0;
       if (this.config.wrongNotePenalty === 'score') this.score = Math.max(0, this.score - 20);
       this.events.push({ type: 'wrong', time: t, pitch, noteId: -1, judgment: null, delta: 0 });
+      if (this.config.wrongNotePenalty !== 'none') {
+        this.breakStreak(t);
+        this.meter.wrong();
+        this.checkFail(t);
+      }
       return { kind: 'wrong' };
     }
     const n = this.chart.notes[id]!;
     const delta = t - n.time;
     const d = Math.abs(delta);
     const judgment: Judgment = d <= this.perfect ? 'perfect' : d <= this.great ? 'great' : d <= this.good ? 'good' : 'late';
-    this.apply(id, judgment);
     this.events.push({ type: 'hit', time: t, pitch: n.pitch, noteId: id, judgment, delta });
+    this.apply(id, judgment, t);
     return { kind: 'hit', noteId: id, judgment, delta };
   }
 
-  private apply(id: number, judgment: Judgment): void {
+  private apply(id: number, judgment: Judgment, t: number): void {
     this.states[id] = judgment === 'miss' ? 'missed' : 'hit';
     this.judgments[id] = judgment;
     this.judged++;
     this.weightSum += WEIGHTS[judgment];
     if (judgment === 'miss' || judgment === 'late') {
-      this.combo = 0;
+      this.breakStreak(t);
+      if (judgment === 'miss') this.meter.miss();
+      else this.meter.late();
+      this.checkFail(t);
     } else {
+      const before = comboMultiplier(this.combo);
       this.combo++;
       if (this.combo > this.maxCombo) this.maxCombo = this.combo;
       this.score += POINTS[judgment] * comboMultiplier(this.combo);
+      this.meter.hit();
+      if (comboMultiplier(this.combo) > before) this.note('level', t, comboMultiplier(this.combo));
+      if (isMilestone(this.combo)) this.note('milestone', t, this.combo);
     }
     this.counts[judgment]++;
   }
@@ -206,8 +272,8 @@ export class Judge {
       const n = notes[id]!;
       if (n.time + this.windows[id]! >= t) break;
       if (this.states[id] === 'pending') {
-        this.apply(id, 'miss');
         this.events.push({ type: 'miss', time: t, pitch: n.pitch, noteId: id, judgment: 'miss', delta: 0 });
+        this.apply(id, 'miss', t);
       }
       this.cursor++;
     }
