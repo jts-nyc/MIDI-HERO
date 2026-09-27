@@ -129,6 +129,10 @@ const topOf = <T extends GridNote>(group: readonly T[]): T => group.reduce((a, b
 /**
  * Reduce a part to a difficulty level by removing notes (never by loosening timing).
  *
+ * The rules of Easy are provisional. They are the same for every song today; whether Easy
+ * should get denser for harder songs is an open decision of the owner's (see the Status
+ * section of docs/HANDOFF-gameplay.md). The tests describe what Easy does now, not a promise.
+ *
  *  - easy:   at most one note per beat, on the beat; the top note of a chord; no notes
  *            shorter than 1/8 beat; of two neighbouring beats with the same pitch the
  *            weaker beat goes; never more than two notes a second.

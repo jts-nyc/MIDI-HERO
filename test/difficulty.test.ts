@@ -28,6 +28,8 @@ function kept(notes: N[], level: Difficulty, bpm = 120, extra: AbsEvent[] = []):
   return simplify(splitNotes(song, { parts: PART }).player, level, song).map((n) => [n.tick / PPQ, n.pitch]);
 }
 
+// The rules of Easy are provisional (see docs/HANDOFF-gameplay.md, "Open decisions"): the
+// Easy cases below pin down what it does today so that a change is a choice, not an accident.
 describe('simplify', () => {
   const cases: { name: string; level: Difficulty; bpm?: number; notes: N[]; expected: [number, number][] }[] = [
     {

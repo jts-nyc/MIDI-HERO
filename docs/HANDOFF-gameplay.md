@@ -35,6 +35,15 @@ Where the work departs from the text below, and why:
 - **Added** at the owner's request: from Medium up, a key held after its note is over gets a
   bonk and a cost that grows with the level (`OVERHOLD_COST` in `judge.ts`; README, "Holds").
 
+Open decisions:
+
+- **The rules of Easy are not locked.** Today Easy is the same recipe for every song (one note
+  a beat, on the beat, never more than two a second). The owner has deferred the question of
+  whether Easy should scale up with the song, for instance half-beats in a dense two-handed
+  piece. Until that is settled, treat `simplify(…, 'easy')` and its tests as the current
+  behaviour, free to change; nothing else depends on Easy's exact recipe, only on Easy being
+  the lowest level of every part.
+
 ## Repo orientation (read these, in this order)
 
 | File | What it is |
