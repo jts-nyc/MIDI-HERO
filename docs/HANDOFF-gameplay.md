@@ -4,6 +4,33 @@ For the next build session (any agent: Claude, Codex, or a team). Read this file
 `docs/GAMEPLAY-ASSESSMENT.md`, then `README.md`. The plan that produced v0.1 is summarized in
 the assessment's "Constraints" section.
 
+## Status (2026-09-27)
+
+Done on branch `claude/gameplay-handoff-execution-987c4b`, one commit per package: WP1 to WP7
+and the calibration half of WP8. The perspective highway is on `codex/graphics-highway`
+(not merged here); `docs/RENDER-CONTRACT.md` says what it has to draw and where the two branches
+overlap. Checklist items 1 to 5 pass; item 6 (real hardware) is the owner's.
+
+Where the work departs from the text below, and why:
+
+- **WP1** sounds the feedback through the player synth, not the backing synth, on channels 16 and
+  up. It is the same synth class, so timbres match, and the player's notes are then untouched by
+  the backing volume, by the band's voice stealing, and by the mix thinning of WP3.
+- **WP2** carries the notes a level removes on the chart note before them, and sounds them when
+  that note is hit (in the other sound modes the band plays them). Without that, Easy would
+  delete most of the melody from the song. The golden test asks for strictly fewer notes on Easy
+  only where there is something to remove: the five-finger exercise is already one note a beat.
+- **WP4** makes every 4th phrase a star phrase only from 16 phrases up; shorter songs get every
+  3rd or 2nd, so that star power can be reached in Ode to Joy. Space now switches star power on,
+  so it no longer pauses (Esc does); it still resumes a paused song.
+- **WP7**: an early release cuts the trail and the hold points, not the sound (WP1 says the note
+  sounds for its written length).
+- **Checklist 3** names `jitter=140`, which cannot produce a miss: autoplay's jitter is uniform
+  and anything within 150 ms still consumes the note. `jitter=220` shows misses, wrong notes,
+  falling health and the thinned mix.
+- **Added** at the owner's request: from Medium up, a key held after its note is over gets a
+  bonk and a cost that grows with the level (`OVERHOLD_COST` in `judge.ts`; README, "Holds").
+
 ## Repo orientation (read these, in this order)
 
 | File | What it is |
@@ -22,7 +49,10 @@ the assessment's "Constraints" section.
 | `src/render/layout.ts` | Key columns; display range snapped to C. |
 | `src/ui/screens.ts` | DOM overlays (first run, song select, part picker, gate, pause, results, settings). |
 | `src/main.ts` | Wiring: library (IndexedDB + bundled), import/export packs, gate, play/pause/results. |
-| `test/*.test.ts` | 127 tests. `test/golden.test.ts` runs extra checks when `MIDI_FIXTURES_DIR` points at local .mid files. |
+| `src/midi/difficulty.ts`, `src/midi/phrases.ts` | Beat grid and `simplify()`; phrase splitting and star phrases. Pure. |
+| `src/game/meter.ts`, `src/game/results.ts`, `src/game/calibration.ts` | Performance meter; sections and the next-step suggestion; tap calibration. Pure. |
+| `src/render/fx.ts` | Effects state in fixed pools. Pure; see `docs/RENDER-CONTRACT.md`. |
+| `test/*.test.ts` | 335 tests with the local fixtures (127 before this session). `test/golden.test.ts` runs extra checks when `MIDI_FIXTURES_DIR` points at local .mid files. |
 
 Commands: `npm run dev` (http://localhost:5173), `npm test`, `npm run build`, `npm run gen-songs`.
 Debug: the page mirrors session state into `document.getElementById('stage').dataset.state`

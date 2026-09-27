@@ -1,5 +1,6 @@
 import type { TimingPreset } from '../game/judge.ts';
 import type { PartId } from '../types.ts';
+import { isDifficulty, type Difficulty } from './difficulty.ts';
 import { parseSong } from './parse.ts';
 
 export const PACK_FORMAT = 'midihero-pack';
@@ -21,6 +22,7 @@ export interface PackSong {
   defaultParts: PartId[];
   split?: number;
   timingPreset?: TimingPreset;
+  difficulty?: Difficulty;
 }
 
 export interface Pack {
@@ -59,6 +61,7 @@ export interface PackSongInput {
   defaultParts: PartId[];
   split?: number;
   timingPreset?: TimingPreset;
+  difficulty?: Difficulty;
 }
 
 export async function buildPack(name: string, settings: PackSettings, songs: PackSongInput[]): Promise<Pack> {
@@ -71,6 +74,7 @@ export async function buildPack(name: string, settings: PackSettings, songs: Pac
       defaultParts: s.defaultParts,
       ...(s.split !== undefined ? { split: s.split } : {}),
       ...(s.timingPreset ? { timingPreset: s.timingPreset } : {}),
+      ...(s.difficulty ? { difficulty: s.difficulty } : {}),
     });
   }
   return { format: PACK_FORMAT, version: PACK_VERSION, name, createdAt: new Date().toISOString(), settings, songs: out };
@@ -127,6 +131,7 @@ export function validatePack(raw: unknown, jsonBytes = 0, maxBytes = PACK_MAX_BY
       defaultParts,
       ...(typeof s.split === 'number' ? { split: s.split } : {}),
       ...(s.timingPreset === 'strict' || s.timingPreset === 'normal' || s.timingPreset === 'relaxed' ? { timingPreset: s.timingPreset } : {}),
+      ...(isDifficulty(s.difficulty) ? { difficulty: s.difficulty } : {}),
     };
     songs.push({ song, bytes });
   }

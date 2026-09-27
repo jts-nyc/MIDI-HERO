@@ -1,4 +1,6 @@
-import type { Chart } from '../midi/chart.ts';
+import { beatAt, beatTime, type Chart } from '../midi/chart.ts';
+import type { Difficulty } from '../midi/difficulty.ts';
+import { isMilestone, PerformanceMeter } from './meter.ts';
 
 export type Judgment = 'perfect' | 'great' | 'good' | 'late' | 'miss';
 export type NoteState = 'pending' | 'hit' | 'missed';
@@ -18,6 +20,10 @@ export interface JudgeConfig {
   /** octave-agnostic matching */
   easy: boolean;
   wrongNotePenalty: WrongNotePenalty;
+  /** the song fails when the performance meter falls to this value; null or absent = never */
+  failAt?: number | null;
+  /** what a key that stays down after its note is over costs (see OVERHOLD_COST); null or absent = not noticed */
+  overhold?: OverholdCost | null;
 }
 
 export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
@@ -38,12 +44,23 @@ export type HitResult =
   | { kind: 'wrong' };
 
 export interface JudgeEvent {
-  type: 'hit' | 'miss' | 'wrong';
+  /**
+   * 'milestone': the streak reached `streak`; 'break': a streak of `streak` notes ended;
+   * 'level': the combo multiplier rose to `streak`; 'fail': the performance meter ran out;
+   * 'star': star phrase `streak` was played clean and filled the gauge; 'starLost': star
+   * phrase `streak` was spoiled; 'starOn' / 'starOff': star power went on / ran out;
+   * 'held': note `noteId` was held to its end; 'released': it was let go early, at `time`.
+   * For both, `streak` is the hold points the note earned.
+   * 'overheld': the key of note `noteId` is still down well after the note ended; `streak`
+   * is the points that cost.
+   */
+  type: 'hit' | 'miss' | 'wrong' | 'milestone' | 'break' | 'level' | 'fail' | 'star' | 'starLost' | 'starOn' | 'starOff' | 'held' | 'released' | 'overheld';
   time: number;
   pitch: number;
   noteId: number;
   judgment: Judgment | null;
   delta: number;
+  streak?: number;
 }
 
 export interface Counts {
@@ -53,10 +70,91 @@ export interface Counts {
   late: number;
   miss: number;
   wrong: number;
+  /** notes whose key stayed down too long after the note was over */
+  overheld: number;
 }
+
+/** A clean star phrase adds this much to the star gauge. */
+export const STAR_GAIN = 0.25;
+/** Gauge needed to switch star power on. */
+export const STAR_MIN = 0.5;
+/** A full gauge lasts this many beats, so the minimum lasts 16. */
+export const STAR_FULL_BEATS = 32;
+export const STAR_MULTIPLIER = 2;
+
+/** Notes at least this many beats long are sustains: holding them scores. */
+export const SUSTAIN_BEATS = 1;
+/** Hold points per beat: one for every 1/16 beat held. */
+export const HOLD_POINTS_PER_BEAT = 16;
+/** Letting go this close to the end (in beats) still counts as holding to the end. */
+export const HOLD_GRACE_BEATS = 1 / 8;
+
+/**
+ * How long a key may stay down after its note is over before that counts as holding too
+ * long: the longer of 150 ms of real time and a quarter of a beat. Overlapping the next
+ * note a little is legato, not a mistake.
+ */
+export const OVERHOLD_GRACE = 0.15;
+export const OVERHOLD_GRACE_BEATS = 0.25;
+
+/** What holding a key too long costs. */
+export interface OverholdCost {
+  /** points taken from the score (a Perfect is worth 100); the score never goes below 0 */
+  points: number;
+  /** taken from the performance meter (a miss takes 0.08) */
+  health: number;
+  /** ends the streak and spoils the star phrase, like a wrong note */
+  breaksStreak: boolean;
+}
+
+/**
+ * The cost by difficulty: nothing on Easy, little on Medium, and on Expert as much as a
+ * wrong note. Accuracy is about onsets and is never touched.
+ */
+export const OVERHOLD_COST: Record<Difficulty, OverholdCost | null> = {
+  easy: null,
+  medium: { points: 10, health: 0.02, breaksStreak: false },
+  hard: { points: 25, health: 0.04, breaksStreak: false },
+  expert: { points: 50, health: 0.04, breaksStreak: true },
+};
+
+/** A key that went down on a chart note and has not come up yet. */
+interface Pressed {
+  noteId: number;
+  key: number;
+  /** song time after which the key is held too long */
+  deadline: number;
+}
+
+/** A sustained note that was hit and is being held, by the key or by the pedal. */
+export interface Hold {
+  noteId: number;
+  /** judge key of the note (pitch, or pitch class in easy mode) */
+  key: number;
+  /** beat positions of the start and the end of the note */
+  from: number;
+  end: number;
+  /** points paid so far, before multipliers */
+  paid: number;
+  keyDown: boolean;
+}
+
+/** Streak lengths at which the multiplier rises to 2x, 3x, 4x. */
+export const MULTIPLIER_STEPS = [10, 30, 50] as const;
+export const MAX_MULTIPLIER = MULTIPLIER_STEPS.length + 1;
 
 export function comboMultiplier(combo: number): number {
   return combo >= 50 ? 4 : combo >= 30 ? 3 : combo >= 10 ? 2 : 1;
+}
+
+/** How far the streak is toward the next multiplier level, 0..1; 1 at the top level. */
+export function multiplierProgress(combo: number): number {
+  let from = 0;
+  for (const step of MULTIPLIER_STEPS) {
+    if (combo < step) return (combo - from) / (step - from);
+    from = step;
+  }
+  return 1;
 }
 
 /**
@@ -70,12 +168,30 @@ export class Judge {
   readonly judgments: (Judgment | null)[];
   /** per-note miss boundary (s), clamped to half the gap to the nearest same-pitch neighbour */
   readonly windows: number[];
-  readonly counts: Counts = { perfect: 0, great: 0, good: 0, late: 0, miss: 0, wrong: 0 };
+  readonly counts: Counts = { perfect: 0, great: 0, good: 0, late: 0, miss: 0, wrong: 0, overheld: 0 };
+  /** keys down on a chart note, watched for holding too long; empty unless `config.overhold` */
+  private readonly pressed: Pressed[] = [];
   score = 0;
   combo = 0;
   maxCombo = 0;
   judged = 0;
+  /** sustains being held right now */
+  readonly holds: Hold[] = [];
+  /** points earned by holding, multipliers included; part of `score` */
+  holdScore = 0;
+  /** points lost to keys held too long */
+  overholdLoss = 0;
+  pedalDown = false;
+  /** 0..1; filled by clean star phrases, drained while star power is on */
+  starGauge = 0;
+  starActive = false;
+  /** beat position up to which the gauge has been drained */
+  private starBeat = 0;
+  /** per phrase: notes not judged yet, and whether a miss or a wrong note spoiled it */
+  private readonly phraseLeft: number[];
+  private readonly phraseSpoiled: boolean[];
   private weightSum = 0;
+  private failNoted = false;
   private cursor = 0;
   private byPitch = new Map<number, number[]>();
   private pitchCursor = new Map<number, number>();
@@ -84,6 +200,7 @@ export class Judge {
   private readonly good: number;
   private readonly miss: number;
   readonly events: JudgeEvent[] = [];
+  readonly meter: PerformanceMeter;
 
   constructor(
     readonly chart: Chart,
@@ -91,12 +208,15 @@ export class Judge {
     /** playback rate: windows shrink in song time so they stay constant in real time */
     readonly rate = 1,
   ) {
+    this.meter = new PerformanceMeter({ failAt: config.failAt ?? null });
     const scale = TIMING_SCALE[config.preset] * rate;
     this.perfect = config.perfect * scale;
     this.great = config.great * scale;
     this.good = config.good * scale;
     this.miss = config.miss * scale;
     const notes = chart.notes;
+    this.phraseLeft = chart.phrases.map((p) => p.last - p.first + 1);
+    this.phraseSpoiled = chart.phrases.map(() => false);
     this.states = notes.map(() => 'pending');
     this.judgments = notes.map(() => null);
     this.windows = notes.map(() => this.miss);
@@ -131,6 +251,194 @@ export class Judge {
 
   get finished(): boolean {
     return this.judged >= this.total;
+  }
+
+  get multiplier(): number {
+    return comboMultiplier(this.combo);
+  }
+
+  /** 0..1 toward the next multiplier level. */
+  get multiplierProgress(): number {
+    return multiplierProgress(this.combo);
+  }
+
+  /** Combo multiplier times the star multiplier: what a hit is worth right now. */
+  get scoreMultiplier(): number {
+    return comboMultiplier(this.combo) * (this.starActive ? STAR_MULTIPLIER : 1);
+  }
+
+  get failed(): boolean {
+    return this.meter.failed;
+  }
+
+  /** Length of a note in beats. */
+  beatsOf(id: number): number {
+    const n = this.chart.notes[id]!;
+    return beatAt(this.chart.beats, n.time + n.duration) - beatAt(this.chart.beats, n.time);
+  }
+
+  isSustain(id: number): boolean {
+    return this.beatsOf(id) >= SUSTAIN_BEATS - 1e-6;
+  }
+
+  /** Pay a hold for the beats held up to `beat`. */
+  private payHold(h: Hold, beat: number): void {
+    const held = Math.min(beat, h.end) - h.from;
+    const points = Math.max(0, Math.floor(held * HOLD_POINTS_PER_BEAT + 1e-6));
+    if (points <= h.paid) return;
+    const gain = (points - h.paid) * this.scoreMultiplier;
+    h.paid = points;
+    this.score += gain;
+    this.holdScore += gain;
+  }
+
+  private endHold(index: number, t: number): void {
+    const h = this.holds[index]!;
+    const beat = beatAt(this.chart.beats, t);
+    const complete = beat >= h.end - HOLD_GRACE_BEATS;
+    this.payHold(h, complete ? h.end : beat);
+    this.holds.splice(index, 1);
+    this.events.push({ type: complete ? 'held' : 'released', time: t, pitch: this.chart.notes[h.noteId]!.pitch, noteId: h.noteId, judgment: null, delta: 0, streak: h.paid });
+  }
+
+  /** Song time after which the key of a note that was hit at `t` is held too long. */
+  overholdDeadline(id: number, t: number): number {
+    const n = this.chart.notes[id]!;
+    const end = n.time + n.duration;
+    const beat = beatAt(this.chart.beats, end);
+    const quarterBeat = (beatTime(this.chart.beats, beat + OVERHOLD_GRACE_BEATS) - end);
+    return Math.max(end, t) + Math.max(OVERHOLD_GRACE * this.rate, quarterBeat);
+  }
+
+  private advancePressed(t: number): void {
+    for (let i = this.pressed.length - 1; i >= 0; i--) {
+      const p = this.pressed[i]!;
+      if (p.deadline >= t) continue;
+      this.pressed.splice(i, 1);
+      this.counts.overheld++;
+      const cost = this.config.overhold!;
+      const loss = Math.min(this.score, cost.points);
+      this.score -= loss;
+      this.overholdLoss += loss;
+      this.events.push({ type: 'overheld', time: p.deadline, pitch: this.chart.notes[p.noteId]!.pitch, noteId: p.noteId, judgment: null, delta: 0, streak: loss });
+      this.meter.penalty(cost.health);
+      if (cost.breaksStreak) {
+        this.breakStreak(p.deadline);
+        this.spoilAt(p.deadline);
+      }
+      this.checkFail(p.deadline);
+    }
+  }
+
+  /** A key went up. A hold goes on if the pedal is down. */
+  noteOff(pitch: number, t: number): void {
+    const key = this.key(pitch);
+    if (this.pressed.length) {
+      this.advancePressed(t);
+      for (let i = this.pressed.length - 1; i >= 0; i--) if (this.pressed[i]!.key === key) this.pressed.splice(i, 1);
+    }
+    for (let i = this.holds.length - 1; i >= 0; i--) {
+      const h = this.holds[i]!;
+      if (h.key !== key || !h.keyDown) continue;
+      h.keyDown = false;
+      if (!this.pedalDown) this.endHold(i, t);
+    }
+  }
+
+  /** Every key counts as let go (the game was paused: what the keys do meanwhile is not seen). */
+  releaseAll(t: number): void {
+    this.pressed.length = 0;
+    this.pedalDown = false;
+    for (let i = this.holds.length - 1; i >= 0; i--) this.endHold(i, t);
+  }
+
+  /** The sustain pedal went down or up. Lifting it lets go of every hold whose key is already up. */
+  pedal(down: boolean, t: number): void {
+    this.pedalDown = down;
+    if (down) return;
+    for (let i = this.holds.length - 1; i >= 0; i--) if (!this.holds[i]!.keyDown) this.endHold(i, t);
+  }
+
+  private advanceHolds(t: number): void {
+    if (this.holds.length === 0) return;
+    const beat = beatAt(this.chart.beats, t);
+    for (let i = this.holds.length - 1; i >= 0; i--) {
+      const h = this.holds[i]!;
+      if (beat >= h.end) this.endHold(i, t);
+      else this.payHold(h, beat);
+    }
+  }
+
+  /** Enough gauge to switch star power on, and it is not on already. */
+  get starReady(): boolean {
+    return !this.starActive && this.starGauge >= STAR_MIN - 1e-9;
+  }
+
+  /** Switch star power on (sustain pedal or Space). Returns false when the gauge is below half. */
+  activateStar(t: number): boolean {
+    if (!this.starReady) return false;
+    this.starActive = true;
+    this.starBeat = beatAt(this.chart.beats, t);
+    this.note('starOn', t, 0);
+    return true;
+  }
+
+  /** While star power is on the gauge runs down with the beats of the song. */
+  private drainStar(t: number): void {
+    if (!this.starActive) return;
+    const beat = beatAt(this.chart.beats, t);
+    if (beat <= this.starBeat) return;
+    this.starGauge -= (beat - this.starBeat) / STAR_FULL_BEATS;
+    this.starBeat = beat;
+    if (this.starGauge <= 1e-9) {
+      this.starGauge = 0;
+      this.starActive = false;
+      this.note('starOff', t, 0);
+    }
+  }
+
+  private spoil(phrase: number, t: number): void {
+    if (this.phraseSpoiled[phrase]) return;
+    this.phraseSpoiled[phrase] = true;
+    if (this.chart.phrases[phrase]!.star) this.note('starLost', t, phrase);
+  }
+
+  /** A wrong note spoils the star phrase that is being played at that moment. */
+  private spoilAt(t: number): void {
+    const phrases = this.chart.phrases;
+    for (let p = 0; p < phrases.length; p++) {
+      const ph = phrases[p]!;
+      if (ph.start - this.miss > t) break;
+      if (ph.star && this.phraseLeft[p]! > 0 && t <= ph.end + this.miss) this.spoil(p, t);
+    }
+  }
+
+  /** Book a judged note on its phrase; a star phrase played clean to its last note fills the gauge. */
+  private phraseNote(id: number, clean: boolean, t: number): void {
+    const phrase = this.chart.notes[id]!.phrase;
+    if (phrase === undefined || this.phraseLeft[phrase] === undefined) return;
+    if (!clean) this.spoil(phrase, t);
+    if (--this.phraseLeft[phrase]! === 0 && !this.phraseSpoiled[phrase] && this.chart.phrases[phrase]!.star) {
+      this.starGauge = Math.min(1, this.starGauge + STAR_GAIN);
+      this.note('star', t, phrase);
+    }
+  }
+
+  private note(type: JudgeEvent['type'], time: number, streak: number): void {
+    this.events.push({ type, time, pitch: -1, noteId: -1, judgment: null, delta: 0, streak });
+  }
+
+  /** End the streak, if there is one. */
+  private breakStreak(time: number): void {
+    if (this.combo > 0) this.note('break', time, this.combo);
+    this.combo = 0;
+  }
+
+  private checkFail(time: number): void {
+    if (this.meter.failed && !this.failNoted) {
+      this.failNoted = true;
+      this.note('fail', time, 0);
+    }
   }
 
   private key(pitch: number): number {
@@ -169,45 +477,66 @@ export class Judge {
     const id = this.findCandidate(pitch, t);
     if (id < 0) {
       this.counts.wrong++;
-      if (this.config.wrongNotePenalty !== 'none') this.combo = 0;
       if (this.config.wrongNotePenalty === 'score') this.score = Math.max(0, this.score - 20);
       this.events.push({ type: 'wrong', time: t, pitch, noteId: -1, judgment: null, delta: 0 });
+      if (this.config.wrongNotePenalty !== 'none') {
+        this.breakStreak(t);
+        this.meter.wrong();
+        this.checkFail(t);
+        this.spoilAt(t);
+      }
       return { kind: 'wrong' };
     }
     const n = this.chart.notes[id]!;
     const delta = t - n.time;
     const d = Math.abs(delta);
     const judgment: Judgment = d <= this.perfect ? 'perfect' : d <= this.great ? 'great' : d <= this.good ? 'good' : 'late';
-    this.apply(id, judgment);
     this.events.push({ type: 'hit', time: t, pitch: n.pitch, noteId: id, judgment, delta });
+    this.apply(id, judgment, t);
+    if (this.config.overhold) this.pressed.push({ noteId: id, key: this.key(n.pitch), deadline: this.overholdDeadline(id, t) });
+    if (judgment !== 'late' && this.isSustain(id)) {
+      const from = beatAt(this.chart.beats, n.time);
+      this.holds.push({ noteId: id, key: this.key(n.pitch), from, end: from + this.beatsOf(id), paid: 0, keyDown: true });
+    }
     return { kind: 'hit', noteId: id, judgment, delta };
   }
 
-  private apply(id: number, judgment: Judgment): void {
+  private apply(id: number, judgment: Judgment, t: number): void {
     this.states[id] = judgment === 'miss' ? 'missed' : 'hit';
     this.judgments[id] = judgment;
     this.judged++;
     this.weightSum += WEIGHTS[judgment];
     if (judgment === 'miss' || judgment === 'late') {
-      this.combo = 0;
+      this.breakStreak(t);
+      if (judgment === 'miss') this.meter.miss();
+      else this.meter.late();
+      this.checkFail(t);
     } else {
+      const before = comboMultiplier(this.combo);
       this.combo++;
       if (this.combo > this.maxCombo) this.maxCombo = this.combo;
-      this.score += POINTS[judgment] * comboMultiplier(this.combo);
+      this.score += POINTS[judgment] * this.scoreMultiplier;
+      this.meter.hit();
+      if (comboMultiplier(this.combo) > before) this.note('level', t, comboMultiplier(this.combo));
+      if (isMilestone(this.combo)) this.note('milestone', t, this.combo);
     }
     this.counts[judgment]++;
+    this.phraseNote(id, judgment !== 'miss' && judgment !== 'late', t);
   }
 
   /** Mark notes whose window has passed as missed. */
   advance(t: number): void {
+    if (this.pressed.length) this.advancePressed(t);
+    this.advanceHolds(t);
+    this.drainStar(t);
     const notes = this.chart.notes;
     while (this.cursor < notes.length) {
       const id = this.cursor;
       const n = notes[id]!;
       if (n.time + this.windows[id]! >= t) break;
       if (this.states[id] === 'pending') {
-        this.apply(id, 'miss');
         this.events.push({ type: 'miss', time: t, pitch: n.pitch, noteId: id, judgment: 'miss', delta: 0 });
+        this.apply(id, 'miss', t);
       }
       this.cursor++;
     }
