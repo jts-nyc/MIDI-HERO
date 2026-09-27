@@ -1,25 +1,31 @@
 import { GameClock } from './audio/clock.ts';
 import { BackingScheduler } from './audio/scheduler.ts';
 import { WebAudioSynth, type Synth } from './audio/synth.ts';
-import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type TimingPreset } from './game/judge.ts';
+import { DEFAULT_JUDGE_CONFIG, OVERHOLD_COST, type JudgeConfig, type TimingPreset } from './game/judge.ts';
+import { calibrationBeats } from './game/calibration.ts';
+import { suggestNextStep, type Suggestion } from './game/results.ts';
 import { PlaySession } from './game/session.ts';
 import { KeyboardInput } from './input/keyboardInput.ts';
 import { MidiInput } from './input/midiInput.ts';
 import type { InputEvent } from './input/normalize.ts';
-import { buildChart, chooseWindow, type Chart, type Hand, type PitchWindow } from './midi/chart.ts';
+import {
+  buildChart, chooseWindow, DIFFICULTY_LABEL, isDifficulty, offeredLevels, resolveLevel, splitNotes,
+  type Chart, type ChartOptions, type Difficulty, type Hand, type PitchWindow,
+} from './midi/chart.ts';
 import { buildPack, parsePackJson, sha256Hex, type PackSettings } from './midi/pack.ts';
 import { beatLines, parseSong, ticksToSeconds } from './midi/parse.ts';
 import { buildParts, defaultPart, notesOf } from './midi/parts.ts';
+import type { FeedbackSound } from './game/session.ts';
 import { displayRange } from './render/layout.ts';
 import { Renderer, type RenderState } from './render/renderer.ts';
 import { bestKey, deleteSong, getBest, listSongs, putSong, recordBest, type StoredSong } from './storage/db.ts';
 import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
 import {
-  gateMessage, installDropZone, showError, showExportDialog, showFirstRun, showGate, showPartPicker, showPause, showPlayHud,
+  gateMessage, installDropZone, showCalibration, showError, showExportDialog, showFirstRun, showGate, showPartPicker, showPause, showPlayHud,
   showResults, showSettings, showSongSelect, showUnsupported, toast, type PartPickerState, type PartRow, type SongRow,
 } from './ui/screens.ts';
-import { loadSettings, resetToClassDefaults, saveClassDefaults, saveSettings, type Settings } from './ui/settings.ts';
+import { effectiveFeedback, loadSettings, resetToClassDefaults, saveClassDefaults, saveSettings, type Settings } from './ui/settings.ts';
 
 // ---------------------------------------------------------------------------
 // Types and state
@@ -43,8 +49,23 @@ interface LibrarySong {
   split?: number;
   hands?: Hand[];
   timingPreset?: TimingPreset;
+  difficulty?: Difficulty;
+  /** level name in the best-score key (see bestKey) */
+  keyLevel?: string;
   packName?: string;
 }
+
+interface PartChoice {
+  parts: PartId[];
+  split?: number;
+  hands?: Hand[];
+  timing?: TimingPreset;
+  difficulty?: Difficulty;
+  keyLevel?: string;
+}
+
+/** Students start on Easy; a teacher's pack or the player's own choice overrides it. */
+const DEFAULT_DIFFICULTY: Difficulty = 'easy';
 
 interface Current {
   lib: LibrarySong;
@@ -70,6 +91,9 @@ let renderState: RenderState | null = null;
 let library: LibrarySong[] = [];
 let current: Current | null = null;
 let gateHandler: ((ev: InputEvent) => void) | null = null;
+/** calibration: every key press is a tap */
+let tapHandler: ((perfMs: number) => void) | null = null;
+let calibrating = false;
 /** hardware octave shift learned at the gate, per MIDI port, for this page session */
 const octaveShiftByPort = new Map<string, number>();
 let lastPlay: { window: PitchWindow; relative: boolean; autoplay: { jitterMs: number } | null } | null = null;
@@ -84,7 +108,9 @@ keyboard.onOctaveChange = (b) => {
 };
 
 const onInput = (ev: InputEvent): void => {
-  if (gateHandler) gateHandler(ev);
+  if (calibrating) {
+    if (ev.type === 'on') tapHandler?.(ev.perfMs);
+  } else if (gateHandler) gateHandler(ev);
   else session?.handleInput(ev);
 };
 keyboard.onEvent = onInput;
@@ -155,7 +181,7 @@ function latencyMs(): number | null {
 // ---------------------------------------------------------------------------
 // Library
 // ---------------------------------------------------------------------------
-function storedPartChoices(): Record<string, { parts: PartId[]; split?: number; hands?: Hand[]; timing?: TimingPreset }> {
+function storedPartChoices(): Record<string, PartChoice> {
   try {
     return JSON.parse(localStorage.getItem(PARTS_KEY) ?? '{}');
   } catch {
@@ -163,7 +189,7 @@ function storedPartChoices(): Record<string, { parts: PartId[]; split?: number; 
   }
 }
 
-function rememberChoice(id: string, choice: { parts: PartId[]; split?: number; hands?: Hand[]; timing?: TimingPreset }): void {
+function rememberChoice(id: string, choice: PartChoice): void {
   try {
     const all = storedPartChoices();
     all[id] = choice;
@@ -179,6 +205,7 @@ async function loadLibrary(): Promise<void> {
   const bundled: LibrarySong[] = manifest.map((m) => ({
     id: m.id, title: m.title, source: 'bundled', file: m.file, defaultParts: m.defaultParts,
     parts: choices[m.id]?.parts ?? m.defaultParts, split: choices[m.id]?.split ?? m.split, hands: choices[m.id]?.hands, timingPreset: choices[m.id]?.timing,
+    difficulty: isDifficulty(choices[m.id]?.difficulty) ? choices[m.id]!.difficulty : undefined, keyLevel: choices[m.id]?.keyLevel,
   }));
   let imported: LibrarySong[] = [];
   try {
@@ -187,7 +214,7 @@ async function loadLibrary(): Promise<void> {
       .sort((a, b) => a.addedAt - b.addedAt)
       .map((s) => ({
         id: s.id, title: s.name, source: 'imported', bytes: s.bytes, defaultParts: s.parts, parts: s.parts, split: s.split,
-        timingPreset: s.timingPreset as TimingPreset | undefined, packName: s.packName,
+        timingPreset: s.timingPreset as TimingPreset | undefined, difficulty: isDifficulty(s.difficulty) ? s.difficulty : undefined, keyLevel: s.keyLevel, packName: s.packName,
       }));
   } catch (e) {
     console.warn('IndexedDB unavailable', e);
@@ -214,6 +241,7 @@ async function importFiles(files: File[]): Promise<void> {
           const stored: StoredSong = {
             id, name: song.title, bytes, parts: song.defaultParts, addedAt: Date.now() + i, packName: v.pack.name,
             ...(song.split !== undefined ? { split: song.split } : {}), ...(song.timingPreset ? { timingPreset: song.timingPreset } : {}),
+            ...(song.difficulty ? { difficulty: song.difficulty } : {}),
           };
           await putSong(stored);
           added++;
@@ -242,7 +270,10 @@ function applyPackSettings(ps: PackSettings): void {
   if (ps.kb) partial.kb = ps.kb;
   if (ps.timing) partial.timing = ps.timing;
   if (ps.names !== undefined) partial.names = ps.names;
-  if (ps.synth !== undefined) partial.synth = ps.synth;
+  if (ps.synth !== undefined) {
+    partial.synth = ps.synth;
+    if (ps.synth && settings.feedbackSound === 'off') partial.feedbackSound = 'chart';
+  }
   saveClassDefaults(partial);
   settings = { ...settings, ...partial };
   saveSettings(settings);
@@ -260,6 +291,7 @@ async function loadPackFromUrl(path: string): Promise<void> {
     await putSong({
       id, name: song.title, bytes, parts: song.defaultParts, addedAt: Date.now() + i, packName: v.pack.name,
       ...(song.split !== undefined ? { split: song.split } : {}), ...(song.timingPreset ? { timingPreset: song.timingPreset } : {}),
+      ...(song.difficulty ? { difficulty: song.difficulty } : {}),
     });
   }
   applyPackSettings(v.pack.settings);
@@ -271,7 +303,7 @@ async function exportPack(name: string, ids: string[]): Promise<void> {
   for (const id of ids) {
     const lib = library.find((l) => l.id === id);
     if (!lib) continue;
-    songs.push({ title: lib.title, bytes: await songBytes(lib), defaultParts: lib.parts, split: lib.split, timingPreset: lib.timingPreset });
+    songs.push({ title: lib.title, bytes: await songBytes(lib), defaultParts: lib.parts, split: lib.split, timingPreset: lib.timingPreset, difficulty: lib.difficulty });
   }
   const pack = await buildPack(name, { kb: settings.kb, timing: settings.timing, names: settings.names, synth: settings.synth }, songs);
   const blob = new Blob([JSON.stringify(pack)], { type: 'application/json' });
@@ -318,7 +350,7 @@ function songSelect(): void {
   // Best scores load asynchronously and are added to the rows when known.
   for (const l of library) {
     if (!l.parts.length) continue;
-    void getBest(bestKey(l.id, l.parts, l.split, l.timingPreset ?? settings.timing, settings.rate, settings.easy))
+    void getBest(bestKey(l.id, l.parts, l.split, l.timingPreset ?? settings.timing, settings.rate, settings.easy, l.keyLevel ?? l.difficulty ?? DEFAULT_DIFFICULTY))
       .then((b) => {
         if (!b) return;
         const item = document.querySelector<HTMLElement>(`.item[data-id="${CSS.escape(l.id)}"] .meta`);
@@ -352,12 +384,56 @@ function settingsScreen(onClose: () => void): void {
       session?.filter.reset();
       toast('Input channel reset');
     },
+    onCalibrate: () => calibrate(() => settingsScreen(onClose)),
     onResetClassDefaults: () => {
       settings = resetToClassDefaults();
       toast('Settings reset to class defaults');
       settingsScreen(onClose);
     },
     onClose,
+  });
+}
+
+/** Guided calibration: 8 clicks to tap along to (input offset), then 8 silent landings (visual offset). */
+function calibrate(onClose: () => void): void {
+  ensureAudio();
+  calibrating = true;
+  // A clock of its own, on the same audio timeline as the game's: the song's clock may be paused mid-song.
+  let cal = new GameClock();
+  showCalibration({
+    inputOffsetMs: settings.inputOffsetMs,
+    audioOffsetMs: settings.audioOffsetMs,
+    start: (kind) => {
+      // The audio clock counts once sound is coming out; until then there is nothing to tap along to.
+      const audible = audioCtx?.state === 'running' && (audioCtx.getOutputTimestamp?.().contextTime ?? 0) > 0;
+      if (!audible && kind === 'input') {
+        ensureAudio();
+        return null;
+      }
+      cal = new GameClock();
+      if (audible) cal.attach(audioCtx!);
+      cal.start(0);
+      const beats = calibrationBeats(1);
+      if (kind === 'input' && synth) {
+        for (const t of beats.leadIn) synth.noteOn(9, 37, 60, cal.songTimeToContextTime(t));
+        for (const t of beats.scored) synth.noteOn(9, 76, 115, cal.songTimeToContextTime(t));
+      }
+      return beats;
+    },
+    now: () => cal.now(),
+    timeOf: (perfMs) => cal.audibleSongTime(perfMs),
+    onTaps: (handler) => (tapHandler = handler),
+    onSave: (offsets) => {
+      settings = { ...settings, ...offsets };
+      saveSettings(settings);
+      toast('Timing saved');
+    },
+    onClose: () => {
+      tapHandler = null;
+      calibrating = false;
+      synth?.allNotesOff(0);
+      onClose();
+    },
   });
 }
 
@@ -374,15 +450,56 @@ async function openSong(id: string): Promise<void> {
       const d = defaultPart(parts);
       if (d) selected = [d.key];
     }
+    // ?part=5:4 picks a part by track:channel (for checks on a specific part)
+    const urlPart = params.get('part');
+    if (urlPart && keys.has(urlPart)) selected = [urlPart];
     current = {
       lib, song, parts,
-      picker: { selected: new Set(selected), split: lib.split ?? 60, hands: lib.hands ?? ['L', 'R'], timing: lib.timingPreset ?? settings.timing, guideTrack: false },
+      picker: {
+        selected: new Set(selected), split: lib.split ?? 60, hands: lib.hands ?? ['L', 'R'], timing: lib.timingPreset ?? settings.timing, guideTrack: false,
+        difficulty: urlDifficulty ?? lib.difficulty ?? DEFAULT_DIFFICULTY,
+      },
     };
     partPicker();
   } catch (e) {
     showError('Could not load song', e instanceof Error ? e.message : String(e), songSelect);
   }
 }
+
+const urlDifficulty: Difficulty | null = isDifficulty(params.get('difficulty')) ? (params.get('difficulty') as Difficulty) : null;
+
+function selectedPartIds(): PartId[] {
+  if (!current) return [];
+  return [...current.picker.selected].map((k) => {
+    const [track, channel] = k.split(':').map(Number) as [number, number];
+    return { track, channel };
+  });
+}
+
+/** Parts, hand split and hands as the picker has them. The split only applies to a single wide part. */
+function selectionOptions(): (Pick<ChartOptions, 'parts' | 'split' | 'hands'> & { wide: boolean }) | null {
+  if (!current) return null;
+  const parts = selectedPartIds();
+  if (parts.length === 0) return null;
+  const p0 = current.parts.find((x) => x.key === partKey(parts[0]!));
+  const wide = parts.length === 1 && !!p0 && p0.maxPitch - p0.minPitch > 24;
+  return { parts, split: wide ? current.picker.split : undefined, hands: wide ? current.picker.hands : undefined, wide };
+}
+
+/**
+ * The levels the selection has, the one that will be played (the chosen level, or the nearest
+ * one below it that this part has), and its name in the best-score key.
+ */
+function levelsOfSelection(): { offered: ReturnType<typeof offeredLevels>; level: Difficulty; keyLevel: Difficulty } {
+  const sel = selectionOptions();
+  const offered = sel && current ? offeredLevels(splitNotes(current.song, sel).player, current.song) : [];
+  const names = offered.map((l) => l.level);
+  const level = resolveLevel(current?.picker.difficulty ?? DEFAULT_DIFFICULTY, names);
+  return { offered, level, keyLevel: names.length > 1 && level === names[names.length - 1] ? 'expert' : level };
+}
+
+/** Chart notes removed by the difficulty level sound on a hit; without chart feedback the band plays them. */
+const removedFor = (feedback: FeedbackSound): 'carry' | 'backing' => (feedback === 'chart' ? 'carry' : 'backing');
 
 /** Physical range for absolute judging, or a virtual C-aligned window for relative judging. */
 function windowFor(kb: Settings['kb'], pitches: number[]): { window: PitchWindow; relative: boolean } {
@@ -401,9 +518,12 @@ function partPicker(): void {
     const dup = p.duplicateOf ? parts.find((q) => q.key === p.duplicateOf) : undefined;
     return { part: p, foldedRatio: pitches.length ? outside / pitches.length : 0, duplicateOfName: dup?.name ?? null };
   });
+  const levels = levelsOfSelection();
   showPartPicker({
     title: lib.title,
     rows,
+    levels: levels.offered,
+    level: levels.level,
     state: picker,
     kb: settings.kb,
     onChange: () => partPicker(),
@@ -415,28 +535,24 @@ function partPicker(): void {
 async function startPlay(autoplay: { jitterMs: number } | null): Promise<void> {
   if (!current) return;
   const { lib, song, picker } = current;
-  const partIds: PartId[] = [...picker.selected].map((k) => {
-    const [track, channel] = k.split(':').map(Number) as [number, number];
-    return { track, channel };
-  });
-  if (partIds.length === 0) return;
-  const choice = { parts: partIds, split: picker.split, hands: picker.hands, timing: picker.timing };
+  const sel = selectionOptions();
+  if (!sel) return;
+  const partIds = sel.parts;
+  const { level, keyLevel } = levelsOfSelection();
+  picker.difficulty = level;
+  const choice: PartChoice = { parts: partIds, split: picker.split, hands: picker.hands, timing: picker.timing, difficulty: level, keyLevel };
   lib.parts = partIds;
   lib.split = picker.split;
   lib.hands = picker.hands;
   lib.timingPreset = picker.timing;
+  lib.difficulty = level;
+  lib.keyLevel = keyLevel;
   if (lib.source === 'bundled') rememberChoice(lib.id, choice);
-  else await putSong({ id: lib.id, name: lib.title, bytes: lib.bytes!, parts: partIds, split: picker.split, timingPreset: picker.timing, packName: lib.packName, addedAt: Date.now() }).catch(() => undefined);
+  else await putSong({ id: lib.id, name: lib.title, bytes: lib.bytes!, parts: partIds, split: picker.split, timingPreset: picker.timing, difficulty: level, keyLevel, packName: lib.packName, addedAt: Date.now() }).catch(() => undefined);
 
   ensureAudio();
-  const single = partIds.length === 1;
-  const split = single ? picker.split : undefined;
-  const wide = single && (() => {
-    const p = current!.parts.find((x) => x.key === partKey(partIds[0]!))!;
-    return p.maxPitch - p.minPitch > 24;
-  })();
-  const chartOpts = { parts: partIds, split: wide ? split : undefined, hands: wide ? picker.hands : undefined };
-  const unfolded = buildChart(song, chartOpts);
+  // The window is chosen for the notes this level actually asks for.
+  const unfolded = buildChart(song, { parts: sel.parts, split: sel.split, hands: sel.hands, difficulty: level });
   const { window, relative } = windowFor(settings.kb, unfolded.notes.map((n) => n.origPitch));
   lastPlay = { window, relative, autoplay };
   play();
@@ -446,14 +562,15 @@ function play(): void {
   if (!current || !lastPlay) return;
   const { lib, song, picker } = current;
   const { window, relative, autoplay } = lastPlay;
-  const partIds: PartId[] = [...picker.selected].map((k) => {
-    const [track, channel] = k.split(':').map(Number) as [number, number];
-    return { track, channel };
+  const sel = selectionOptions();
+  if (!sel) return;
+  const partIds = sel.parts;
+  const wide = sel.wide;
+  const { offered, level: difficulty, keyLevel } = levelsOfSelection();
+  const feedback = effectiveFeedback(settings);
+  const chart: Chart = buildChart(song, {
+    parts: sel.parts, split: sel.split, hands: sel.hands, window, foldMode: settings.foldMode, difficulty, removed: removedFor(feedback),
   });
-  const single = partIds.length === 1;
-  const p0 = current.parts.find((x) => x.key === partKey(partIds[0]!))!;
-  const wide = single && p0.maxPitch - p0.minPitch > 24;
-  const chart: Chart = buildChart(song, { parts: partIds, split: wide ? picker.split : undefined, hands: wide ? picker.hands : undefined, window, foldMode: settings.foldMode });
   if (chart.notes.length === 0) {
     showError('Nothing to play', 'The selected part has no notes in range.', partPicker);
     return;
@@ -461,7 +578,11 @@ function play(): void {
   const range = displayRange(chart.minPitch, chart.maxPitch, window);
   const lines = beatLines(song, chart.duration);
   const timing = picker.timing;
-  const judgeConfig: JudgeConfig = { ...DEFAULT_JUDGE_CONFIG, preset: timing, easy: settings.easy, wrongNotePenalty: settings.wrongNotePenalty };
+  const judgeConfig: JudgeConfig = {
+    ...DEFAULT_JUDGE_CONFIG, preset: timing, easy: settings.easy, wrongNotePenalty: settings.wrongNotePenalty,
+    failAt: settings.arcade && !autoplay ? 0 : null,
+    overhold: settings.letGo ? OVERHOLD_COST[difficulty] : null,
+  };
   const sig = song.timeSigs[0]!;
   const barSeconds = ticksToSeconds(song.tempoMap, song.ppq, (song.ppq * 4 * sig.numerator) / sig.denominator);
   const visibleSeconds = (canvas.clientHeight * 0.82) / settings.speed;
@@ -473,6 +594,7 @@ function play(): void {
   if (backingSynth) {
     backingSynth.setMasterGain(settings.backingVolume);
     backingSynth.setDrumChannels(song.drumChannels);
+    setMix(1);
     // Duplicates of the player's part are muted unless the guide track is on.
     const muted = new Set<string>();
     if (!picker.guideTrack) {
@@ -488,7 +610,12 @@ function play(): void {
   }
   session = new PlaySession({
     chart, clock, judgeConfig, rate: settings.rate, inputOffsetMs: settings.inputOffsetMs,
-    synth: settings.synth ? synth : null, relative, visibleSeconds, barSeconds, autoplay,
+    synth: settings.synth ? synth : null, feedbackSound: feedback,
+    feedbackPrograms: Object.fromEntries(current.parts.map((p) => [p.key, p.program])),
+    relative, visibleSeconds, barSeconds, autoplay, countInBeats: sig.numerator,
+    barTimes: lines.filter((l) => l.isBar).map((l) => l.time),
+    // The system's reduced-motion preference turns the particles off, unless the URL asks for them.
+    effects: settings.effects && (params.has('effects') || !matchMedia('(prefers-reduced-motion: reduce)').matches),
     hint: relative ? PlaySession.keysHint(window) : partName,
   });
   const s = session;
@@ -505,16 +632,25 @@ function play(): void {
   };
   s.onFinished = (result) => {
     stopBacking();
-    const badges = [...(settings.easy ? ['Easy mode'] : []), ...(settings.rate < 1 ? [`${Math.round(settings.rate * 100)}% speed`] : []), ...(autoplay ? ['Autoplay'] : [])];
-    const detail = `${partName} · ${timing} timing · ${Math.round(settings.rate * 100)}% speed`;
-    const show = (extra: string[]) =>
-      showResults({ title: lib.title, detail, result, badges: [...badges, ...extra], onRetry: play, onQuit: songSelect });
-    if (autoplay) show([]);
+    const badges = [...(result.failed ? ['Song failed'] : []), ...(settings.easy ? ['Easy mode'] : []), ...(settings.rate < 1 ? [`${Math.round(settings.rate * 100)}% speed`] : []), ...(autoplay ? ['Autoplay'] : [])];
+    const detail = `${partName} · ${DIFFICULTY_LABEL[difficulty]} · ${timing} timing · ${Math.round(settings.rate * 100)}% speed`;
+    const suggestion = suggestNextStep({
+      accuracy: result.accuracy, difficulty, rate: settings.rate, failed: result.failed, sections: result.sections, levels: offered.map((l) => l.level),
+    });
+    const show = (extra: string[], previousBest: number | null) =>
+      showResults({
+        title: lib.title, detail, result, badges: [...badges, ...extra], previousBest, suggestion,
+        onSuggestion: takeSuggestion, onRetry: play, onQuit: songSelect,
+      });
+    if (autoplay || result.failed) show([], null);
     else {
-      const key = bestKey(lib.id, partIds, wide ? picker.split : undefined, timing, settings.rate, settings.easy);
-      recordBest({ key, songId: lib.id, score: result.score, accuracy: result.accuracy, maxCombo: result.maxCombo, at: Date.now() })
-        .then(({ isNew }) => show(isNew ? ['New best!'] : []))
-        .catch(() => show([]));
+      const key = bestKey(lib.id, partIds, wide ? picker.split : undefined, timing, settings.rate, settings.easy, keyLevel);
+      getBest(key)
+        .catch(() => undefined)
+        .then((before) =>
+          recordBest({ key, songId: lib.id, score: result.score, accuracy: result.accuracy, maxCombo: result.maxCombo, at: Date.now() })
+            .then(({ isNew }) => show(isNew ? ['New best!'] : [], before?.accuracy ?? null)))
+        .catch(() => show([], null));
     }
   };
   renderState = {
@@ -522,6 +658,7 @@ function play(): void {
     noteVisuals: s.noteVisuals, keyVisuals: s.keyVisuals, popups: s.popups,
     hud: s.hud(), showNames: settings.names, showNoteNames: settings.noteNames,
     physical: relative ? window : null,
+    fx: s.fx,
   };
   document.title = `MIDI Hero — ${lib.title}`;
 
@@ -540,9 +677,29 @@ function play(): void {
   }
 }
 
+/** Play the same song again the way the results screen suggested. */
+function takeSuggestion(s: Suggestion): void {
+  if (!current) return;
+  if (s.difficulty) current.picker.difficulty = s.difficulty;
+  if (s.rate) {
+    settings.rate = s.rate;
+    saveSettings(settings);
+  }
+  void startPlay(lastPlay?.autoplay ?? null);
+}
+
 function playHud(s: PlaySession): void {
   showPlayHud({ onPause: pause, onSkip: s.chart.firstNoteTime > 8 ? () => { s.skipToFirstNote(); scheduler?.stop(); scheduler?.start(); } : null });
   if (s.status === 'playing') scheduler?.start();
+}
+
+/** Thin the band's drums and pads to `level` (the session's mixLevel). */
+let mix = 1;
+function setMix(level: number): void {
+  if (!backingSynth || Math.abs(level - mix) < 0.01) return;
+  mix = level;
+  backingSynth.setChannelGroupGain('drums', level);
+  backingSynth.setChannelGroupGain('pads', level);
 }
 
 function stopBacking(): void {
@@ -595,13 +752,18 @@ function resume(): void {
   playHud(session);
 }
 
+// Esc pauses and resumes. Space switches star power on while playing, and resumes a paused song.
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Escape' || e.code === 'Space') {
-    if (!session || gateHandler) return;
-    e.preventDefault();
-    if (session.status === 'playing') pause();
-    else if (session.status === 'paused') resume();
-  }
+  if (e.code !== 'Escape' && e.code !== 'Space') return;
+  if (!session || gateHandler || calibrating) return;
+  const target = e.target as HTMLElement | null;
+  if (target && /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(target.tagName)) return;
+  e.preventDefault();
+  if (e.repeat) return;
+  if (session.status === 'paused') resume();
+  else if (session.status !== 'playing') return;
+  else if (e.code === 'Space') session.activateStar();
+  else pause();
 });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && session?.status === 'playing' && !gateHandler) pause();
@@ -616,6 +778,39 @@ let fpsWindowStart = 0;
 let fps = 0;
 let workMs = 0; // accumulated update+draw time in the current window
 let frameMs = 0; // average work per frame over the last window
+/** One frame of work: update the session and draw it. Returns the time it took, in ms. */
+function step(s: PlaySession, state: RenderState): number {
+  const w0 = performance.now();
+  s.update();
+  setMix(s.mixLevel);
+  state.time = s.now() + (settings.audioOffsetMs / 1000) * settings.rate;
+  state.hud = s.hud();
+  renderer.draw(state);
+  return performance.now() - w0;
+}
+
+if (import.meta.env.DEV) {
+  // Console handle for manual and automated checks; not in production builds.
+  // `bench(seconds)` runs frames back to back, without waiting for the display, and reports the work per frame.
+  const bench = (seconds = 3): Promise<{ frames: number; meanMs: number; p95Ms: number; maxMs: number }> =>
+    new Promise((resolve) => {
+      const times: number[] = [];
+      const until = performance.now() + seconds * 1000;
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => {
+        if (session && renderState && session.status === 'playing') times.push(step(session, renderState));
+        if (performance.now() < until) channel.port2.postMessage(0);
+        else {
+          times.sort((a, b) => a - b);
+          const mean = times.reduce((a, b) => a + b, 0) / Math.max(1, times.length);
+          resolve({ frames: times.length, meanMs: +mean.toFixed(3), p95Ms: +(times[Math.floor(times.length * 0.95)] ?? 0).toFixed(3), maxMs: +(times.at(-1) ?? 0).toFixed(3) });
+        }
+      };
+      channel.port2.postMessage(0);
+    });
+  (window as unknown as { midihero: unknown }).midihero = { bench, get session() { return session; }, get renderState() { return renderState; } };
+}
+
 function frame(): void {
   frameCount++;
   const nowMs = performance.now();
@@ -627,17 +822,12 @@ function frame(): void {
     fpsWindowStart = nowMs;
   }
   if (session && renderState) {
-    const w0 = performance.now();
-    session.update();
-    renderState.time = session.now() + (settings.audioOffsetMs / 1000) * settings.rate;
-    renderState.hud = session.hud();
-    renderer.draw(renderState);
-    workMs += performance.now() - w0;
+    workMs += step(session, renderState);
     const t = performance.now();
     if (t - lastDebug > 250) {
       lastDebug = t;
       const j = session.judge;
-      canvas.dataset.state = JSON.stringify({ status: session.status, now: +session.now().toFixed(2), score: j.score, combo: j.combo, counts: j.counts, offset: session.octaveOffset, locked: session.filter.locked, backing: scheduler?.running ?? false, audio: audioCtx?.state ?? 'none', notes: session.chart.notes.length, fps: +fps.toFixed(1), frameMs: +frameMs.toFixed(2) });
+      canvas.dataset.state = JSON.stringify({ status: session.status, now: +session.now().toFixed(2), score: j.score, combo: j.combo, multiplier: j.scoreMultiplier, star: +j.starGauge.toFixed(2), starOn: j.starActive, health: +j.meter.health.toFixed(2), mix: +mix.toFixed(2), counts: j.counts, offset: session.octaveOffset, locked: session.filter.locked, backing: scheduler?.running ?? false, audio: audioCtx?.state ?? 'none', notes: session.chart.notes.length, fps: +fps.toFixed(1), frameMs: +frameMs.toFixed(2) });
     }
   }
   requestAnimationFrame(frame);
@@ -687,7 +877,7 @@ async function boot(): Promise<void> {
   if (!settings.firstRunDone) {
     showFirstRun({
       onDone: (kb, soundSelf) => {
-        settings = { ...settings, kb, synth: !soundSelf, firstRunDone: true };
+        settings = { ...settings, kb, synth: !soundSelf, feedbackSound: soundSelf ? 'off' : 'chart', firstRunDone: true };
         saveSettings(settings);
         void start();
       },

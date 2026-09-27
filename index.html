@@ -61,8 +61,38 @@
       .hud-hint { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; }
       .hud-hint button { padding: 6px 12px; font-size: 13px; opacity: 0.8; }
       .dropzone { outline: 3px dashed var(--accent); outline-offset: -12px; }
+      .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; }
+      .seg button { display: flex; flex-direction: column; gap: 2px; align-items: center; padding: 8px 6px; }
+      .seg button span { font-size: 12px; font-weight: 400; opacity: 0.8; }
+      .levels-note { font-size: 12px; margin: 4px 0 0; }
       .stars { font-size: 40px; letter-spacing: 6px; color: var(--accent-2); }
-      .accuracy { font-size: 72px; font-weight: 700; line-height: 1; }
+      .accuracy { font-size: 72px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+      .accuracy.landed { animation: land 0.35s ease-out; }
+      .delta { color: var(--muted); font-size: 14px; margin-top: 4px; }
+      .delta.up { color: var(--good); }
+      .star { display: inline-block; opacity: 0.3; }
+      .star.on { animation: star-in 0.4s cubic-bezier(0.2, 1.6, 0.4, 1) both; animation-delay: var(--d); }
+      .results.still .star.on { animation: none; opacity: 1; }
+      .streak-line b { color: var(--text); font-size: 18px; }
+      .sections { display: grid; gap: 4px; max-width: 420px; margin: 10px auto; font-size: 13px; color: var(--muted); }
+      .section { display: grid; grid-template-columns: 90px 1fr 40px; gap: 8px; align-items: center; text-align: left; }
+      .section .bar { height: 8px; border-radius: 4px; background: var(--panel-2); overflow: hidden; }
+      .section .fill { height: 100%; width: var(--w); border-radius: 4px; background: var(--bad);
+        animation: grow 0.6s ease-out both; animation-delay: calc(var(--i) * 80ms + 600ms); }
+      .section .fill.ok { background: var(--accent-2); }
+      .section .fill.good { background: var(--good); }
+      .results.still .section .fill { animation: none; }
+      .next { color: var(--text); font-size: 16px; }
+      .cal-dots { display: flex; gap: 10px; justify-content: center; margin: 16px 0; }
+      .cal-dots .dot { width: 18px; height: 18px; border-radius: 50%; background: var(--panel-2); border: 1px solid var(--border); }
+      .cal-dots .dot.on { background: var(--good); border-color: var(--good); }
+      .cal-stage { position: relative; height: 220px; margin: 12px auto; width: 120px; background: var(--panel-2); border-radius: 8px; overflow: hidden; }
+      .cal-line { position: absolute; left: 0; right: 0; bottom: 10px; height: 3px; background: var(--accent); }
+      .cal-ball { position: absolute; left: 50%; top: 0; width: 56px; height: 14px; border-radius: 4px; background: var(--muted); opacity: 0; }
+      .cal-ball.scored { background: var(--accent-2); }
+      @keyframes star-in { from { opacity: 0; transform: scale(2.4) rotate(-30deg); } to { opacity: 1; transform: none; } }
+      @keyframes grow { from { width: 0; } to { width: var(--w); } }
+      @keyframes land { from { transform: scale(1.25); } to { transform: none; } }
       .kbd { font-family: ui-monospace, Menlo, monospace; background: var(--panel-2); padding: 1px 6px; border-radius: 4px; }
     </style>
   </head>

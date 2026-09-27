@@ -6,6 +6,9 @@ and are scored on timing. Built for classroom use with small keyboards
 (the M-Audio Oxygen 25) as well as full-size instruments.
 
 - Import any Standard MIDI File, pick the part you want to play; the rest becomes the backing band.
+- You hear your accuracy: a hit sounds the song's own note, a wrong key clunks, a miss is silent.
+- Four difficulty levels that remove notes instead of loosening timing (Easy: one note a beat).
+- Streak, multiplier, star power (sustain pedal or Space), a performance meter, scored holds.
 - 25/49-key mode folds out-of-range notes into a two-octave window and lines up with your
   keyboard's octave buttons ("press your lowest C").
 - Timing presets (Strict / Normal / Relaxed), an easy octave-agnostic mode, playback slowdown.
@@ -36,8 +39,14 @@ Node 22.12 or newer. Vite 8, Vitest 4, TypeScript, `midi-file`; no other runtime
 Useful URL parameters (session only, they do not change saved settings):
 `?kb=25&timing=relaxed&names=1&synth=1` set class defaults for a bookmark;
 `?pack=packs/beginner.midihero.json` loads a pack from this site;
-`?song=ode-to-joy&autoplay=1&jitter=60` plays a bundled song automatically (for testing);
-`?file=fixtures/some.mid` loads a MIDI file served from `public/fixtures/` (local only, gitignored).
+`?song=ode-to-joy&autoplay=1&jitter=60` plays a bundled song automatically (for testing; a jitter
+above 150 ms produces misses and wrong notes);
+`?file=fixtures/some.mid` loads a MIDI file served from `public/fixtures/` (local only, gitignored);
+`?difficulty=medium`, `?part=5:4` (track:channel), `?feedback=chart|press|off`, `?arcade=1`,
+`?effects=1` (also overrides the system's reduced-motion preference) choose what to check.
+
+`PORT=5180 npm run dev` runs a second dev server next to one that already has 5173. In dev
+builds `window.midihero.bench(seconds)` in the console reports the work per frame.
 
 ### Test fixtures
 
@@ -67,6 +76,41 @@ embeds); the app shows an "Open in new tab" button when embedded.
 The repository bundles only public-domain demo songs and the owner's own exercises. Arrangements
 of commercial songs stay on the teacher's machine and travel to students inside a song pack
 shared through Google Classroom or Drive, never through this repository.
+
+## How the game works
+
+**Sound.** With the default setting a hit sounds the note as the file has it (pitch, velocity,
+instrument) for its written length; notes that the difficulty level removed ride along and sound
+when the note before them is hit. A wrong key gives an unpitched clunk and takes the rest of the
+phrase out of the mix; a miss is silent. Settings → "Sound of my notes" also offers free play
+(every key sounds) and none (the keyboard has its own speakers).
+
+**Difficulty.** Easy keeps at most one note per beat, on the beat, the top note of a chord, and
+never asks for more than two notes a second; Medium works on half-beats; Hard is the full part
+with chords cut to three notes; Expert is the full part. Levels are relative to the song: Easy
+is always its lowest rung, and a level above is offered only if it asks for more than the one
+below. A five-finger exercise or a simple melody stops at Medium (the same or a few more notes,
+and the keys have to be let go in time); sixteenths add Hard; chords of more than three notes,
+as in a two-handed piano part, add Expert. The choice is stored per song, travels in song packs,
+and has its own best score.
+
+**Streak and multiplier.** The multiplier rises at streaks of 10, 30 and 50 (2×, 3×, 4×). The
+performance meter at the right gains with hits and drains with misses and wrong notes; below 30%
+the highway dims and the band loses its drums and pads. Only in arcade mode (Settings) does an
+empty meter end the song.
+
+**Star power.** Every few phrases is a star phrase, drawn gold. Played clean it fills a quarter
+of the star gauge; from half full, the sustain pedal or Space doubles the multiplier until the
+gauge runs out (16 beats for half a gauge). Esc pauses.
+
+**Holds.** Notes of a beat or more pay a point per 1/16 beat while the key (or the pedal) holds
+them. From Medium up, a key that stays down after its note is over gets a sour bonk and a red
+key, and it costs: 10 points and a little of the meter on Medium, 25 points on Hard, and on
+Expert 50 points and the streak. Overlapping the next note by up to 150 ms (or a quarter beat)
+is legato and costs nothing. Easy never minds.
+
+**Calibration.** Settings → "calibrate timing" measures the input offset (tap along to 8 clicks)
+and the visual offset (tap when a marker lands).
 
 ## How scoring works
 

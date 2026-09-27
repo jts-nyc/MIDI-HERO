@@ -9,6 +9,9 @@ export interface StoredSong {
   split?: number;
   rate?: number;
   timingPreset?: string;
+  difficulty?: string;
+  /** level name in the best-score key: 'expert' for the full part, whatever that level is called for this song */
+  keyLevel?: string;
   packName?: string;
   addedAt: number;
 }
@@ -63,10 +66,16 @@ export const getSong = (id: string): Promise<StoredSong | undefined> => tx('song
 export const listSongs = (): Promise<StoredSong[]> => tx('songs', 'readonly', (s) => s.getAll());
 export const deleteSong = (id: string): Promise<undefined> => tx('songs', 'readwrite', (s) => s.delete(id));
 
-/** Best-score key: song plus everything that changes difficulty. */
-export function bestKey(songId: string, parts: PartId[], split: number | undefined, preset: string, rate: number, easy: boolean): string {
+/**
+ * Best-score key: song plus everything that changes difficulty. The full part keeps the key
+ * it had before difficulty levels existed, so earlier bests still count: pass 'expert' for
+ * the top level of a part, whatever it is called for that song.
+ */
+export function bestKey(songId: string, parts: PartId[], split: number | undefined, preset: string, rate: number, easy: boolean, difficulty = 'expert'): string {
   const rateBucket = Math.round(rate * 10) / 10;
-  return [songId, parts.map((p) => `${p.track}:${p.channel}`).join('+'), split ?? '-', preset, rateBucket, easy ? 'easy' : 'exact'].join('|');
+  const key = [songId, parts.map((p) => `${p.track}:${p.channel}`).join('+'), split ?? '-', preset, rateBucket, easy ? 'easy' : 'exact'];
+  if (difficulty !== 'expert') key.push(difficulty);
+  return key.join('|');
 }
 
 export const getBest = (key: string): Promise<BestScore | undefined> => tx('bests', 'readonly', (s) => s.get(key));

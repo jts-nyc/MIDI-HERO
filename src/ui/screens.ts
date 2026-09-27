@@ -1,10 +1,12 @@
+import { CALIBRATION_BEATS, TapCalibrator, visualOffset, type CalibrationResult } from '../game/calibration.ts';
+import { bestDelta, starCount, type Suggestion } from '../game/results.ts';
 import type { PlayResult } from '../game/session.ts';
 import type { TimingPreset } from '../game/judge.ts';
 import type { MidiPort } from '../input/midiInput.ts';
-import type { Hand } from '../midi/chart.ts';
+import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Hand, type LevelStats } from '../midi/chart.ts';
 import type { Part } from '../types.ts';
 import { noteName } from '../render/layout.ts';
-import type { KeyboardSize, Settings } from './settings.ts';
+import { effectiveFeedback, type KeyboardSize, type Settings } from './settings.ts';
 
 const overlay = (): HTMLElement => document.getElementById('overlay')!;
 
@@ -193,11 +195,16 @@ export interface PartPickerState {
   timing: TimingPreset;
   /** keep a duplicate of the player's part audible in the backing */
   guideTrack: boolean;
+  difficulty: Difficulty;
 }
 
 export interface PartPickerOptions {
   title: string;
   rows: PartRow[];
+  /** the levels the selection has, with note count and density; empty when nothing is selected */
+  levels: LevelStats[];
+  /** the level that will be played: the chosen one, or the nearest the selection has */
+  level: Difficulty;
   state: PartPickerState;
   kb: KeyboardSize;
   /** true when the single selected part spans more than two octaves */
@@ -240,6 +247,10 @@ export function showPartPicker(o: PartPickerOptions): void {
       <tr><th></th><th>Part</th><th>Notes</th><th>Notes/s</th><th>Chord</th><th>Range</th><th>Starts</th><th>Folded</th></tr>
       ${rows}
     </table>
+    ${o.levels.length ? `<div class="seg" id="difficulty" role="radiogroup" aria-label="Difficulty" style="grid-template-columns:repeat(${o.levels.length},1fr)">${o.levels.map((l) =>
+      `<button role="radio" aria-checked="${o.level === l.level}" class="${o.level === l.level ? 'primary' : ''}" data-level="${l.level}">
+        <b>${DIFFICULTY_LABEL[l.level]}</b><span>${l.noteCount} notes · ${l.notesPerSec.toFixed(1)}/s</span></button>`).join('')}</div>
+      ${o.levels.length < DIFFICULTIES.length ? `<p class="levels-note">${DIFFICULTY_LABEL[o.levels[o.levels.length - 1]!.level]} is the whole part: there is nothing harder to add.</p>` : ''}` : ''}
     ${wide ? `<div class="row" style="margin-top:12px">
       <label class="field">Hand split at <select id="split">${splitOptions}</select></label>
       <label class="field">Play <select id="hands">
@@ -263,6 +274,12 @@ export function showPartPicker(o: PartPickerOptions): void {
       const key = tr.dataset.key!;
       if (st.selected.has(key)) st.selected.delete(key);
       else st.selected.add(key);
+      o.onChange(st);
+    }),
+  );
+  el.querySelectorAll<HTMLButtonElement>('#difficulty button').forEach((b) =>
+    b.addEventListener('click', () => {
+      st.difficulty = b.dataset.level as Difficulty;
       o.onChange(st);
     }),
   );
@@ -330,7 +347,7 @@ export function showPause(o: { onResume: () => void; onRestart: () => void; onSe
       <button id="settings">Settings</button>
       <button id="quit">Song select</button>
     </div>
-    <p>Space or Esc to resume</p>
+    <p>Esc or Space to resume</p>
   </div>`);
   el.querySelector('#resume')!.addEventListener('click', o.onResume);
   el.querySelector('#restart')!.addEventListener('click', o.onRestart);
@@ -339,32 +356,78 @@ export function showPause(o: { onResume: () => void; onRestart: () => void; onSe
 }
 
 export function stars(accuracy: number): string {
-  const n = accuracy >= 0.95 ? 5 : accuracy >= 0.85 ? 4 : accuracy >= 0.7 ? 3 : accuracy >= 0.5 ? 2 : accuracy > 0 ? 1 : 0;
+  const n = starCount(accuracy);
   return '★'.repeat(n) + '☆'.repeat(5 - n);
 }
 
-export function showResults(o: { title: string; detail: string; result: PlayResult; badges: string[]; onRetry: () => void; onQuit: () => void }): void {
+export interface ResultsOptions {
+  title: string;
+  detail: string;
+  result: PlayResult;
+  badges: string[];
+  /** accuracy of the best play before this one, if there was one */
+  previousBest?: number | null;
+  /** the one next step to offer, with what happens when it is taken */
+  suggestion?: Suggestion | null;
+  onSuggestion?: (s: Suggestion) => void;
+  onRetry: () => void;
+  onQuit: () => void;
+}
+
+const COUNT_UP_MS = 1200;
+const STAR_STAGGER_MS = 220;
+
+export function showResults(o: ResultsOptions): void {
   const r = o.result;
   const c = r.counts;
-  const el = screen(`<div class="panel" style="text-align:center">
+  const n = starCount(r.accuracy);
+  const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const delta = bestDelta(r.accuracy, o.previousBest);
+  const better = o.previousBest !== null && o.previousBest !== undefined && r.accuracy > o.previousBest;
+  const sections = r.sections.length > 1 ? `<div class="sections">${r.sections.map((s, i) => `<div class="section">
+      <span>${esc(s.label)}</span>
+      <div class="bar"><div class="fill ${s.accuracy >= 0.9 ? 'good' : s.accuracy >= 0.7 ? 'ok' : 'weak'}" style="--w:${(s.accuracy * 100).toFixed(1)}%;--i:${i}"></div></div>
+      <span>${Math.round(s.accuracy * 100)}%</span>
+    </div>`).join('')}</div>` : '';
+  const sug = o.suggestion;
+  const el = screen(`<div class="panel results${still ? ' still' : ''}" style="text-align:center">
     <h2>${esc(o.title)}</h2>
     <p>${esc(o.detail)}</p>
-    <div class="accuracy">${(r.accuracy * 100).toFixed(1)}%</div>
-    <div class="stars">${stars(r.accuracy)}</div>
+    <div class="accuracy" id="accuracy">${still ? (r.accuracy * 100).toFixed(1) : '0.0'}%</div>
+    ${delta ? `<div class="delta ${better ? 'up' : ''}">${esc(delta)} against your best (${(o.previousBest! * 100).toFixed(1)}%)</div>` : ''}
+    <div class="stars">${[0, 1, 2, 3, 4].map((i) => `<span class="star ${i < n ? 'on' : ''}" style="--d:${COUNT_UP_MS + i * STAR_STAGGER_MS}ms">${i < n ? '★' : '☆'}</span>`).join('')}</div>
     <p>${o.badges.map((b) => `<span class="badge warn">${esc(b)}</span>`).join(' ')}</p>
+    <p class="streak-line">Longest streak <b>${r.maxCombo}</b> of ${r.total} notes</p>
+    ${sections}
     <table style="max-width:420px;margin:12px auto">
-      <tr><td>Score</td><td><b>${r.score}</b></td><td>Max combo</td><td><b>${r.maxCombo}</b></td></tr>
+      <tr><td>Score</td><td><b>${r.score}</b></td><td>Notes hit</td><td><b>${c.perfect + c.great + c.good}</b> of ${r.total}</td></tr>
       <tr><td>Perfect</td><td>${c.perfect}</td><td>Great</td><td>${c.great}</td></tr>
       <tr><td>Good</td><td>${c.good}</td><td>Late/early</td><td>${c.late}</td></tr>
       <tr><td>Missed</td><td>${c.miss}</td><td>Wrong notes</td><td>${c.wrong}</td></tr>
+      ${c.overheld ? `<tr><td>Held too long</td><td>${c.overheld}</td><td>That cost</td><td>${r.overholdLoss} points</td></tr>` : ''}
     </table>
+    ${sug ? `<p class="next">Next step: <b>${esc(sug.text)}</b></p>` : ''}
     <div class="row" style="justify-content:center">
-      <button class="primary big" id="retry">Play again</button>
+      ${sug && (sug.difficulty || sug.rate) ? `<button class="primary big" id="next">${esc(sug.text)}</button><button id="retry">Play again</button>` : '<button class="primary big" id="retry">Play again</button>'}
       <button id="quit">Song select</button>
     </div>
   </div>`);
   el.querySelector('#retry')!.addEventListener('click', o.onRetry);
   el.querySelector('#quit')!.addEventListener('click', o.onQuit);
+  el.querySelector('#next')?.addEventListener('click', () => o.onSuggestion?.(sug!));
+  if (still) return;
+  // Count the percentage up, easing out; the stars follow one by one (CSS, delayed past the count).
+  const acc = el.querySelector<HTMLElement>('#accuracy')!;
+  const t0 = performance.now();
+  const tick = (now: number): void => {
+    if (!acc.isConnected) return;
+    const t = Math.min(1, (now - t0) / COUNT_UP_MS);
+    const eased = 1 - Math.pow(1 - t, 3);
+    acc.textContent = `${(r.accuracy * 100 * eased).toFixed(1)}%`;
+    if (t < 1) requestAnimationFrame(tick);
+    else acc.classList.add('landed');
+  };
+  requestAnimationFrame(tick);
 }
 
 export function showError(title: string, message: string, onBack?: () => void): void {
@@ -386,11 +449,13 @@ export interface SettingsScreenOptions {
   onSelectPort: (id: string | null) => void;
   onResetChannel: () => void;
   onResetClassDefaults: () => void;
+  onCalibrate: () => void;
   onClose: () => void;
 }
 
 export function showSettings(o: SettingsScreenOptions): void {
   const s = o.settings;
+  const fb = effectiveFeedback(s);
   const opt = (v: string | number, label: string, cur: string | number) => `<option value="${v}" ${String(v) === String(cur) ? 'selected' : ''}>${label}</option>`;
   const chk = (id: keyof Settings, label: string) => `<label class="field">${label}<input type="checkbox" id="${id}" ${s[id] ? 'checked' : ''} /></label>`;
   const num = (id: keyof Settings, label: string, min: number, max: number, step: number) =>
@@ -405,12 +470,16 @@ export function showSettings(o: SettingsScreenOptions): void {
     ${num('speed', 'Scroll speed (px/s)', 100, 800, 25)}
     ${chk('names', 'Note names on keys')}
     ${chk('noteNames', 'Note names on falling notes')}
-    ${chk('synth', 'Synthesize my notes (turn off if your keyboard has speakers; set Local Control ON on the instrument)')}
+    <label class="field">Sound of my notes <select id="feedbackSound">${opt('chart', "the song's part when I play it right", fb)}${opt('press', 'every key I press (free play)', fb)}${opt('off', 'none: my keyboard has speakers (set Local Control ON)', fb)}</select></label>
     ${chk('easy', 'Easy mode: any octave counts')}
+    ${chk('arcade', 'Arcade mode: the song ends when the performance meter runs out')}
+    ${chk('effects', 'Hit effects (turn off on a slow computer)')}
+    ${chk('letGo', 'Keys held after their note is over bonk and cost points (Medium and up)')}
     <label class="field">Wrong notes <select id="wrongNotePenalty">${opt('combo', 'reset combo', s.wrongNotePenalty)}${opt('none', 'ignore', s.wrongNotePenalty)}${opt('score', 'reset combo and lose points', s.wrongNotePenalty)}</select></label>
     <label class="field">Notes outside my keyboard <select id="foldMode">${opt('fold', 'fold into range', s.foldMode)}${opt('drop', 'drop', s.foldMode)}</select></label>
     ${num('audioOffsetMs', 'Visual offset (ms, + if notes look late)', -300, 300, 5)}
     ${num('inputOffsetMs', 'Input offset (ms, + if hits judge late)', -300, 300, 5)}
+    <div class="row" style="justify-content:flex-end"><button id="calibrate">Measure these: calibrate timing…</button></div>
     ${num('backingVolume', 'Backing volume (0–1)', 0, 1, 0.05)}
     <p>Audio latency: ${o.latencyMs === null ? 'audio not started yet' : `${o.latencyMs.toFixed(0)} ms${o.latencyMs > 60 ? ' — high; use wired headphones or speakers' : ''}`}.
        Input channel: ${o.lockedChannel === null ? 'any' : `${o.lockedChannel + 1}`} <button id="resetch">Reset</button></p>
@@ -426,8 +495,12 @@ export function showSettings(o: SettingsScreenOptions): void {
       speed: Number(get<HTMLInputElement>('speed').value),
       names: get<HTMLInputElement>('names').checked,
       noteNames: get<HTMLInputElement>('noteNames').checked,
-      synth: get<HTMLInputElement>('synth').checked,
+      synth: get<HTMLSelectElement>('feedbackSound').value !== 'off',
+      feedbackSound: get<HTMLSelectElement>('feedbackSound').value as Settings['feedbackSound'],
       easy: get<HTMLInputElement>('easy').checked,
+      arcade: get<HTMLInputElement>('arcade').checked,
+      effects: get<HTMLInputElement>('effects').checked,
+      letGo: get<HTMLInputElement>('letGo').checked,
       wrongNotePenalty: get<HTMLSelectElement>('wrongNotePenalty').value as Settings['wrongNotePenalty'],
       foldMode: get<HTMLSelectElement>('foldMode').value as Settings['foldMode'],
       audioOffsetMs: Number(get<HTMLInputElement>('audioOffsetMs').value),
@@ -442,5 +515,153 @@ export function showSettings(o: SettingsScreenOptions): void {
   el.querySelector<HTMLSelectElement>('#port')!.addEventListener('change', (e) => o.onSelectPort((e.target as HTMLSelectElement).value || null));
   el.querySelector('#resetch')!.addEventListener('click', o.onResetChannel);
   el.querySelector('#resetclass')!.addEventListener('click', o.onResetClassDefaults);
+  el.querySelector('#calibrate')!.addEventListener('click', o.onCalibrate);
   el.querySelector('#close')!.addEventListener('click', o.onClose);
+}
+
+// ---------------------------------------------------------------------------
+// Calibration: tap along to 8 clicks, then to 8 things you see
+// ---------------------------------------------------------------------------
+export type CalibrationKind = 'input' | 'visual';
+
+export interface CalibrationOptions {
+  inputOffsetMs: number;
+  audioOffsetMs: number;
+  /**
+   * Start a run on a fresh clock; 'input' plays the clicks, 'visual' is silent. Returns the beat
+   * times in seconds, or null when the sound is not running yet.
+   */
+  start: (kind: CalibrationKind) => { leadIn: number[]; scored: number[] } | null;
+  /** seconds on the clock of the run: now, and at a performance timestamp */
+  now: () => number;
+  timeOf: (perfMs: number) => number;
+  /** every key press (MIDI or computer keyboard) goes to the handler while the screen is open; null stops that */
+  onTaps: (handler: ((perfMs: number) => void) | null) => void;
+  onSave: (offsets: { inputOffsetMs?: number; audioOffsetMs?: number }) => void;
+  onClose: () => void;
+}
+
+const CAL_TRAVEL = 1.2; // s a falling marker is on screen before it lands
+
+export function showCalibration(o: CalibrationOptions): void {
+  let inputOffset = o.inputOffsetMs;
+  let running = false;
+  const el = screen(`<div class="panel calib" style="text-align:center">
+    <h2 id="cal-title"></h2>
+    <p id="cal-text"></p>
+    <div class="cal-stage" id="cal-stage" hidden><div class="cal-line"></div><div class="cal-ball" id="cal-ball"></div></div>
+    <div class="cal-dots" id="cal-dots">${'<span class="dot"></span>'.repeat(CALIBRATION_BEATS)}</div>
+    <p id="cal-result"></p>
+    <div class="row" style="justify-content:center" id="cal-buttons"></div>
+  </div>`);
+  const $ = <T extends HTMLElement>(id: string) => el.querySelector<T>(`#${id}`)!;
+  const dots = [...el.querySelectorAll<HTMLElement>('.dot')];
+  const buttons = (list: [string, () => void, boolean?][]): void => {
+    $('cal-buttons').replaceChildren(
+      ...list.map(([label, fn, primary]) => {
+        const b = document.createElement('button');
+        b.textContent = label;
+        if (primary) b.className = 'primary';
+        b.addEventListener('click', fn);
+        return b;
+      }),
+    );
+  };
+  let tap: ((perfMs: number) => void) | null = null;
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.code !== 'Space' || e.repeat || !running) return;
+    e.preventDefault();
+    tap?.(e.timeStamp);
+  };
+  window.addEventListener('keydown', onKey, true);
+  const close = (): void => {
+    running = false;
+    o.onTaps(null);
+    window.removeEventListener('keydown', onKey, true);
+    o.onClose();
+  };
+
+  const intro = (kind: CalibrationKind): void => {
+    running = false;
+    o.onTaps(null);
+    dots.forEach((d) => (d.className = 'dot'));
+    $('cal-stage').hidden = kind !== 'visual';
+    $('cal-result').textContent = '';
+    $('cal-title').textContent = kind === 'input' ? 'Calibrate: your keyboard' : 'Calibrate: your screen';
+    $('cal-text').textContent = kind === 'input'
+      ? `You will hear 4 soft clicks, then ${CALIBRATION_BEATS} loud ones. Tap any key on your keyboard (or the space bar) exactly on each loud click. Close your eyes if it helps.`
+      : `No sound this time. A marker falls onto the line ${CALIBRATION_BEATS} times, after 4 to get the feel. Tap a key exactly when it lands.`;
+    buttons([['Start', () => run(kind), true], ['Cancel', close]]);
+  };
+
+  const run = (kind: CalibrationKind): void => {
+    const beats = o.start(kind);
+    if (!beats) {
+      $('cal-result').textContent = 'The sound is not running yet. Press Start again.';
+      return;
+    }
+    $('cal-result').textContent = '';
+    const all = [...beats.leadIn, ...beats.scored];
+    const cal = new TapCalibrator(beats.scored);
+    running = true;
+    dots.forEach((d) => (d.className = 'dot'));
+    $('cal-text').textContent = kind === 'input' ? 'Listen… then tap on every loud click.' : 'Watch… then tap when the marker lands.';
+    buttons([['Cancel', close]]);
+    tap = (perfMs) => {
+      const i = cal.tap(o.timeOf(perfMs));
+      if (i >= 0) dots[i]!.className = 'dot on';
+    };
+    o.onTaps(tap);
+    const ball = $('cal-ball');
+    const stage = $('cal-stage');
+    const frame = (): void => {
+      if (!running || !el.isConnected) return;
+      const now = o.now();
+      if (kind === 'visual') {
+        const next = all.find((b) => b >= now - 0.08);
+        const travel = stage.clientHeight - 24;
+        if (next === undefined) ball.style.opacity = '0';
+        else {
+          const t = Math.max(0, Math.min(1, 1 - (next - now) / CAL_TRAVEL));
+          ball.style.opacity = next - now > CAL_TRAVEL ? '0' : '1';
+          ball.style.transform = `translate(-50%, ${t * travel}px)`;
+          ball.classList.toggle('scored', beats.scored.includes(next));
+        }
+      }
+      if (cal.done(now)) finish(kind, cal.result());
+      else requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  };
+
+  const finish = (kind: CalibrationKind, r: CalibrationResult): void => {
+    running = false;
+    o.onTaps(null);
+    if (!r.ok) {
+      $('cal-result').textContent = r.count < 5
+        ? `Only ${r.count} of ${CALIBRATION_BEATS} taps landed on a beat. Tap once for every ${kind === 'input' ? 'loud click' : 'landing'}.`
+        : `The taps were too uneven to measure (±${r.spreadMs} ms). Try again, as steadily as you can.`;
+      buttons([['Try again', () => run(kind), true], ['Cancel', close]]);
+      return;
+    }
+    if (kind === 'input') {
+      $('cal-result').textContent = `Input offset: ${r.offsetMs} ms (steady within ±${r.spreadMs} ms). It was ${o.inputOffsetMs} ms.`;
+      const save = (): void => {
+        inputOffset = r.offsetMs;
+        o.onSave({ inputOffsetMs: r.offsetMs });
+      };
+      buttons([
+        ['Save, then check the screen', () => { save(); intro('visual'); }, true],
+        ['Save', () => { save(); close(); }],
+        ['Try again', () => run(kind)],
+        ['Cancel', close],
+      ]);
+    } else {
+      const v = visualOffset(r.offsetMs, inputOffset);
+      $('cal-result').textContent = `Visual offset: ${v} ms (tapped ${r.offsetMs} ms after the landing, ${inputOffset} ms of that is the keyboard). It was ${o.audioOffsetMs} ms.`;
+      buttons([['Save', () => { o.onSave({ audioOffsetMs: v }); close(); }, true], ['Try again', () => run(kind)], ['Cancel', close]]);
+    }
+  };
+
+  intro('input');
 }
