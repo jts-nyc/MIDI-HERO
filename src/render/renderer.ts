@@ -1,6 +1,6 @@
 import type { Chart, ChartNote } from '../midi/chart.ts';
 import type { BeatLine } from '../midi/parse.ts';
-import { fitCanvas } from './canvas.ts';
+import { fitCanvas, MAX_DPR } from './canvas.ts';
 import { Tint, type FxState } from './fx.ts';
 import { isBlackKey, layoutKeys, noteName, type KeyboardLayout } from './layout.ts';
 import type { PracticeView } from './practice.ts';
@@ -136,7 +136,13 @@ class CachedText {
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private layout: KeyboardLayout | null = null;
-  private layoutKey = '';
+  private columns: { pitch: number; x: number; w: number; isBlack: boolean; label: string; shortName: string }[] = [];
+  private labels: string[] = [];
+  private dpr = 0;
+  private chart: Chart | null = null;
+  private beats: BeatLine[] | null = null;
+  private beatCursor = 0;
+  private beatTime = -Infinity;
   private width = 0;
   private height = 0;
   private cursor = 0;
@@ -147,7 +153,6 @@ export class Renderer {
   /** red flash per key, 0..1, rebuilt every frame from the effects state */
   private keyFlash = new Float32Array(128);
   private gradients = new Map<number, CanvasGradient>();
-  private gradientKey = '';
   private bigFont = '';
   private scoreText = new CachedText((v) => String(v));
   private accuracyText = new CachedText((v) => `${(v / 10).toFixed(1)}%`);
@@ -160,53 +165,69 @@ export class Renderer {
     this.ctx = canvas.getContext('2d')!;
   }
 
+  /** Only size/range changes allocate geometry, labels and gradients. */
   private ensureLayout(low: number, high: number): KeyboardLayout {
-    const key = `${low}:${high}:${this.width}`;
-    if (!this.layout || key !== this.layoutKey) {
-      this.layout = layoutKeys(low, high, this.width);
-      this.layoutKey = key;
+    const width = Math.max(1, Math.floor(this.canvas.clientWidth));
+    const height = Math.max(1, Math.floor(this.canvas.clientHeight));
+    const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+    if (this.layout && low === this.layout.low && high === this.layout.high &&
+        width === this.width && height === this.height && dpr === this.dpr &&
+        this.canvas.width === Math.round(width * dpr) && this.canvas.height === Math.round(height * dpr)) return this.layout;
+    fitCanvas(this.canvas);
+    this.width = width;
+    this.height = height;
+    this.dpr = dpr;
+    this.layout = layoutKeys(low, high, width);
+    this.columns = [];
+    for (const col of this.layout.columns.values()) {
+      const label = noteName(col.pitch);
+      const shortName = label.replace(/-?\d+$/, '');
+      this.columns.push({ ...col, label, shortName });
+      this.labels[col.pitch] = shortName;
+    }
+    const hitY = height - Math.round(height * KEYBOARD_FRACTION);
+    this.bigFont = `bold ${Math.round(Math.min(150, hitY * 0.3))}px system-ui`;
+    this.gradients.clear();
+    const ctx = this.ctx;
+    const star = ctx.createLinearGradient(0, 0, 0, hitY);
+    star.addColorStop(0, 'rgba(255,210,63,0.05)');
+    star.addColorStop(1, 'rgba(255,210,63,0.24)');
+    this.gradients.set(100, star);
+    const w = Math.min(120, width * 0.14);
+    for (let tint = 0; tint < TINT_RGB.length; tint++) {
+      for (let side = 0; side < 2; side++) {
+        const edge = side === 0 ? 0 : width;
+        const g = ctx.createLinearGradient(edge, 0, edge + (side === 0 ? w : -w), 0);
+        g.addColorStop(0, `rgba(${TINT_RGB[tint]},0.55)`);
+        g.addColorStop(1, `rgba(${TINT_RGB[tint]},0)`);
+        this.gradients.set(tint * 2 + side, g);
+      }
     }
     return this.layout;
   }
 
-  /** Gradients are built once per canvas size. */
-  private gradient(id: number, make: () => CanvasGradient): CanvasGradient {
-    let g = this.gradients.get(id);
-    if (!g) this.gradients.set(id, (g = make()));
-    return g;
-  }
-
   draw(s: RenderState): void {
-    const { width, height } = fitCanvas(this.canvas);
-    if (width !== this.width || height !== this.height) {
-      this.gradients.clear();
-      this.gradientKey = `${width}:${height}`;
-    }
-    this.width = width;
-    this.height = height;
+    const layout = this.ensureLayout(s.low, s.high);
+    const width = this.width;
+    const height = this.height;
     const ctx = this.ctx;
     const fx = s.fx;
-    const layout = this.ensureLayout(s.low, s.high);
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     const keyboardH = Math.round(height * KEYBOARD_FRACTION);
     const hitY = height - keyboardH;
     const pps = s.pixelsPerSecond;
     const star = fx.meters.starActive;
-    this.bigFont = `bold ${Math.round(Math.min(150, hitY * 0.3))}px system-ui`;
 
     ctx.fillStyle = theme.highway;
     ctx.fillRect(0, 0, width, hitY);
     if (star) {
-      ctx.fillStyle = this.gradient(100, () => {
-        const g = ctx.createLinearGradient(0, 0, 0, hitY);
-        g.addColorStop(0, 'rgba(255,210,63,0.05)');
-        g.addColorStop(1, 'rgba(255,210,63,0.24)');
-        return g;
-      });
+      ctx.fillStyle = this.gradients.get(100)!;
       ctx.fillRect(0, 0, width, hitY);
     }
 
     // Octave stripes: tint every C..B alternately for orientation
-    for (const col of layout.columns.values()) {
+    for (let c = 0; c < this.columns.length; c++) {
+      const col = this.columns[c]!;
       if (col.isBlack) continue;
       const octave = Math.floor(col.pitch / 12);
       if (octave % 2 === 0) {
@@ -225,15 +246,21 @@ export class Renderer {
     // Low health: the lane goes dark and red; the notes on top stay bright.
     if (fx.meters.low) {
       const pulse = 0.5 + 0.5 * Math.sin(fx.clock * 5);
-      ctx.fillStyle = `rgba(40,0,0,${(0.4 + 0.12 * pulse).toFixed(3)})`;
+      ctx.fillStyle = '#280000';
+      ctx.globalAlpha = 0.4 + 0.12 * pulse;
       ctx.fillRect(0, 0, width, hitY);
+      ctx.globalAlpha = 1;
     }
 
     // Beat and bar lines
     const visibleSec = hitY / pps;
     ctx.lineWidth = 1;
     const lines = s.beatLines;
-    for (let i = 0; i < lines.length; i++) {
+    if (this.beats !== lines || s.time < this.beatTime) this.beatCursor = 0;
+    this.beats = lines;
+    this.beatTime = s.time;
+    while (this.beatCursor < lines.length && lines[this.beatCursor]!.time < s.time - 0.1) this.beatCursor++;
+    for (let i = this.beatCursor; i < lines.length; i++) {
       const b = lines[i]!;
       if (b.time < s.time - 0.1) continue;
       if (b.time > s.time + visibleSec) break;
@@ -250,7 +277,8 @@ export class Renderer {
     // Notes (forward-only cursor)
     const notes = s.chart.notes;
     const earliest = s.time - s.chart.maxDuration - 1;
-    if (earliest < this.cursorTime) this.cursor = 0;
+    if (this.chart !== s.chart || earliest < this.cursorTime) this.cursor = 0;
+    this.chart = s.chart;
     while (this.cursor < notes.length && notes[this.cursor]!.time < earliest) this.cursor++;
     this.cursorTime = earliest;
     const until = s.time + visibleSec + 0.5;
@@ -353,7 +381,7 @@ export class Renderer {
     if (s.showNoteNames && w >= 14 && h >= 14 && !hit) {
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
       ctx.font = w >= 16 ? '11px system-ui' : '9px system-ui';
-      ctx.fillText(noteName(n.pitch).replace(/-?\d+$/, ''), x + w / 2, yBottom - 8);
+      ctx.fillText(this.labels[n.pitch]!, x + w / 2, yBottom - 8);
     }
     ctx.globalAlpha = 1;
   }
@@ -446,7 +474,8 @@ export class Renderer {
     }
     const blackH = keyboardH * 0.62;
     for (let pass = 0; pass < 2; pass++) {
-      for (const col of layout.columns.values()) {
+      for (let c = 0; c < this.columns.length; c++) {
+        const col = this.columns[c]!;
         if (col.isBlack !== (pass === 1)) continue;
         const kv = s.keyVisuals.get(col.pitch);
         const h = col.isBlack ? blackH : keyboardH;
@@ -469,7 +498,7 @@ export class Renderer {
           ctx.font = isC ? (col.w >= 20 ? 'bold 12px system-ui' : 'bold 9px system-ui') : col.w >= 20 ? '12px system-ui' : '9px system-ui';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'alphabetic';
-          ctx.fillText(isC ? noteName(col.pitch) : noteName(col.pitch).replace(/-?\d+$/, ''), col.x + col.w / 2, hitY + keyboardH - 6);
+          ctx.fillText(isC ? col.label : col.shortName, col.x + col.w / 2, hitY + keyboardH - 6);
         }
       }
     }
@@ -610,21 +639,10 @@ export class Renderer {
     if (g.life <= 0) return;
     const ctx = this.ctx;
     const w = Math.min(120, width * 0.14);
-    const rgb = TINT_RGB[g.tint]!;
     ctx.globalAlpha = 1 - g.age / g.life;
-    ctx.fillStyle = this.gradient(g.tint * 2, () => {
-      const gr = ctx.createLinearGradient(0, 0, w, 0);
-      gr.addColorStop(0, `rgba(${rgb},0.55)`);
-      gr.addColorStop(1, `rgba(${rgb},0)`);
-      return gr;
-    });
+    ctx.fillStyle = this.gradients.get(g.tint * 2)!;
     ctx.fillRect(0, 0, w, height);
-    ctx.fillStyle = this.gradient(g.tint * 2 + 1, () => {
-      const gr = ctx.createLinearGradient(width, 0, width - w, 0);
-      gr.addColorStop(0, `rgba(${rgb},0.55)`);
-      gr.addColorStop(1, `rgba(${rgb},0)`);
-      return gr;
-    });
+    ctx.fillStyle = this.gradients.get(g.tint * 2 + 1)!;
     ctx.fillRect(width - w, 0, w, height);
     ctx.globalAlpha = 1;
   }
