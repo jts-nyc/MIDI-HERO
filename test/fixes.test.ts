@@ -147,3 +147,23 @@ describe('fix 4: the song list looks a best up under the key the play path recor
     expect(keyLevelOf('expert', ['easy'])).toEqual({ level: 'easy', keyLevel: 'easy' });
   });
 });
+
+describe('fix 5: an early hit keeps the notes the previous hit earned', () => {
+  it('the previous hit\'s carried notes still sound when the next note is hit early', () => {
+    const chart = makeChart([[1, 60, 0.25], [1.5, 64, 0.25], [3, 62]]);
+    const c = (time: number, pitch: number) => ({ time, duration: 0.1, pitch, velocity: 80, partKey: chart.notes[0]!.partKey });
+    // As Hard does to a four-note chord and a fast run: the removed notes sound with their carrier.
+    chart.notes[0]!.carry = [c(1, 48), c(1.2, 67), c(1.49, 69)];
+    chart.notes[1]!.carry = [c(1.5, 52)];
+    const { synth, goTo, down, up } = harness({ chart, feedbackSound: 'chart' });
+    goTo(1);
+    down(60);
+    up(60);
+    goTo(1.43); // 1.49 is still to come
+    down(64);
+    up(64);
+    goTo(2);
+    const played = synth.calls.filter((k) => k.method === 'noteOn' && k.args[0] === FEEDBACK_CHANNEL).map((k) => k.args[1]);
+    expect(played).toEqual([60, 48, 67, 64, 69, 52]);
+  });
+});

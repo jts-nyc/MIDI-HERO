@@ -174,7 +174,7 @@ export class PlaySession {
   private readonly feedback: FeedbackSound;
   private readonly feedbackChannels = new Map<string, number>();
   private readonly sounding: Sounding[] = [];
-  /** notes earned by the last hit that are still to come, in time order */
+  /** notes earned by hits that are still to come, in time order */
   private readonly earned: CarriedNote[] = [];
   /** song time at which a fully judged song ends */
   private endAt = Infinity;
@@ -359,9 +359,13 @@ export class PlaySession {
     const channel = this.feedbackChannels.get(n.partKey) ?? FEEDBACK_CHANNEL;
     const voice = synth.noteOn(channel, n.origPitch, n.velocity, 0);
     this.sounding.push({ channel, pitch: n.origPitch, end: Math.max(n.time + n.duration, t + MIN_SOUND * this.rate), voice });
-    this.earned.length = 0;
+    // The notes the last hit earned still sound when this one comes early: merge, in time order.
     if (n.carry) {
-      for (const c of n.carry) this.earned.push(c);
+      for (const c of n.carry) {
+        let i = this.earned.length;
+        while (i > 0 && this.earned[i - 1]!.time > c.time) i--;
+        this.earned.splice(i, 0, c);
+      }
       this.playEarned(this.now());
     }
   }
