@@ -1,5 +1,5 @@
 import type { GameClock } from '../audio/clock.ts';
-import type { Synth } from '../audio/synth.ts';
+import { FEEDBACK_CHANNEL, FEEDBACK_CHANNELS, type Synth } from '../audio/synth.ts';
 import { ChannelFilter, OctaveTracker, type InputEvent, type OctaveEvent } from '../input/normalize.ts';
 import type { Chart } from '../midi/chart.ts';
 import { noteName } from '../render/layout.ts';
@@ -8,6 +8,14 @@ import { theme } from '../render/renderer.ts';
 import { Judge, type Counts, type JudgeConfig, type Judgment } from './judge.ts';
 
 export type SessionStatus = 'playing' | 'paused' | 'finished';
+
+/**
+ * What a key press sounds like.
+ * 'chart': a hit sounds the chart note (original pitch, velocity and instrument), a wrong key clunks, a miss is silent.
+ * 'press': every press sounds the pressed key (free play; v0.1 behaviour).
+ * 'off': the instrument makes its own sound.
+ */
+export type FeedbackSound = 'chart' | 'press' | 'off';
 
 export interface AutoplayOptions {
   /** random timing error, ms (uniform ±) */
@@ -24,6 +32,10 @@ export interface SessionOptions {
   inputOffsetMs: number;
   /** player-note synth, or null when the instrument makes its own sound */
   synth: Synth | null;
+  /** default 'press' */
+  feedbackSound?: FeedbackSound;
+  /** GM program per selected part key, for chart-note feedback */
+  feedbackPrograms?: Record<string, number>;
   /** relative judging: hardware octave shift is unknown and may change */
   relative: boolean;
   /** seconds of highway visible above the hit line, for the lead-in */
@@ -48,6 +60,16 @@ const JUDGMENT_COLOR: Record<Judgment, string> = {
   perfect: theme.perfect, great: theme.great, good: theme.good, late: theme.wrong, miss: theme.noteMissed,
 };
 const KEY_FLASH = 0.25; // s, for wrong/missed key flashes
+const SOUND_LOOKAHEAD = 0.05; // s, real time: note-offs are scheduled this far ahead of their song time
+const MIN_SOUND = 0.08; // s, a hit at the very end of a note is still heard
+const OUTRO = 0.6; // s, real time between the last judged note and the results, so it can ring out
+
+/** A chart note sounding on a feedback channel until `end`. */
+interface Sounding {
+  channel: number;
+  pitch: number;
+  end: number;
+}
 
 /** One play-through of a chart: input → judge → visuals, plus autoplay and the player-note synth. */
 export class PlaySession {
@@ -68,9 +90,23 @@ export class PlaySession {
   private autoJitter: number[] = [];
   private heldKeys = new Set<number>();
   private lastNow = -Infinity;
+  private readonly feedback: FeedbackSound;
+  private readonly feedbackChannels = new Map<string, number>();
+  private readonly sounding: Sounding[] = [];
+  /** song time at which a fully judged song ends */
+  private endAt = Infinity;
 
   constructor(readonly opts: SessionOptions) {
     this.judge = new Judge(opts.chart, opts.judgeConfig, opts.rate);
+    this.feedback = opts.synth ? opts.feedbackSound ?? 'press' : 'off';
+    if (this.feedback === 'chart') {
+      for (const n of opts.chart.notes) {
+        if (this.feedbackChannels.has(n.partKey)) continue;
+        const channel = FEEDBACK_CHANNEL + Math.min(this.feedbackChannels.size, FEEDBACK_CHANNELS - 1);
+        this.feedbackChannels.set(n.partKey, channel);
+        opts.synth!.program(channel, opts.feedbackPrograms?.[n.partKey] ?? 0);
+      }
+    }
     this.noteVisuals = opts.chart.notes.map(() => ({ state: 'pending', hitTime: 0, judgment: '' }));
     this.leadIn = opts.visibleSeconds * opts.rate + opts.barSeconds;
     if (opts.autoplay) {
@@ -98,8 +134,10 @@ export class PlaySession {
     if (this.status !== 'playing') return;
     const passed = this.filter.filter(ev);
     if (!passed) return;
+    const press = this.feedback === 'press' ? this.opts.synth : null;
+    const chartSound = this.feedback === 'chart' ? this.opts.synth : null;
     if (ev.type === 'pedal') {
-      this.opts.synth?.control(0, 64, ev.velocity, 0);
+      press?.control(0, 64, ev.velocity, 0);
       return;
     }
     const pitch = ev.pitch + (this.opts.relative ? this.octaveOffset : 0);
@@ -108,15 +146,20 @@ export class PlaySession {
       // The key highlight stays for KEY_FLASH after release so a quick tap is still visible.
       const kv = this.keyVisuals.get(pitch);
       if (kv) kv.since = Math.max(kv.since, this.now() - KEY_FLASH * 0.6);
-      this.opts.synth?.noteOff(0, pitch, 0);
+      press?.noteOff(0, pitch, 0);
       return;
     }
     // Sound first: synchronous, at the audio clock's current time.
-    this.opts.synth?.noteOn(0, pitch, ev.velocity, 0);
+    press?.noteOn(0, pitch, ev.velocity, 0);
     this.heldKeys.add(pitch);
     const t = this.songTimeOf(ev);
     this.judge.advance(t);
     const result = this.judge.noteOn(pitch, t);
+    // Chart feedback depends on the verdict, so it sounds right after it, still inside this handler.
+    if (chartSound) {
+      if (result.kind === 'hit') this.soundChartNote(chartSound, result.noteId, t);
+      else chartSound.clunk(ev.velocity, 0);
+    }
     if (result.kind === 'hit') {
       if (ev.source === 'midi' && this.filter.locked === null) this.filter.lock(ev.channel);
       this.noteVisuals[result.noteId] = { state: 'hit', hitTime: this.now(), judgment: result.judgment };
@@ -135,6 +178,28 @@ export class PlaySession {
       }
     }
     this.trimPopups();
+  }
+
+  /** The hit note as written in the file: original pitch, velocity and instrument, for its written length. */
+  private soundChartNote(synth: Synth, noteId: number, t: number): void {
+    const n = this.chart.notes[noteId]!;
+    const channel = this.feedbackChannels.get(n.partKey) ?? FEEDBACK_CHANNEL;
+    synth.noteOn(channel, n.origPitch, n.velocity, 0);
+    this.sounding.push({ channel, pitch: n.origPitch, end: Math.max(n.time + n.duration, t + MIN_SOUND * this.opts.rate) });
+  }
+
+  /** Schedule the note-offs that fall due, at their exact time on the audio clock. */
+  private releaseSounding(now: number): void {
+    const synth = this.opts.synth;
+    if (!synth || this.sounding.length === 0) return;
+    const horizon = now + SOUND_LOOKAHEAD * this.opts.rate;
+    let kept = 0;
+    for (let i = 0; i < this.sounding.length; i++) {
+      const s = this.sounding[i]!;
+      if (s.end <= horizon) synth.noteOff(s.channel, s.pitch, this.opts.clock.songTimeToContextTime(s.end));
+      else this.sounding[kept++] = s;
+    }
+    this.sounding.length = kept;
   }
 
   /** If a pending note of the same pitch class is due now, its pitch minus the played pitch; else 0. */
@@ -172,6 +237,7 @@ export class PlaySession {
     this.lastNow = now;
     if (this.opts.autoplay) this.runAutoplay(now);
     this.judge.advance(now);
+    this.releaseSounding(now);
     for (const e of this.judge.takeEvents()) {
       if (e.type === 'miss') {
         this.noteVisuals[e.noteId] = { state: 'missed', hitTime: now, judgment: 'miss' };
@@ -182,9 +248,15 @@ export class PlaySession {
       if (!this.heldKeys.has(pitch) && now - kv.since > KEY_FLASH) this.keyVisuals.delete(pitch);
     }
     this.trimPopups();
-    if (this.judge.finished || now > this.chart.duration) {
+    if (this.judge.finished && this.endAt === Infinity) {
+      let end = now;
+      for (const s of this.sounding) end = Math.max(end, s.end);
+      this.endAt = end + OUTRO * this.opts.rate;
+    }
+    if (now >= this.endAt || now > this.chart.duration) {
       this.judge.finish();
       this.status = 'finished';
+      this.sounding.length = 0;
       this.opts.synth?.allNotesOff(0);
       this.onFinished(this.result());
     }
@@ -214,6 +286,7 @@ export class PlaySession {
     if (this.status !== 'playing') return;
     this.opts.clock.pause();
     this.status = 'paused';
+    this.sounding.length = 0;
     this.opts.synth?.allNotesOff(0);
   }
 

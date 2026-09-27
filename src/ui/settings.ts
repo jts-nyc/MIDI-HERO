@@ -1,4 +1,5 @@
 import type { TimingPreset, WrongNotePenalty } from '../game/judge.ts';
+import type { FeedbackSound } from '../game/session.ts';
 import type { FoldMode } from '../midi/chart.ts';
 
 export type KeyboardSize = 25 | 49 | 61 | 88;
@@ -10,8 +11,10 @@ export interface Settings {
   names: boolean;
   /** note names on falling notes */
   noteNames: boolean;
-  /** synthesize the player's own notes */
+  /** the computer makes the sound of the player's notes; false when the instrument has speakers */
   synth: boolean;
+  /** what a press sounds like when `synth` is on */
+  feedbackSound: FeedbackSound;
   hitSound: boolean;
   /** scroll speed, px/s */
   speed: number;
@@ -35,6 +38,7 @@ export const DEFAULT_SETTINGS: Settings = {
   names: true,
   noteNames: false,
   synth: true,
+  feedbackSound: 'chart',
   hitSound: false,
   speed: 300,
   rate: 1,
@@ -70,11 +74,24 @@ export function urlOverrides(search: string): Partial<Settings> {
   bool('easy');
   bool('noteNames');
   bool('hitSound');
+  const feedback = p.get('feedback');
+  if (isFeedbackSound(feedback)) {
+    out.feedbackSound = feedback;
+    out.synth = feedback !== 'off';
+  }
   const rate = Number(p.get('rate'));
   if (rate >= 0.25 && rate <= 1.5) out.rate = rate;
   const speed = Number(p.get('speed'));
   if (speed >= 100 && speed <= 800) out.speed = speed;
   return out;
+}
+
+const isFeedbackSound = (v: unknown): v is FeedbackSound => v === 'chart' || v === 'press' || v === 'off';
+
+/** The feedback mode in effect: `synth` off always means the instrument sounds itself. */
+export function effectiveFeedback(s: Pick<Settings, 'synth' | 'feedbackSound'>): FeedbackSound {
+  if (!s.synth) return 'off';
+  return s.feedbackSound === 'off' ? 'chart' : s.feedbackSound;
 }
 
 /** Validate and clamp a loosely-typed object into Settings. */
@@ -99,6 +116,9 @@ export function sanitize(raw: unknown, base: Settings = DEFAULT_SETTINGS): Setti
   num('keyboardBase', 0, 96);
   if (r.wrongNotePenalty === 'none' || r.wrongNotePenalty === 'combo' || r.wrongNotePenalty === 'score') s.wrongNotePenalty = r.wrongNotePenalty;
   if (r.foldMode === 'fold' || r.foldMode === 'drop') s.foldMode = r.foldMode;
+  if (isFeedbackSound(r.feedbackSound)) s.feedbackSound = r.feedbackSound;
+  // `synth` on with feedback 'off' cannot be expressed in the UI; an old or pack value of `synth` wins.
+  if (s.synth && s.feedbackSound === 'off') s.feedbackSound = 'chart';
   if (typeof r.midiPortId === 'string' || r.midiPortId === null) s.midiPortId = r.midiPortId as string | null;
   return s;
 }

@@ -19,7 +19,7 @@ import {
   gateMessage, installDropZone, showError, showExportDialog, showFirstRun, showGate, showPartPicker, showPause, showPlayHud,
   showResults, showSettings, showSongSelect, showUnsupported, toast, type PartPickerState, type PartRow, type SongRow,
 } from './ui/screens.ts';
-import { loadSettings, resetToClassDefaults, saveClassDefaults, saveSettings, type Settings } from './ui/settings.ts';
+import { effectiveFeedback, loadSettings, resetToClassDefaults, saveClassDefaults, saveSettings, type Settings } from './ui/settings.ts';
 
 // ---------------------------------------------------------------------------
 // Types and state
@@ -242,7 +242,10 @@ function applyPackSettings(ps: PackSettings): void {
   if (ps.kb) partial.kb = ps.kb;
   if (ps.timing) partial.timing = ps.timing;
   if (ps.names !== undefined) partial.names = ps.names;
-  if (ps.synth !== undefined) partial.synth = ps.synth;
+  if (ps.synth !== undefined) {
+    partial.synth = ps.synth;
+    if (ps.synth && settings.feedbackSound === 'off') partial.feedbackSound = 'chart';
+  }
   saveClassDefaults(partial);
   settings = { ...settings, ...partial };
   saveSettings(settings);
@@ -488,7 +491,9 @@ function play(): void {
   }
   session = new PlaySession({
     chart, clock, judgeConfig, rate: settings.rate, inputOffsetMs: settings.inputOffsetMs,
-    synth: settings.synth ? synth : null, relative, visibleSeconds, barSeconds, autoplay,
+    synth: settings.synth ? synth : null, feedbackSound: effectiveFeedback(settings),
+    feedbackPrograms: Object.fromEntries(current.parts.map((p) => [p.key, p.program])),
+    relative, visibleSeconds, barSeconds, autoplay,
     hint: relative ? PlaySession.keysHint(window) : partName,
   });
   const s = session;
@@ -687,7 +692,7 @@ async function boot(): Promise<void> {
   if (!settings.firstRunDone) {
     showFirstRun({
       onDone: (kb, soundSelf) => {
-        settings = { ...settings, kb, synth: !soundSelf, firstRunDone: true };
+        settings = { ...settings, kb, synth: !soundSelf, feedbackSound: soundSelf ? 'off' : 'chart', firstRunDone: true };
         saveSettings(settings);
         void start();
       },

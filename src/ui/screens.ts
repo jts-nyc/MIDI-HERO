@@ -4,7 +4,7 @@ import type { MidiPort } from '../input/midiInput.ts';
 import type { Hand } from '../midi/chart.ts';
 import type { Part } from '../types.ts';
 import { noteName } from '../render/layout.ts';
-import type { KeyboardSize, Settings } from './settings.ts';
+import { effectiveFeedback, type KeyboardSize, type Settings } from './settings.ts';
 
 const overlay = (): HTMLElement => document.getElementById('overlay')!;
 
@@ -391,6 +391,7 @@ export interface SettingsScreenOptions {
 
 export function showSettings(o: SettingsScreenOptions): void {
   const s = o.settings;
+  const fb = effectiveFeedback(s);
   const opt = (v: string | number, label: string, cur: string | number) => `<option value="${v}" ${String(v) === String(cur) ? 'selected' : ''}>${label}</option>`;
   const chk = (id: keyof Settings, label: string) => `<label class="field">${label}<input type="checkbox" id="${id}" ${s[id] ? 'checked' : ''} /></label>`;
   const num = (id: keyof Settings, label: string, min: number, max: number, step: number) =>
@@ -405,7 +406,7 @@ export function showSettings(o: SettingsScreenOptions): void {
     ${num('speed', 'Scroll speed (px/s)', 100, 800, 25)}
     ${chk('names', 'Note names on keys')}
     ${chk('noteNames', 'Note names on falling notes')}
-    ${chk('synth', 'Synthesize my notes (turn off if your keyboard has speakers; set Local Control ON on the instrument)')}
+    <label class="field">Sound of my notes <select id="feedbackSound">${opt('chart', "the song's part when I play it right", fb)}${opt('press', 'every key I press (free play)', fb)}${opt('off', 'none: my keyboard has speakers (set Local Control ON)', fb)}</select></label>
     ${chk('easy', 'Easy mode: any octave counts')}
     <label class="field">Wrong notes <select id="wrongNotePenalty">${opt('combo', 'reset combo', s.wrongNotePenalty)}${opt('none', 'ignore', s.wrongNotePenalty)}${opt('score', 'reset combo and lose points', s.wrongNotePenalty)}</select></label>
     <label class="field">Notes outside my keyboard <select id="foldMode">${opt('fold', 'fold into range', s.foldMode)}${opt('drop', 'drop', s.foldMode)}</select></label>
@@ -426,7 +427,8 @@ export function showSettings(o: SettingsScreenOptions): void {
       speed: Number(get<HTMLInputElement>('speed').value),
       names: get<HTMLInputElement>('names').checked,
       noteNames: get<HTMLInputElement>('noteNames').checked,
-      synth: get<HTMLInputElement>('synth').checked,
+      synth: get<HTMLSelectElement>('feedbackSound').value !== 'off',
+      feedbackSound: get<HTMLSelectElement>('feedbackSound').value as Settings['feedbackSound'],
       easy: get<HTMLInputElement>('easy').checked,
       wrongNotePenalty: get<HTMLSelectElement>('wrongNotePenalty').value as Settings['wrongNotePenalty'],
       foldMode: get<HTMLSelectElement>('foldMode').value as Settings['foldMode'],

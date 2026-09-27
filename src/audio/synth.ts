@@ -13,7 +13,15 @@ export interface Synth {
   allNotesOff(when: number): void;
   setDrumChannels(channels: number[]): void;
   setMasterGain(gain: number): void;
+  /** Unpitched "wrong note" thud: a short low-passed noise burst over a 90 Hz body. */
+  clunk(velocity: number, when: number): void;
 }
+
+/** Channels 0-15 belong to the MIDI file; chart-note feedback for the player's parts starts here. */
+export const FEEDBACK_CHANNEL = 16;
+export const FEEDBACK_CHANNELS = 8;
+const NUM_CHANNELS = FEEDBACK_CHANNEL + FEEDBACK_CHANNELS;
+const CLUNK_SECONDS = 0.08;
 
 type Family = 'keys' | 'organ' | 'plucked' | 'bass' | 'pad' | 'lead' | 'brass';
 
@@ -98,7 +106,7 @@ export class WebAudioSynth implements Synth {
     comp.threshold.value = -12;
     comp.ratio.value = 4;
     this.master.connect(comp).connect(ctx.destination);
-    for (let c = 0; c < 16; c++) {
+    for (let c = 0; c < NUM_CHANNELS; c++) {
       const gain = ctx.createGain();
       gain.connect(this.master);
       this.channels.push({ program: 0, gain, volume: 100, expression: 127, bendRange: 2, bend: 0, rpnMsb: 127, rpnLsb: 127, sustain: false });
@@ -274,6 +282,34 @@ export class WebAudioSynth implements Synth {
     for (const v of [...this.voices]) this.kill(v, t);
   }
 
+  clunk(velocity: number, when: number): void {
+    const ctx = this.ctx;
+    const t = Math.max(when, ctx.currentTime);
+    const vel = Math.max(0.2, velocity / 127);
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 420;
+    filter.Q.value = 0.7;
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.55 * vel, t);
+    env.gain.exponentialRampToValueAtTime(0.001, t + CLUNK_SECONDS);
+    src.connect(filter).connect(env).connect(this.master);
+    src.start(t);
+    src.stop(t + CLUNK_SECONDS + 0.02);
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(90, t);
+    osc.frequency.exponentialRampToValueAtTime(55, t + CLUNK_SECONDS);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(0.7 * vel, t);
+    og.gain.exponentialRampToValueAtTime(0.001, t + CLUNK_SECONDS);
+    osc.connect(og).connect(this.master);
+    osc.start(t);
+    osc.stop(t + CLUNK_SECONDS + 0.02);
+  }
+
   private drumHit(channel: number, pitch: number, velocity: number, t: number): void {
     const ctx = this.ctx;
     const ch = this.channels[channel]!;
@@ -344,4 +380,5 @@ export class RecordingSynth implements Synth {
   allNotesOff(when: number): void { this.rec('allNotesOff', when); }
   setDrumChannels(channels: number[]): void { this.rec('setDrumChannels', channels); }
   setMasterGain(gain: number): void { this.rec('setMasterGain', gain); }
+  clunk(velocity: number, when: number): void { this.rec('clunk', velocity, when); }
 }
