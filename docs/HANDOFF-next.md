@@ -112,3 +112,20 @@ Nothing depends on Easy's exact recipe, so this can land any time after the owne
 2. `?song=ode-to-joy&autoplay=1` unchanged outside practice.
 3. Practice on a section of Minuet in G: loop, ladder, wait mode, both renderers.
 4. A pack with `unlocks: true` locks and unlocks levels; an old pack still imports.
+
+## Round 2 status and follow-ups (lead, 2026-09-27)
+
+Ready to merge, in this order, each with CI green: #3 (this doc, contract, CI) → #5 (practice,
+packs, tier text, the six round-1 fixes; started by Fable 5.1, finished by Opus 5.5) → #4
+(Codex: bench, practice and venue visuals). #4 and #5 touch different files and combine
+without conflicts; together, 363 tests pass and practice was checked live in both highways.
+
+Left for round 3 (all low severity, from the review of #5):
+
+- After a wait, band notes that were sounding stay silent until the next onset (`onWait` stops
+  the scheduler).
+- Pausing during the count-in can drop clicks that were already scheduled.
+- Unlocks pool best scores across parts, timing presets and Easy mode (`starsByLevel`).
+- When a practice loop restarts, several call-outs stack on top of each other; show one.
+- WP11's smaller Perfect word needs a size on `Popup` (renderer side).
+- Practice sections are 8-bar windows only; `parse.ts` doesn't read MIDI markers yet.
