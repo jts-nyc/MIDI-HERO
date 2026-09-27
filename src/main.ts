@@ -9,7 +9,7 @@ import { KeyboardInput } from './input/keyboardInput.ts';
 import { MidiInput } from './input/midiInput.ts';
 import type { InputEvent } from './input/normalize.ts';
 import {
-  buildChart, chooseWindow, DIFFICULTY_LABEL, isDifficulty, levelStats, splitNotes,
+  buildChart, chooseWindow, DIFFICULTY_LABEL, isDifficulty, offeredLevels, resolveLevel, splitNotes,
   type Chart, type ChartOptions, type Difficulty, type Hand, type PitchWindow,
 } from './midi/chart.ts';
 import { buildPack, parsePackJson, sha256Hex, type PackSettings } from './midi/pack.ts';
@@ -51,6 +51,8 @@ interface LibrarySong {
   hands?: Hand[];
   timingPreset?: TimingPreset;
   difficulty?: Difficulty;
+  /** level name in the best-score key (see bestKey) */
+  keyLevel?: string;
   packName?: string;
 }
 
@@ -60,6 +62,7 @@ interface PartChoice {
   hands?: Hand[];
   timing?: TimingPreset;
   difficulty?: Difficulty;
+  keyLevel?: string;
 }
 
 /** Students start on Easy; a teacher's pack or the player's own choice overrides it. */
@@ -204,7 +207,7 @@ async function loadLibrary(): Promise<void> {
   const bundled: LibrarySong[] = manifest.map((m) => ({
     id: m.id, title: m.title, source: 'bundled', file: m.file, defaultParts: m.defaultParts,
     parts: choices[m.id]?.parts ?? m.defaultParts, split: choices[m.id]?.split ?? m.split, hands: choices[m.id]?.hands, timingPreset: choices[m.id]?.timing,
-    difficulty: isDifficulty(choices[m.id]?.difficulty) ? choices[m.id]!.difficulty : undefined,
+    difficulty: isDifficulty(choices[m.id]?.difficulty) ? choices[m.id]!.difficulty : undefined, keyLevel: choices[m.id]?.keyLevel,
   }));
   let imported: LibrarySong[] = [];
   try {
@@ -213,7 +216,7 @@ async function loadLibrary(): Promise<void> {
       .sort((a, b) => a.addedAt - b.addedAt)
       .map((s) => ({
         id: s.id, title: s.name, source: 'imported', bytes: s.bytes, defaultParts: s.parts, parts: s.parts, split: s.split,
-        timingPreset: s.timingPreset as TimingPreset | undefined, difficulty: isDifficulty(s.difficulty) ? s.difficulty : undefined, packName: s.packName,
+        timingPreset: s.timingPreset as TimingPreset | undefined, difficulty: isDifficulty(s.difficulty) ? s.difficulty : undefined, keyLevel: s.keyLevel, packName: s.packName,
       }));
   } catch (e) {
     console.warn('IndexedDB unavailable', e);
@@ -349,7 +352,7 @@ function songSelect(): void {
   // Best scores load asynchronously and are added to the rows when known.
   for (const l of library) {
     if (!l.parts.length) continue;
-    void getBest(bestKey(l.id, l.parts, l.split, l.timingPreset ?? settings.timing, settings.rate, settings.easy, l.difficulty ?? DEFAULT_DIFFICULTY))
+    void getBest(bestKey(l.id, l.parts, l.split, l.timingPreset ?? settings.timing, settings.rate, settings.easy, l.keyLevel ?? l.difficulty ?? DEFAULT_DIFFICULTY))
       .then((b) => {
         if (!b) return;
         const item = document.querySelector<HTMLElement>(`.item[data-id="${CSS.escape(l.id)}"] .meta`);
@@ -485,6 +488,18 @@ function selectionOptions(): (Pick<ChartOptions, 'parts' | 'split' | 'hands'> & 
   return { parts, split: wide ? current.picker.split : undefined, hands: wide ? current.picker.hands : undefined, wide };
 }
 
+/**
+ * The levels the selection has, the one that will be played (the chosen level, or the nearest
+ * one below it that this part has), and its name in the best-score key.
+ */
+function levelsOfSelection(): { offered: ReturnType<typeof offeredLevels>; level: Difficulty; keyLevel: Difficulty } {
+  const sel = selectionOptions();
+  const offered = sel && current ? offeredLevels(splitNotes(current.song, sel).player, current.song) : [];
+  const names = offered.map((l) => l.level);
+  const level = resolveLevel(current?.picker.difficulty ?? DEFAULT_DIFFICULTY, names);
+  return { offered, level, keyLevel: names.length > 1 && level === names[names.length - 1] ? 'expert' : level };
+}
+
 /** Chart notes removed by the difficulty level sound on a hit; without chart feedback the band plays them. */
 const removedFor = (feedback: FeedbackSound): 'carry' | 'backing' => (feedback === 'chart' ? 'carry' : 'backing');
 
@@ -505,11 +520,12 @@ function partPicker(): void {
     const dup = p.duplicateOf ? parts.find((q) => q.key === p.duplicateOf) : undefined;
     return { part: p, foldedRatio: pitches.length ? outside / pitches.length : 0, duplicateOfName: dup?.name ?? null };
   });
-  const sel = selectionOptions();
+  const levels = levelsOfSelection();
   showPartPicker({
     title: lib.title,
     rows,
-    levels: sel ? levelStats(splitNotes(song, sel).player, song) : [],
+    levels: levels.offered,
+    level: levels.level,
     state: picker,
     kb: settings.kb,
     onChange: () => partPicker(),
@@ -524,18 +540,21 @@ async function startPlay(autoplay: { jitterMs: number } | null): Promise<void> {
   const sel = selectionOptions();
   if (!sel) return;
   const partIds = sel.parts;
-  const choice: PartChoice = { parts: partIds, split: picker.split, hands: picker.hands, timing: picker.timing, difficulty: picker.difficulty };
+  const { level, keyLevel } = levelsOfSelection();
+  picker.difficulty = level;
+  const choice: PartChoice = { parts: partIds, split: picker.split, hands: picker.hands, timing: picker.timing, difficulty: level, keyLevel };
   lib.parts = partIds;
   lib.split = picker.split;
   lib.hands = picker.hands;
   lib.timingPreset = picker.timing;
-  lib.difficulty = picker.difficulty;
+  lib.difficulty = level;
+  lib.keyLevel = keyLevel;
   if (lib.source === 'bundled') rememberChoice(lib.id, choice);
-  else await putSong({ id: lib.id, name: lib.title, bytes: lib.bytes!, parts: partIds, split: picker.split, timingPreset: picker.timing, difficulty: picker.difficulty, packName: lib.packName, addedAt: Date.now() }).catch(() => undefined);
+  else await putSong({ id: lib.id, name: lib.title, bytes: lib.bytes!, parts: partIds, split: picker.split, timingPreset: picker.timing, difficulty: level, keyLevel, packName: lib.packName, addedAt: Date.now() }).catch(() => undefined);
 
   ensureAudio();
   // The window is chosen for the notes this level actually asks for.
-  const unfolded = buildChart(song, { parts: sel.parts, split: sel.split, hands: sel.hands, difficulty: picker.difficulty });
+  const unfolded = buildChart(song, { parts: sel.parts, split: sel.split, hands: sel.hands, difficulty: level });
   const { window, relative } = windowFor(settings.kb, unfolded.notes.map((n) => n.origPitch));
   lastPlay = { window, relative, autoplay };
   play();
@@ -549,7 +568,7 @@ function play(): void {
   if (!sel) return;
   const partIds = sel.parts;
   const wide = sel.wide;
-  const difficulty = picker.difficulty;
+  const { offered, level: difficulty, keyLevel } = levelsOfSelection();
   const feedback = effectiveFeedback(settings);
   const chart: Chart = buildChart(song, {
     parts: sel.parts, split: sel.split, hands: sel.hands, window, foldMode: settings.foldMode, difficulty, removed: removedFor(feedback),
@@ -617,7 +636,9 @@ function play(): void {
     stopBacking();
     const badges = [...(result.failed ? ['Song failed'] : []), ...(settings.easy ? ['Easy mode'] : []), ...(settings.rate < 1 ? [`${Math.round(settings.rate * 100)}% speed`] : []), ...(autoplay ? ['Autoplay'] : [])];
     const detail = `${partName} · ${DIFFICULTY_LABEL[difficulty]} · ${timing} timing · ${Math.round(settings.rate * 100)}% speed`;
-    const suggestion = suggestNextStep({ accuracy: result.accuracy, difficulty, rate: settings.rate, failed: result.failed, sections: result.sections });
+    const suggestion = suggestNextStep({
+      accuracy: result.accuracy, difficulty, rate: settings.rate, failed: result.failed, sections: result.sections, levels: offered.map((l) => l.level),
+    });
     const show = (extra: string[], previousBest: number | null) =>
       showResults({
         title: lib.title, detail, result, badges: [...badges, ...extra], previousBest, suggestion,
@@ -625,7 +646,7 @@ function play(): void {
       });
     if (autoplay || result.failed) show([], null);
     else {
-      const key = bestKey(lib.id, partIds, wide ? picker.split : undefined, timing, settings.rate, settings.easy, difficulty);
+      const key = bestKey(lib.id, partIds, wide ? picker.split : undefined, timing, settings.rate, settings.easy, keyLevel);
       getBest(key)
         .catch(() => undefined)
         .then((before) =>

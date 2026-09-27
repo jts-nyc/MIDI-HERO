@@ -4,7 +4,9 @@ import { BeatGrid, simplify, type Difficulty } from './difficulty.ts';
 import { ticksToSeconds } from './parse.ts';
 import { markPhrases, phraseSpans, type Phrase } from './phrases.ts';
 
-export { DIFFICULTIES, DIFFICULTY_LABEL, isDifficulty, levelStats, simplify, type Difficulty, type LevelStats } from './difficulty.ts';
+export {
+  DIFFICULTIES, DIFFICULTY_LABEL, isDifficulty, levelStats, offeredLevels, resolveLevel, simplify, type Difficulty, type LevelStats,
+} from './difficulty.ts';
 
 export { type Phrase } from './phrases.ts';
 

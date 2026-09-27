@@ -81,6 +81,8 @@ export interface SuggestionInput {
   rate: number;
   failed?: boolean;
   sections?: readonly SectionResult[];
+  /** the levels this part has, lowest first; default all four */
+  levels?: readonly Difficulty[];
 }
 
 export const MOVE_UP = 0.9;
@@ -91,27 +93,29 @@ const pct = (rate: number): string => `${Math.round(rate * 100)}%`;
 /**
  * One clear next step.
  *  - 90% or better: move up. Below full speed that means faster first; at full speed the
- *    next difficulty ("Try Medium"); on Expert at full speed the song is mastered.
+ *    next difficulty the part has ("Try Medium"); on its top level at full speed the song
+ *    is mastered.
  *  - below 70% (or a failed song): slow down one step ("Try 90% speed"); at the slowest
  *    speed, drop a difficulty level instead.
  *  - in between: play it again, and name the weakest section when one stands out.
  */
 export function suggestNextStep(r: SuggestionInput): Suggestion {
-  const level = DIFFICULTIES.indexOf(r.difficulty);
+  const levels = r.levels?.length ? r.levels : DIFFICULTIES;
+  const level = levels.indexOf(r.difficulty);
   const rateIndex = RATES.findIndex((x) => x >= r.rate - 1e-9);
   if (!r.failed && r.accuracy >= MOVE_UP) {
     if (r.rate < 1 - 1e-9) {
       const rate = RATES[Math.min(RATES.length - 1, (rateIndex < 0 ? RATES.length - 1 : rateIndex) + 1)]!;
       return { kind: 'faster', text: rate >= 1 ? 'Try full speed' : `Try ${pct(rate)} speed`, rate };
     }
-    const next = DIFFICULTIES[level + 1];
+    const next = level >= 0 ? levels[level + 1] : undefined;
     if (next) return { kind: 'harder', text: `Try ${DIFFICULTY_LABEL[next]}`, difficulty: next };
     return { kind: 'mastered', text: 'Mastered! Pick a new song' };
   }
   if (r.failed || r.accuracy < SLOW_DOWN) {
     const slower = rateIndex > 0 ? RATES[rateIndex - 1] : rateIndex < 0 ? RATES[RATES.length - 2] : undefined;
     if (slower !== undefined) return { kind: 'slower', text: `Try ${pct(slower)} speed`, rate: slower };
-    const easier = DIFFICULTIES[level - 1];
+    const easier = level > 0 ? levels[level - 1] : undefined;
     if (easier) return { kind: 'easier', text: `Try ${DIFFICULTY_LABEL[easier]}`, difficulty: easier };
     return { kind: 'again', text: 'Play it again: watch the keys light up as the notes land' };
   }

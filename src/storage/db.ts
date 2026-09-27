@@ -10,6 +10,8 @@ export interface StoredSong {
   rate?: number;
   timingPreset?: string;
   difficulty?: string;
+  /** level name in the best-score key: 'expert' for the full part, whatever that level is called for this song */
+  keyLevel?: string;
   packName?: string;
   addedAt: number;
 }
@@ -65,8 +67,9 @@ export const listSongs = (): Promise<StoredSong[]> => tx('songs', 'readonly', (s
 export const deleteSong = (id: string): Promise<undefined> => tx('songs', 'readwrite', (s) => s.delete(id));
 
 /**
- * Best-score key: song plus everything that changes difficulty. The full part ('expert')
- * keeps the key it had before difficulty levels existed, so earlier bests still count.
+ * Best-score key: song plus everything that changes difficulty. The full part keeps the key
+ * it had before difficulty levels existed, so earlier bests still count: pass 'expert' for
+ * the top level of a part, whatever it is called for that song.
  */
 export function bestKey(songId: string, parts: PartId[], split: number | undefined, preset: string, rate: number, easy: boolean, difficulty = 'expert'): string {
   const rateBucket = Math.round(rate * 10) / 10;

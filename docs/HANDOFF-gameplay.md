@@ -20,6 +20,10 @@ Where the work departs from the text below, and why:
   that note is hit (in the other sound modes the band plays them). Without that, Easy would
   delete most of the melody from the song. The golden test asks for strictly fewer notes on Easy
   only where there is something to remove: the five-finger exercise is already one note a beat.
+- **WP2, levels per song** (owner's decision): a part offers only the levels that ask for more
+  than the one below (`offeredLevels` in `src/midi/difficulty.ts`). Easy and Medium always
+  exist; Hard and Expert only when they add notes. The top level of a part is its full part and
+  keeps the best-score key of v0.1.
 - **WP4** makes every 4th phrase a star phrase only from 16 phrases up; shorter songs get every
   3rd or 2nd, so that star power can be reached in Ode to Joy. Space now switches star power on,
   so it no longer pauses (Esc does); it still resumes a paused song.
@@ -52,7 +56,7 @@ Where the work departs from the text below, and why:
 | `src/midi/difficulty.ts`, `src/midi/phrases.ts` | Beat grid and `simplify()`; phrase splitting and star phrases. Pure. |
 | `src/game/meter.ts`, `src/game/results.ts`, `src/game/calibration.ts` | Performance meter; sections and the next-step suggestion; tap calibration. Pure. |
 | `src/render/fx.ts` | Effects state in fixed pools. Pure; see `docs/RENDER-CONTRACT.md`. |
-| `test/*.test.ts` | 335 tests with the local fixtures (127 before this session). `test/golden.test.ts` runs extra checks when `MIDI_FIXTURES_DIR` points at local .mid files. |
+| `test/*.test.ts` | 358 tests with the local fixtures (127 before this session). `test/golden.test.ts` runs extra checks when `MIDI_FIXTURES_DIR` points at local .mid files. |
 
 Commands: `npm run dev` (http://localhost:5173), `npm test`, `npm run build`, `npm run gen-songs`.
 Debug: the page mirrors session state into `document.getElementById('stage').dataset.state`

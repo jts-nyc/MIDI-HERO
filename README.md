@@ -87,8 +87,12 @@ phrase out of the mix; a miss is silent. Settings → "Sound of my notes" also o
 
 **Difficulty.** Easy keeps at most one note per beat, on the beat, the top note of a chord, and
 never asks for more than two notes a second; Medium works on half-beats; Hard is the full part
-with chords cut to three notes; Expert is the full part. The choice is stored per song, travels in
-song packs, and has its own best score.
+with chords cut to three notes; Expert is the full part. Levels are relative to the song: Easy
+is always its lowest rung, and a level above is offered only if it asks for more than the one
+below. A five-finger exercise or a simple melody stops at Medium (the same or a few more notes,
+and the keys have to be let go in time); sixteenths add Hard; chords of more than three notes,
+as in a two-handed piano part, add Expert. The choice is stored per song, travels in song packs,
+and has its own best score.
 
 **Streak and multiplier.** The multiplier rises at streaks of 10, 30 and 50 (2×, 3×, 4×). The
 performance meter at the right gains with hits and drains with misses and wrong notes; below 30%
