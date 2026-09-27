@@ -6,6 +6,7 @@ export type KeyboardSize = 25 | 49 | 61 | 88;
 
 export interface Settings {
   kb: KeyboardSize;
+  highway: 'flat' | 'perspective';
   timing: TimingPreset;
   /** note names on all keys */
   names: boolean;
@@ -40,6 +41,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   kb: 25,
+  highway: 'flat',
   timing: 'normal',
   names: true,
   noteNames: false,
@@ -116,6 +118,7 @@ export function sanitize(raw: unknown, base: Settings = DEFAULT_SETTINGS): Setti
     if (Number.isFinite(v)) (s as unknown as Record<string, number>)[k] = Math.min(max, Math.max(min, v));
   };
   if ([25, 49, 61, 88].includes(Number(r.kb))) s.kb = Number(r.kb) as KeyboardSize;
+  if (r.highway === 'flat' || r.highway === 'perspective') s.highway = r.highway;
   if (r.timing === 'strict' || r.timing === 'normal' || r.timing === 'relaxed') s.timing = r.timing;
   for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'letGo', 'firstRunDone'] as const) {
     if (typeof r[k] === 'boolean') s[k] = r[k] as boolean;

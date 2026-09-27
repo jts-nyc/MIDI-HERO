@@ -468,6 +468,7 @@ export function showSettings(o: SettingsScreenOptions): void {
     <label class="field">Timing <select id="timing">${['strict', 'normal', 'relaxed'].map((t) => opt(t, t, s.timing)).join('')}</select></label>
     <label class="field">Playback speed <select id="rate">${[0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1].map((r) => opt(r, `${Math.round(r * 100)}%`, s.rate)).join('')}</select></label>
     ${num('speed', 'Scroll speed (px/s)', 100, 800, 25)}
+    <label class="field">Highway <select id="highway">${opt('flat', 'Flat', s.highway)}${opt('perspective', 'Perspective', s.highway)}</select></label>
     ${chk('names', 'Note names on keys')}
     ${chk('noteNames', 'Note names on falling notes')}
     <label class="field">Sound of my notes <select id="feedbackSound">${opt('chart', "the song's part when I play it right", fb)}${opt('press', 'every key I press (free play)', fb)}${opt('off', 'none: my keyboard has speakers (set Local Control ON)', fb)}</select></label>
@@ -493,6 +494,7 @@ export function showSettings(o: SettingsScreenOptions): void {
       timing: get<HTMLSelectElement>('timing').value as TimingPreset,
       rate: Number(get<HTMLSelectElement>('rate').value),
       speed: Number(get<HTMLInputElement>('speed').value),
+      highway: get<HTMLSelectElement>('highway').value as Settings['highway'],
       names: get<HTMLInputElement>('names').checked,
       noteNames: get<HTMLInputElement>('noteNames').checked,
       synth: get<HTMLSelectElement>('feedbackSound').value !== 'off',

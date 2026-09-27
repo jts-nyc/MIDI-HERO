@@ -18,6 +18,7 @@ import { buildParts, defaultPart, notesOf } from './midi/parts.ts';
 import type { FeedbackSound } from './game/session.ts';
 import { displayRange } from './render/layout.ts';
 import { Renderer, type RenderState } from './render/renderer.ts';
+import { PerspectiveRenderer } from './render/highway3d.ts';
 import { bestKey, deleteSong, getBest, listSongs, putSong, recordBest, type StoredSong } from './storage/db.ts';
 import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
@@ -78,6 +79,7 @@ const base = import.meta.env.BASE_URL;
 const params = new URLSearchParams(location.search);
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
 const renderer = new Renderer(canvas);
+const perspectiveRenderer = new PerspectiveRenderer(canvas);
 const PARTS_KEY = 'midihero.parts.v1';
 
 let settings: Settings = loadSettings();
@@ -785,7 +787,7 @@ function step(s: PlaySession, state: RenderState): number {
   setMix(s.mixLevel);
   state.time = s.now() + (settings.audioOffsetMs / 1000) * settings.rate;
   state.hud = s.hud();
-  renderer.draw(state);
+  (settings.highway === 'perspective' ? perspectiveRenderer : renderer).draw(state);
   return performance.now() - w0;
 }
 
