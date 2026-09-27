@@ -9,6 +9,8 @@ This is a researched design report, with recommendations distinguished from esta
 
 **The product brief:** fun gameplay should get people actually playing songs on a keyboard. Two octaves are the starting physical range, not a ceiling on depth. This report does not assume the current implementation, an imported-MIDI workflow, a classroom-only audience, or any existing feature proposal.
 
+**Audio follow-up:** the [feasibility pilot](audio-pilot-findings.md) checked existing source access and analysis-tool readiness but did not establish original sound, a verified listener or a measurable error/recovery sequence. No new behavior is labeled **heard** or **measured**; manual/teaching evidence remains **documented** within its scope, and keyboard policies remain **inferred** proposals. A [capture and annotation handoff](audio-pilot-handoff.md) supports resuming the study. A short [student trial](student-audio-trial.md) can separately test actual-note audibility and recovery before that study finishes; it does not validate retail Guitar Hero mechanisms or durable learning.
+
 **Reading paths:** read the numbered design principles and decision table for the north star; use the feedback contract and arrangement example for prototypes; use the linked evidence memos for exact sources and implementation details.
 
 1. **What Guitar Hero makes worth practicing**
@@ -229,5 +231,7 @@ This is a researched design report, with recommendations distinguished from esta
 - [Developer and learning evidence](developer-learning-evidence.md): intent, teaching specification, empirical findings, counterevidence, and study limitations.
 - [Independent source review](review-notes.md): checks against source code and manuals, corrections, and constraints on synthesis.
 - [Audio assessment plan](audio-assessment-plan.md): proposed controlled recordings, verified listening, signal measurements and keyboard experiments to resolve the outstanding audio questions.
+- [Audio pilot findings and limitations](audio-pilot-findings.md): actual access checks, unresolved completion gates and next actions; [handoff](audio-pilot-handoff.md) for a recorder and listener.
+- [Student audio trial](student-audio-trial.md): a small formative protocol for testing provisional keyboard feedback sooner, independent of the existing build.
 
 The highest-value missing research is controlled original-game input/video/audio capture around wrong input, omission, early release, and first successful recovery. It should verify actual mute/unmute envelopes and their relationship to judgment; the current evidence cannot. Also outstanding are broader novice/failure video coverage, a measured original-game scoring replay, and empirical tests of the keyboard recommendations. The report is ready to guide prototypes; these gaps should remain visible when converting hypotheses into firm requirements.
