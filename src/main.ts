@@ -3,7 +3,8 @@ import { BackingScheduler } from './audio/scheduler.ts';
 import { WebAudioSynth, type Synth } from './audio/synth.ts';
 import { DEFAULT_JUDGE_CONFIG, OVERHOLD_COST, type JudgeConfig, type TimingPreset } from './game/judge.ts';
 import { calibrationBeats } from './game/calibration.ts';
-import { suggestNextStep, type Suggestion } from './game/results.ts';
+import { loopLabel, loopOf, practiceSections, trimChart, type PracticeSectionInfo } from './game/practice.ts';
+import { RATES, suggestNextStep, type Suggestion } from './game/results.ts';
 import { PlaySession } from './game/session.ts';
 import { KeyboardInput } from './input/keyboardInput.ts';
 import { MidiInput } from './input/midiInput.ts';
@@ -23,8 +24,9 @@ import { bestKey, deleteSong, getBest, listSongs, putSong, recordBest, type Stor
 import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
 import {
-  gateMessage, installDropZone, showCalibration, showError, showExportDialog, showFirstRun, showGate, showPartPicker, showPause, showPlayHud,
-  showResults, showSettings, showSongSelect, showUnsupported, toast, type PartPickerState, type PartRow, type SongRow,
+  gateMessage, installDropZone, setPracticeRate, showCalibration, showError, showExportDialog, showFirstRun, showGate, showPartPicker, showPause, showPlayHud,
+  showPracticePicker, showPracticeResults, showResults, showSettings, showSongSelect, showUnsupported, toast,
+  type PartPickerState, type PartRow, type PracticeChoice, type SongRow,
 } from './ui/screens.ts';
 import { effectiveFeedback, loadSettings, resetToClassDefaults, saveClassDefaults, saveSettings, type Settings } from './ui/settings.ts';
 
@@ -98,7 +100,9 @@ let tapHandler: ((perfMs: number) => void) | null = null;
 let calibrating = false;
 /** hardware octave shift learned at the gate, per MIDI port, for this page session */
 const octaveShiftByPort = new Map<string, number>();
-let lastPlay: { window: PitchWindow; relative: boolean; autoplay: { jitterMs: number } | null } | null = null;
+let lastPlay: { window: PitchWindow; relative: boolean; autoplay: { jitterMs: number } | null; practice: PracticeChoice | null } | null = null;
+/** the play screen's overlay, for the practice speed shown on it */
+let hudEl: HTMLElement | null = null;
 
 const midi = new MidiInput();
 const keyboard = new KeyboardInput();
@@ -468,6 +472,14 @@ async function openSong(id: string): Promise<void> {
   }
 }
 
+/** ?practice=2 (with autoplay): loop section 2; &practiceTo=3 extends the loop, &wait=1 turns wait mode on, &ladder=0 off. */
+function urlPractice(): PracticeChoice | null {
+  const n = Number(params.get('practice'));
+  if (!Number.isInteger(n) || n < 1) return null;
+  const to = Number(params.get('practiceTo') ?? n);
+  return { from: n - 1, to: Math.max(n, Number.isInteger(to) ? to : n) - 1, wait: params.get('wait') === '1', ladder: params.get('ladder') !== '0', rate: nearestRate(settings.rate) };
+}
+
 const urlDifficulty: Difficulty | null = isDifficulty(params.get('difficulty')) ? (params.get('difficulty') as Difficulty) : null;
 
 function selectedPartIds(): PartId[] {
@@ -530,11 +542,57 @@ function partPicker(): void {
     kb: settings.kb,
     onChange: () => partPicker(),
     onPlay: () => void startPlay(null),
+    onPractise: () => practicePicker(),
     onBack: songSelect,
   });
 }
 
-async function startPlay(autoplay: { jitterMs: number } | null): Promise<void> {
+/** Bar-line times of the current song, and its sections with the notes of the selected level. */
+function sectionsOfSelection(): { sections: PracticeSectionInfo[]; barTimes: number[] } | null {
+  if (!current) return null;
+  const sel = selectionOptions();
+  if (!sel) return null;
+  const { level } = levelsOfSelection();
+  const chart = buildChart(current.song, { parts: sel.parts, split: sel.split, hands: sel.hands, difficulty: level });
+  const barTimes = beatLines(current.song, chart.duration).filter((l) => l.isBar).map((l) => l.time);
+  return { sections: practiceSections(barTimes, chart.duration, chart.notes), barTimes };
+}
+
+/** Practice mode: pick the sections to loop, then play them. `section` preselects the one starting there. */
+function practicePicker(sectionStart?: number): void {
+  if (!current) return;
+  const found = sectionsOfSelection();
+  if (!found || found.sections.length === 0) return;
+  const { sections } = found;
+  const last = sections.length - 1;
+  const prev = lastPlay?.practice;
+  let from = 0;
+  let to = 0;
+  if (sectionStart !== undefined) from = to = Math.max(0, sections.findIndex((s) => Math.abs(s.start - sectionStart) < 1e-6));
+  else if (prev) {
+    from = Math.min(prev.from, last);
+    to = Math.min(prev.to, last);
+  }
+  const { level } = levelsOfSelection();
+  showPracticePicker({
+    title: current.lib.title,
+    level: DIFFICULTY_LABEL[level],
+    sections,
+    rates: RATES,
+    choice: { from, to, wait: settings.practiceWait, ladder: settings.practiceLadder, rate: prev?.rate ?? nearestRate(settings.rate) },
+    onStart: (choice) => {
+      settings.practiceWait = choice.wait;
+      settings.practiceLadder = choice.ladder;
+      saveSettings(settings);
+      void startPlay(null, choice);
+    },
+    onBack: partPicker,
+  });
+}
+
+const nearestRate = (rate: number): number => RATES.reduce((a, b) => (Math.abs(b - rate) < Math.abs(a - rate) ? b : a));
+
+async function startPlay(autoplay: { jitterMs: number } | null, practice: PracticeChoice | null = null): Promise<void> {
   if (!current) return;
   const { lib, song, picker } = current;
   const sel = selectionOptions();
@@ -556,33 +614,45 @@ async function startPlay(autoplay: { jitterMs: number } | null): Promise<void> {
   // The window is chosen for the notes this level actually asks for.
   const unfolded = buildChart(song, { parts: sel.parts, split: sel.split, hands: sel.hands, difficulty: level });
   const { window, relative } = windowFor(settings.kb, unfolded.notes.map((n) => n.origPitch));
-  lastPlay = { window, relative, autoplay };
+  lastPlay = { window, relative, autoplay, practice };
   play();
 }
 
 function play(): void {
   if (!current || !lastPlay) return;
   const { lib, song, picker } = current;
-  const { window, relative, autoplay } = lastPlay;
+  const { window, relative, autoplay, practice: choice } = lastPlay;
   const sel = selectionOptions();
   if (!sel) return;
   const partIds = sel.parts;
   const wide = sel.wide;
   const { offered, level: difficulty, keyLevel } = levelsOfSelection();
   const feedback = effectiveFeedback(settings);
-  const chart: Chart = buildChart(song, {
+  const fullChart: Chart = buildChart(song, {
     parts: sel.parts, split: sel.split, hands: sel.hands, window, foldMode: settings.foldMode, difficulty, removed: removedFor(feedback),
   });
-  if (chart.notes.length === 0) {
+  if (fullChart.notes.length === 0) {
     showError('Nothing to play', 'The selected part has no notes in range.', partPicker);
     return;
   }
-  const range = displayRange(chart.minPitch, chart.maxPitch, window);
-  const lines = beatLines(song, chart.duration);
+  const range = displayRange(fullChart.minPitch, fullChart.maxPitch, window);
+  const lines = beatLines(song, fullChart.duration);
+  const barTimes = lines.filter((l) => l.isBar).map((l) => l.time);
+  // Practice mode: the chart is cut to the loop; the band, the beat lines and the display range stay the song's.
+  const sections = choice ? practiceSections(barTimes, fullChart.duration, fullChart.notes) : [];
+  const from = choice ? Math.min(choice.from, sections.length - 1) : 0;
+  const to = choice ? Math.min(choice.to, sections.length - 1) : 0;
+  const loop = choice && sections.length ? loopOf(sections, from, to) : null;
+  const chart = loop ? trimChart(fullChart, loop) : fullChart;
+  if (chart.notes.length === 0) {
+    showError('Nothing to practise', 'These bars have no notes to play.', partPicker);
+    return;
+  }
+  const rate = choice ? choice.rate : settings.rate;
   const timing = picker.timing;
   const judgeConfig: JudgeConfig = {
     ...DEFAULT_JUDGE_CONFIG, preset: timing, easy: settings.easy, wrongNotePenalty: settings.wrongNotePenalty,
-    failAt: settings.arcade && !autoplay ? 0 : null,
+    failAt: settings.arcade && !autoplay && !loop ? 0 : null,
     overhold: settings.letGo ? OVERHOLD_COST[difficulty] : null,
   };
   const sig = song.timeSigs[0]!;
@@ -605,22 +675,42 @@ function play(): void {
         if (picker.selected.has(p.key) && p.duplicateOf) muted.add(p.duplicateOf);
       }
     }
+    // In practice the session counts in before every pass itself.
     scheduler = new BackingScheduler(chart.backing, backingSynth, clock, {
       mutedParts: muted,
-      countIn: { beats: sig.numerator, beatSeconds: barSeconds / sig.numerator },
+      countIn: loop ? null : { beats: sig.numerator, beatSeconds: barSeconds / sig.numerator },
     });
   }
   session = new PlaySession({
-    chart, clock, judgeConfig, rate: settings.rate, inputOffsetMs: settings.inputOffsetMs,
+    chart, clock, judgeConfig, rate, inputOffsetMs: settings.inputOffsetMs,
     synth: settings.synth ? synth : null, feedbackSound: feedback,
     feedbackPrograms: Object.fromEntries(current.parts.map((p) => [p.key, p.program])),
     relative, visibleSeconds, barSeconds, autoplay, countInBeats: sig.numerator,
-    barTimes: lines.filter((l) => l.isBar).map((l) => l.time),
+    barTimes,
     // The system's reduced-motion preference turns the particles off, unless the URL asks for them.
     effects: settings.effects && (params.has('effects') || !matchMedia('(prefers-reduced-motion: reduce)').matches),
     hint: relative ? PlaySession.keysHint(window) : partName,
+    ...(loop && choice ? {
+      practice: { loop, sections, current: from, label: loopLabel(sections, from, to), wait: choice.wait, ladder: choice.ladder },
+      // the count-in clicks of the scheduler's, on the band's drum channel
+      click: (accent: boolean, when: number) => backingSynth?.noteOn(9, accent ? 76 : 37, accent ? 110 : 80, when),
+    } : {}),
   });
   const s = session;
+  s.onPass = () => {
+    // The clock went back to the count-in: the band starts again from there.
+    if (scheduler?.running) {
+      scheduler.stop();
+      scheduler.start();
+    }
+    if (hudEl) setPracticeRate(hudEl, s.rate);
+  };
+  s.onWait = (waiting) => {
+    // Wait mode: the band is silent while the song is held, and picks up where it left off.
+    if (!scheduler || s.status !== 'playing') return;
+    if (waiting) scheduler.stop();
+    else scheduler.start();
+  };
   s.onOctave = (ev) => {
     if (ev.type === 'reoffset') {
       toast(`Octave adjusted (${ev.delta > 0 ? '+' : ''}${ev.delta / 12}). Keep playing.`);
@@ -634,6 +724,19 @@ function play(): void {
   };
   s.onFinished = (result) => {
     stopBacking();
+    if (result.practice) {
+      // Practice never writes bests or stars.
+      showPracticeResults({
+        title: lib.title,
+        detail: `${partName} · ${DIFFICULTY_LABEL[difficulty]} · ${timing} timing`,
+        practice: result.practice,
+        result,
+        onAgain: () => practicePicker(),
+        onPlaySong: () => void startPlay(null),
+        onQuit: songSelect,
+      });
+      return;
+    }
     const badges = [...(result.failed ? ['Song failed'] : []), ...(settings.easy ? ['Easy mode'] : []), ...(settings.rate < 1 ? [`${Math.round(settings.rate * 100)}% speed`] : []), ...(autoplay ? ['Autoplay'] : [])];
     const detail = `${partName} · ${DIFFICULTY_LABEL[difficulty]} · ${timing} timing · ${Math.round(settings.rate * 100)}% speed`;
     const suggestion = suggestNextStep({
@@ -642,7 +745,7 @@ function play(): void {
     const show = (extra: string[], previousBest: number | null) =>
       showResults({
         title: lib.title, detail, result, badges: [...badges, ...extra], previousBest, suggestion,
-        onSuggestion: takeSuggestion, onRetry: play, onQuit: songSelect,
+        onSuggestion: takeSuggestion, onPractise: (sg) => practicePicker(sg.section?.start), onRetry: play, onQuit: songSelect,
       });
     if (autoplay || result.failed) show([], null);
     else {
@@ -661,6 +764,7 @@ function play(): void {
     hud: s.hud(), showNames: settings.names, showNoteNames: settings.noteNames,
     physical: relative ? window : null,
     fx: s.fx,
+    ...(s.practice ? { practice: s.practice } : {}),
   };
   document.title = `MIDI Hero — ${lib.title}`;
 
@@ -691,8 +795,13 @@ function takeSuggestion(s: Suggestion): void {
 }
 
 function playHud(s: PlaySession): void {
-  showPlayHud({ onPause: pause, onSkip: s.chart.firstNoteTime > 8 ? () => { s.skipToFirstNote(); scheduler?.stop(); scheduler?.start(); } : null });
-  if (s.status === 'playing') scheduler?.start();
+  hudEl = showPlayHud({
+    onPause: pause,
+    onSkip: !s.practice && s.chart.firstNoteTime > 8 ? () => { s.skipToFirstNote(); scheduler?.stop(); scheduler?.start(); } : null,
+    ...(s.practice ? { practice: { rate: s.rate, onStop: () => s.stopPractice() } } : {}),
+  });
+  // While wait mode holds the song the band stays quiet; the session starts it again.
+  if (s.status === 'playing' && !s.practice?.waiting) scheduler?.start();
 }
 
 /** Thin the band's drums and pads to `level` (the session's mixLevel). */
@@ -738,13 +847,16 @@ function runGate(window: PitchWindow, s: PlaySession): void {
 
 function pause(): void {
   if (!session || session.status !== 'playing') return;
-  session.pause();
+  const s = session;
+  s.pause();
   scheduler?.stop();
+  const stop = s.practice ? { onStopPractice: () => s.stopPractice() } : {};
   showPause({
     onResume: resume,
     onRestart: () => { session = null; play(); },
-    onSettings: () => settingsScreen(() => showPause({ onResume: resume, onRestart: () => { session = null; play(); }, onSettings: () => settingsScreen(resume), onQuit: songSelect })),
+    onSettings: () => settingsScreen(() => showPause({ onResume: resume, onRestart: () => { session = null; play(); }, onSettings: () => settingsScreen(resume), onQuit: songSelect, ...stop })),
     onQuit: songSelect,
+    ...stop,
   });
 }
 
@@ -785,7 +897,7 @@ function step(s: PlaySession, state: RenderState): number {
   const w0 = performance.now();
   s.update();
   setMix(s.mixLevel);
-  state.time = s.now() + (settings.audioOffsetMs / 1000) * settings.rate;
+  state.time = s.now() + (settings.audioOffsetMs / 1000) * s.rate;
   state.hud = s.hud();
   (settings.highway === 'perspective' ? perspectiveRenderer : renderer).draw(state);
   return performance.now() - w0;
@@ -829,7 +941,7 @@ function frame(): void {
     if (t - lastDebug > 250) {
       lastDebug = t;
       const j = session.judge;
-      canvas.dataset.state = JSON.stringify({ status: session.status, now: +session.now().toFixed(2), score: j.score, combo: j.combo, multiplier: j.scoreMultiplier, star: +j.starGauge.toFixed(2), starOn: j.starActive, health: +j.meter.health.toFixed(2), mix: +mix.toFixed(2), counts: j.counts, offset: session.octaveOffset, locked: session.filter.locked, backing: scheduler?.running ?? false, audio: audioCtx?.state ?? 'none', notes: session.chart.notes.length, fps: +fps.toFixed(1), frameMs: +frameMs.toFixed(2) });
+      canvas.dataset.state = JSON.stringify({ status: session.status, now: +session.now().toFixed(2), score: j.score, combo: j.combo, multiplier: j.scoreMultiplier, star: +j.starGauge.toFixed(2), starOn: j.starActive, health: +j.meter.health.toFixed(2), mix: +mix.toFixed(2), counts: j.counts, ...(session.practice ? { practice: { passes: session.practice.passes, waiting: session.practice.waiting, waitingFor: session.practice.waitingFor, rate: session.rate } } : {}), offset: session.octaveOffset, locked: session.filter.locked, backing: scheduler?.running ?? false, audio: audioCtx?.state ?? 'none', notes: session.chart.notes.length, fps: +fps.toFixed(1), frameMs: +frameMs.toFixed(2) });
     }
   }
   requestAnimationFrame(frame);
@@ -867,7 +979,7 @@ async function boot(): Promise<void> {
       const lib = library.find((l) => l.id === quick);
       if (lib) {
         await openSong(quick);
-        await startPlay({ jitterMs: Number(params.get('jitter') ?? 0) });
+        await startPlay({ jitterMs: Number(params.get('jitter') ?? 0) }, urlPractice());
         return;
       }
     }

@@ -32,6 +32,10 @@ export interface Settings {
   /** from Medium up: a bonk when a key stays down after its note is over */
   letGo: boolean;
   backingVolume: number;
+  /** practice mode: hold the song at an unplayed note until it is played */
+  practiceWait: boolean;
+  /** practice mode: step the speed up after two clean passes, down after two failed ones */
+  practiceLadder: boolean;
   foldMode: FoldMode;
   midiPortId: string | null;
   /** computer-keyboard fallback base pitch */
@@ -58,6 +62,8 @@ export const DEFAULT_SETTINGS: Settings = {
   effects: true,
   letGo: true,
   backingVolume: 0.8,
+  practiceWait: false,
+  practiceLadder: true,
   foldMode: 'fold',
   midiPortId: null,
   keyboardBase: 48,
@@ -120,7 +126,7 @@ export function sanitize(raw: unknown, base: Settings = DEFAULT_SETTINGS): Setti
   if ([25, 49, 61, 88].includes(Number(r.kb))) s.kb = Number(r.kb) as KeyboardSize;
   if (r.highway === 'flat' || r.highway === 'perspective') s.highway = r.highway;
   if (r.timing === 'strict' || r.timing === 'normal' || r.timing === 'relaxed') s.timing = r.timing;
-  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'letGo', 'firstRunDone'] as const) {
+  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'letGo', 'firstRunDone', 'practiceWait', 'practiceLadder'] as const) {
     if (typeof r[k] === 'boolean') s[k] = r[k] as boolean;
   }
   num('speed', 100, 800);

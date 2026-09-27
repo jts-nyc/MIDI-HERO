@@ -72,6 +72,8 @@ export interface Suggestion {
   /** settings to play next with, when the suggestion changes them */
   difficulty?: Difficulty;
   rate?: number;
+  /** kind 'section': the section to work on, which practice mode can loop */
+  section?: Section;
 }
 
 export interface SuggestionInput {
@@ -122,7 +124,10 @@ export function suggestNextStep(r: SuggestionInput): Suggestion {
   const sections = r.sections ?? [];
   if (sections.length > 1) {
     const weakest = sections.reduce((a, b) => (b.accuracy < a.accuracy ? b : a));
-    if (weakest.accuracy < r.accuracy - 0.1) return { kind: 'section', text: `Play it again: work on ${weakest.label.toLowerCase()}` };
+    if (weakest.accuracy < r.accuracy - 0.1) {
+      const { fromBar, toBar, start, end } = weakest;
+      return { kind: 'section', text: `Play it again: work on ${weakest.label.toLowerCase()}`, section: { fromBar, toBar, start, end } };
+    }
   }
   return { kind: 'again', text: `Play it again: ${Math.round(MOVE_UP * 100)}% unlocks the next step` };
 }

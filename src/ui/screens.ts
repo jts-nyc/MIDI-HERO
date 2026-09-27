@@ -1,6 +1,7 @@
 import { CALIBRATION_BEATS, TapCalibrator, visualOffset, type CalibrationResult } from '../game/calibration.ts';
 import { bestDelta, starCount, type Suggestion } from '../game/results.ts';
-import type { PlayResult } from '../game/session.ts';
+import type { PracticeSectionInfo } from '../game/practice.ts';
+import type { PlayResult, PracticeResult } from '../game/session.ts';
 import type { TimingPreset } from '../game/judge.ts';
 import type { MidiPort } from '../input/midiInput.ts';
 import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Hand, type LevelStats } from '../midi/chart.ts';
@@ -210,6 +211,8 @@ export interface PartPickerOptions {
   /** true when the single selected part spans more than two octaves */
   onChange: (state: PartPickerState) => void;
   onPlay: () => void;
+  /** open practice mode on the selection */
+  onPractise: () => void;
   onBack: () => void;
 }
 
@@ -265,6 +268,7 @@ export function showPartPicker(o: PartPickerOptions): void {
       </select></label>
       <span style="flex:1"></span>
       <button id="back">Back</button>
+      <button class="big" id="practise" ${st.selected.size ? '' : 'disabled'} title="Loop a few bars, slower, until they are clean">Practise…</button>
       <button class="primary big" id="play" ${st.selected.size ? '' : 'disabled'}>Play</button>
     </div>
   </div>`);
@@ -302,6 +306,108 @@ export function showPartPicker(o: PartPickerOptions): void {
   });
   el.querySelector('#back')!.addEventListener('click', o.onBack);
   el.querySelector('#play')!.addEventListener('click', o.onPlay);
+  el.querySelector('#practise')!.addEventListener('click', o.onPractise);
+}
+
+// ---------------------------------------------------------------------------
+// Practice: pick the bars to loop
+// ---------------------------------------------------------------------------
+export interface PracticeChoice {
+  /** first and last section of the loop, indices into `sections` */
+  from: number;
+  to: number;
+  wait: boolean;
+  ladder: boolean;
+  rate: number;
+}
+
+export interface PracticePickerOptions {
+  title: string;
+  /** the level being practised, e.g. "Medium" */
+  level: string;
+  sections: readonly PracticeSectionInfo[];
+  choice: PracticeChoice;
+  rates: readonly number[];
+  onStart: (choice: PracticeChoice) => void;
+  onBack: () => void;
+}
+
+export function showPracticePicker(o: PracticePickerOptions): void {
+  const c = { ...o.choice };
+  const el = screen(`<div class="panel" style="width:min(640px,100%)">
+    <h2>Practise: ${esc(o.title)}</h2>
+    <p>Pick the bars to loop (${esc(o.level)}). Click a section; shift-click another to loop a run of them. Each pass starts with a one-bar count-in. Practice never changes your best scores.</p>
+    <div class="list" id="sections" role="listbox" aria-multiselectable="true">${o.sections.map((s, i) =>
+      `<button class="item" role="option" data-i="${i}"><span>${esc(s.label)}</span><span class="meta">${s.notes} notes · ${s.notesPerSec.toFixed(1)}/s</span></button>`).join('')}</div>
+    <div class="row" style="margin-top:12px">
+      <label class="field">Start at <select id="rate">${o.rates.map((r) => `<option value="${r}" ${Math.abs(r - c.rate) < 1e-9 ? 'selected' : ''}>${Math.round(r * 100)}% speed</option>`).join('')}</select></label>
+      <label class="field"><input type="checkbox" id="ladder" ${c.ladder ? 'checked' : ''} /> Speed ladder: faster after two clean passes, slower after two missed ones</label>
+      <label class="field"><input type="checkbox" id="wait" ${c.wait ? 'checked' : ''} /> Wait for me: the song holds at each note until I play it</label>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <span style="flex:1"></span>
+      <button id="back">Back</button>
+      <button class="primary big" id="start">Start practice</button>
+    </div>
+  </div>`);
+  const items = [...el.querySelectorAll<HTMLButtonElement>('#sections .item')];
+  const mark = (): void => {
+    const a = Math.min(c.from, c.to);
+    const b = Math.max(c.from, c.to);
+    items.forEach((it, i) => {
+      const on = i >= a && i <= b;
+      it.classList.toggle('selected', on);
+      it.setAttribute('aria-selected', String(on));
+    });
+  };
+  items.forEach((it, i) =>
+    it.addEventListener('click', (e) => {
+      if (e.shiftKey) c.to = i;
+      else c.from = c.to = i;
+      mark();
+    }),
+  );
+  mark();
+  el.querySelector<HTMLSelectElement>('#rate')!.addEventListener('change', (e) => (c.rate = Number((e.target as HTMLSelectElement).value)));
+  el.querySelector<HTMLInputElement>('#ladder')!.addEventListener('change', (e) => (c.ladder = (e.target as HTMLInputElement).checked));
+  el.querySelector<HTMLInputElement>('#wait')!.addEventListener('change', (e) => (c.wait = (e.target as HTMLInputElement).checked));
+  el.querySelector('#back')!.addEventListener('click', o.onBack);
+  el.querySelector('#start')!.addEventListener('click', () => o.onStart({ ...c, from: Math.min(c.from, c.to), to: Math.max(c.from, c.to) }));
+}
+
+export interface PracticeResultsOptions {
+  title: string;
+  detail: string;
+  practice: PracticeResult;
+  /** the pass that was under way when practice stopped, or the last one */
+  result: PlayResult;
+  onAgain: () => void;
+  onPlaySong: () => void;
+  onQuit: () => void;
+}
+
+export function showPracticeResults(o: PracticeResultsOptions): void {
+  const p = o.practice;
+  const c = o.result.counts;
+  const el = screen(`<div class="panel results still" style="text-align:center">
+    <h2>Practice: ${esc(o.title)}</h2>
+    <p>${esc(o.detail)}</p>
+    <div class="accuracy">${esc(p.label)}</div>
+    <table style="max-width:420px;margin:12px auto">
+      <tr><td>Passes</td><td><b>${p.passes}</b></td><td>Clean passes</td><td><b>${p.cleanPasses}</b></td></tr>
+      <tr><td>Speed reached</td><td><b>${Math.round(p.rate * 100)}%</b></td><td>Wait for me</td><td>${p.wait ? 'on' : 'off'}</td></tr>
+      <tr><td>This pass: hit</td><td>${c.perfect + c.great + c.good} of ${o.result.total}</td><td>Missed / wrong</td><td>${c.miss} / ${c.wrong}</td></tr>
+    </table>
+    <p class="next">${p.cleanPasses > 0 ? (p.rate >= 1 ? 'Clean at full speed: try it in the whole song.' : 'Clean passes! Keep going, or play the whole song.') : 'A clean pass has no missed or wrong notes. Slow down if it keeps slipping.'}</p>
+    <div class="row" style="justify-content:center">
+      <button class="primary big" id="again">Practise again</button>
+      <button id="song">Play the whole song</button>
+      <button id="quit">Song select</button>
+    </div>
+  </div>`);
+  el.querySelector('#again')!.addEventListener('click', o.onAgain);
+  el.querySelector('#song')!.addEventListener('click', o.onPlaySong);
+  el.querySelector('#quit')!.addEventListener('click', o.onQuit);
 }
 
 // ---------------------------------------------------------------------------
@@ -326,23 +432,33 @@ export function gateMessage(el: HTMLElement, msg: string): void {
 // ---------------------------------------------------------------------------
 // Play HUD, pause, results
 // ---------------------------------------------------------------------------
-export function showPlayHud(o: { onPause: () => void; onSkip: (() => void) | null }): void {
+export function showPlayHud(o: { onPause: () => void; onSkip: (() => void) | null; practice?: { rate: number; onStop: () => void } }): HTMLElement {
   const el = screen(`<div class="hud-hint">
       ${o.onSkip ? '<button id="skip">Skip to my part ⏩</button>' : ''}
+      ${o.practice ? `<span class="badge" id="practice-rate" aria-live="polite">${Math.round(o.practice.rate * 100)}% speed</span><button id="stop">Stop practice</button>` : ''}
       <button id="pause">Pause</button>
     </div>`, true);
   el.querySelector('#pause')!.addEventListener('click', o.onPause);
+  el.querySelector('#stop')?.addEventListener('click', () => o.practice?.onStop());
   el.querySelector('#skip')?.addEventListener('click', () => {
     o.onSkip?.();
     el.querySelector('#skip')?.remove();
   });
+  return el;
 }
 
-export function showPause(o: { onResume: () => void; onRestart: () => void; onSettings: () => void; onQuit: () => void }): void {
+/** The practice speed shown on the play screen, after the ladder moved it. */
+export function setPracticeRate(el: HTMLElement, rate: number): void {
+  const r = el.querySelector('#practice-rate');
+  if (r) r.textContent = `${Math.round(rate * 100)}% speed`;
+}
+
+export function showPause(o: { onResume: () => void; onRestart: () => void; onSettings: () => void; onQuit: () => void; onStopPractice?: () => void }): void {
   const el = screen(`<div class="panel" style="text-align:center">
     <h2>Paused</h2>
     <div class="row" style="justify-content:center">
       <button class="primary big" id="resume">Resume</button>
+      ${o.onStopPractice ? '<button id="stop">Stop practice</button>' : ''}
       <button id="restart">Restart</button>
       <button id="settings">Settings</button>
       <button id="quit">Song select</button>
@@ -351,6 +467,7 @@ export function showPause(o: { onResume: () => void; onRestart: () => void; onSe
   </div>`);
   el.querySelector('#resume')!.addEventListener('click', o.onResume);
   el.querySelector('#restart')!.addEventListener('click', o.onRestart);
+  el.querySelector('#stop')?.addEventListener('click', () => o.onStopPractice?.());
   el.querySelector('#settings')!.addEventListener('click', o.onSettings);
   el.querySelector('#quit')!.addEventListener('click', o.onQuit);
 }
@@ -370,9 +487,13 @@ export interface ResultsOptions {
   /** the one next step to offer, with what happens when it is taken */
   suggestion?: Suggestion | null;
   onSuggestion?: (s: Suggestion) => void;
+  /** open practice mode on the suggested section */
+  onPractise?: (s: Suggestion) => void;
   onRetry: () => void;
   onQuit: () => void;
 }
+
+const sectionLabel = (s: { fromBar: number; toBar: number }): string => (s.fromBar === s.toBar ? `Bar ${s.fromBar}` : `Bars ${s.fromBar}–${s.toBar}`);
 
 const COUNT_UP_MS = 1200;
 const STAR_STAGGER_MS = 220;
@@ -409,12 +530,14 @@ export function showResults(o: ResultsOptions): void {
     ${sug ? `<p class="next">Next step: <b>${esc(sug.text)}</b></p>` : ''}
     <div class="row" style="justify-content:center">
       ${sug && (sug.difficulty || sug.rate) ? `<button class="primary big" id="next">${esc(sug.text)}</button><button id="retry">Play again</button>` : '<button class="primary big" id="retry">Play again</button>'}
+      ${sug?.section && o.onPractise ? `<button id="practise">Practise ${esc(sectionLabel(sug.section).toLowerCase())}</button>` : ''}
       <button id="quit">Song select</button>
     </div>
   </div>`);
   el.querySelector('#retry')!.addEventListener('click', o.onRetry);
   el.querySelector('#quit')!.addEventListener('click', o.onQuit);
   el.querySelector('#next')?.addEventListener('click', () => o.onSuggestion?.(sug!));
+  el.querySelector('#practise')?.addEventListener('click', () => o.onPractise?.(sug!));
   if (still) return;
   // Count the percentage up, easing out; the stars follow one by one (CSS, delayed past the count).
   const acc = el.querySelector<HTMLElement>('#accuracy')!;

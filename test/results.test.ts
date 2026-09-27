@@ -33,7 +33,7 @@ describe('suggestNextStep', () => {
   it('names the weakest section when one stands out', () => {
     const section = (fromBar: number, accuracy: number): SectionResult => ({ fromBar, toBar: fromBar + 7, start: 0, end: 1, label: `Bars ${fromBar}–${fromBar + 7}`, total: 10, hit: 8, accuracy });
     expect(suggestNextStep({ accuracy: 0.8, difficulty: 'easy', rate: 1, sections: [section(1, 0.95), section(9, 0.6), section(17, 0.85)] }))
-      .toEqual({ kind: 'section', text: 'Play it again: work on bars 9–16' });
+      .toEqual({ kind: 'section', text: 'Play it again: work on bars 9–16', section: { fromBar: 9, toBar: 16, start: 0, end: 1 } });
     expect(suggestNextStep({ accuracy: 0.8, difficulty: 'easy', rate: 1, sections: [section(1, 0.82), section(9, 0.78)] }).kind).toBe('again');
   });
 

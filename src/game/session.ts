@@ -7,12 +7,39 @@ import {
   type FxState,
 } from '../render/fx.ts';
 import { noteName } from '../render/layout.ts';
+import type { PracticeSection, PracticeView } from '../render/practice.ts';
 import type { Hud, KeyVisual, NoteVisual, Popup } from '../render/renderer.ts';
 import { theme } from '../render/renderer.ts';
-import { Judge, type Counts, type JudgeConfig, type Judgment } from './judge.ts';
+import { Judge, TIMING_SCALE, type Counts, type JudgeConfig, type Judgment } from './judge.ts';
+import { endPass, isCleanPass, nextHold, owedPitches, runRate, startRun, type Loop, type PracticeRun } from './practice.ts';
 import { buildSections, sectionResults, type SectionResult } from './results.ts';
 
 export type SessionStatus = 'playing' | 'paused' | 'finished';
+
+/** Practice mode: loop one stretch of the song (docs/HANDOFF-next.md, WP9). */
+export interface PracticeOptions {
+  /** A–B loop in song seconds; the chart must already be trimmed to it (practice.ts trimChart) */
+  loop: Loop;
+  /** every section of the song, for the renderer, and the one being practised */
+  sections: readonly PracticeSection[];
+  current: number;
+  /** "Bars 9–16" */
+  label: string;
+  /** hold the song at an unplayed note until it is played */
+  wait: boolean;
+  /** step the rate up after two clean passes, down after two failed ones */
+  ladder: boolean;
+}
+
+/** What a practice session reports at the end. */
+export interface PracticeResult {
+  label: string;
+  passes: number;
+  cleanPasses: number;
+  /** the rate the ladder reached */
+  rate: number;
+  wait: boolean;
+}
 
 /**
  * What a key press sounds like.
@@ -55,6 +82,10 @@ export interface SessionOptions {
   countInBeats?: number;
   /** particles and other moving effects; default on. Meters and counters always show. */
   effects?: boolean;
+  /** practice mode; absent for a normal play */
+  practice?: PracticeOptions;
+  /** a count-in click at an audio-context time (practice mode counts in before every pass) */
+  click?: (accent: boolean, when: number) => void;
 }
 
 export interface PlayResult {
@@ -72,6 +103,8 @@ export interface PlayResult {
   sections: SectionResult[];
   /** points lost to keys held too long */
   overholdLoss: number;
+  /** practice mode only: passes, clean passes and the rate reached; the counts are the last pass's */
+  practice?: PracticeResult;
 }
 
 const JUDGMENT_LABEL: Record<Judgment, string> = { perfect: 'Perfect', great: 'Great', good: 'Good', late: 'Late', miss: 'Miss' };
@@ -94,7 +127,10 @@ interface Sounding {
 
 /** One play-through of a chart: input → judge → visuals, plus autoplay and the player-note synth. */
 export class PlaySession {
-  readonly judge: Judge;
+  /** a new judge for every practice pass; the same one for a whole normal play */
+  judge: Judge;
+  /** playback rate; the practice ladder moves it */
+  rate: number;
   readonly noteVisuals: NoteVisual[];
   readonly keyVisuals = new Map<number, KeyVisual>();
   readonly popups: Popup[] = [];
@@ -112,7 +148,8 @@ export class PlaySession {
   private autoOffs: { time: number; pitch: number }[] = [];
   private autoJitter: number[] = [];
   private heldKeys = new Set<number>();
-  private lastNow = -Infinity;
+  /** performance time of the last frame, for the effects' real-time step (song time may be held) */
+  private lastPerfMs = -Infinity;
   private readonly feedback: FeedbackSound;
   private readonly feedbackChannels = new Map<string, number>();
   private readonly sounding: Sounding[] = [];
@@ -121,9 +158,30 @@ export class PlaySession {
   /** song time at which a fully judged song ends */
   private endAt = Infinity;
   private nextSpark = 0;
+  /** practice mode: what the renderer draws, kept in place and filled every frame; undefined otherwise */
+  readonly practice: PracticeView | undefined;
+  /** practice mode: fired when a pass begins, with the pass number (from 2: the first starts with the session) */
+  onPass: (run: PracticeRun) => void = () => {};
+  /** practice mode: wait mode started (true) or stopped (false) holding the song; the band goes quiet while held */
+  onWait: (waiting: boolean) => void = () => {};
+  private run: PracticeRun | null = null;
+  private readonly owed: number[] = [];
+  private holdCursor = 0;
+  /** song times of the count-in clicks still to sound before the pass */
+  private readonly clicks: number[] = [];
+  /** practice mode: the notes of star phrases, which get their gold back on every pass */
+  private readonly starNotes: number[] = [];
 
   constructor(readonly opts: SessionOptions) {
-    this.judge = new Judge(opts.chart, opts.judgeConfig, opts.rate);
+    this.rate = opts.rate;
+    const practice = opts.practice;
+    if (practice) {
+      this.run = startRun(opts.rate, practice.ladder);
+      this.rate = runRate(this.run);
+      this.practice = { sections: practice.sections, current: practice.current, loop: practice.loop, passes: 0, waiting: false, waitingFor: this.owed };
+      opts.chart.notes.forEach((n, i) => n.star && this.starNotes.push(i));
+    }
+    this.judge = new Judge(opts.chart, opts.judgeConfig, this.rate);
     this.fx.enabled = opts.effects ?? true;
     this.fx.meters.canFail = (opts.judgeConfig.failAt ?? null) !== null;
     this.syncMeters();
@@ -142,8 +200,31 @@ export class PlaySession {
       const j = opts.autoplay.jitterMs / 1000;
       this.autoJitter = opts.chart.notes.map(() => (Math.random() * 2 - 1) * j);
     }
-    opts.clock.setRate(opts.rate);
-    opts.clock.start(-this.leadIn);
+    opts.clock.setRate(this.rate);
+    if (practice) {
+      opts.clock.start(practice.loop.start - opts.barSeconds);
+      this.armCountIn();
+    } else opts.clock.start(-this.leadIn);
+  }
+
+  /** The count-in bar before a practice pass: one click a beat, the first accented. */
+  private armCountIn(): void {
+    const loop = this.opts.practice!.loop;
+    const beats = this.opts.countInBeats ?? 4;
+    this.clicks.length = 0;
+    for (let i = 0; i < beats; i++) this.clicks.push(loop.start - ((beats - i) * this.opts.barSeconds) / beats);
+  }
+
+  /** Sound the count-in clicks that fall due, at their exact time on the audio clock. */
+  private playClicks(now: number): void {
+    const click = this.opts.click;
+    if (!click || this.clicks.length === 0) return;
+    const beats = this.opts.countInBeats ?? 4;
+    const horizon = now + SOUND_LOOKAHEAD * this.rate;
+    while (this.clicks.length && this.clicks[0]! <= horizon) {
+      const t = this.clicks.shift()!;
+      click(this.clicks.length === beats - 1, this.opts.clock.songTimeToContextTime(t));
+    }
   }
 
   get chart(): Chart {
@@ -170,7 +251,7 @@ export class PlaySession {
    * the clock goes through here, as every input does.
    */
   judgeTimeAt(songTime: number): number {
-    return songTime - (this.opts.inputOffsetMs / 1000) * this.opts.rate;
+    return songTime - (this.opts.inputOffsetMs / 1000) * this.rate;
   }
 
   handleInput(ev: InputEvent): void {
@@ -220,9 +301,11 @@ export class PlaySession {
         ? { state: 'hit', hitTime: this.now(), judgment: result.judgment, hold: 'holding', holdEnd: n.time + n.duration }
         : { state: 'hit', hitTime: this.now(), judgment: result.judgment };
       this.keyVisuals.set(pitch, { kind: result.judgment, since: t });
-      this.popups.push({ text: JUDGMENT_LABEL[result.judgment], pitch, time: this.now(), color: JUDGMENT_COLOR[result.judgment] });
+      // Wait mode has no timing judgment: a hit is a hit, shown by its particles alone.
+      if (!this.opts.practice?.wait) this.popups.push({ text: JUDGMENT_LABEL[result.judgment], pitch, time: this.now(), color: JUDGMENT_COLOR[result.judgment] });
       emitHit(this.fx, pitch, result.judgment === 'miss' ? 'late' : result.judgment, this.fx.meters.starActive);
       if (this.judge.combo > 0) emitStreak(this.fx, this.judge.combo);
+      if (this.practice?.waiting) this.refreshOwed();
       if (ev.source !== 'autoplay') this.tracker.observe(true, 0);
     } else {
       this.keyVisuals.set(pitch, { kind: 'wrong', since: t });
@@ -250,7 +333,7 @@ export class PlaySession {
     const n = this.chart.notes[noteId]!;
     const channel = this.feedbackChannels.get(n.partKey) ?? FEEDBACK_CHANNEL;
     synth.noteOn(channel, n.origPitch, n.velocity, 0);
-    this.sounding.push({ channel, pitch: n.origPitch, end: Math.max(n.time + n.duration, t + MIN_SOUND * this.opts.rate) });
+    this.sounding.push({ channel, pitch: n.origPitch, end: Math.max(n.time + n.duration, t + MIN_SOUND * this.rate) });
     this.earned.length = 0;
     if (n.carry) {
       for (const c of n.carry) this.earned.push(c);
@@ -262,7 +345,7 @@ export class PlaySession {
   private playEarned(now: number): void {
     const synth = this.opts.synth;
     if (!synth || this.earned.length === 0) return;
-    const horizon = now + SOUND_LOOKAHEAD * this.opts.rate;
+    const horizon = now + SOUND_LOOKAHEAD * this.rate;
     let due = 0;
     while (due < this.earned.length && this.earned[due]!.time <= horizon) {
       const c = this.earned[due++]!;
@@ -278,7 +361,7 @@ export class PlaySession {
   private releaseSounding(now: number): void {
     const synth = this.opts.synth;
     if (!synth || this.sounding.length === 0) return;
-    const horizon = now + SOUND_LOOKAHEAD * this.opts.rate;
+    const horizon = now + SOUND_LOOKAHEAD * this.rate;
     let kept = 0;
     for (let i = 0; i < this.sounding.length; i++) {
       const s = this.sounding[i]!;
@@ -396,11 +479,14 @@ export class PlaySession {
   /** Per-frame update: misses, autoplay, visual expiry, finish detection. */
   update(): void {
     if (this.status !== 'playing') return;
-    const now = this.now();
-    const dt = Math.min(MAX_FRAME, Math.max(0, (now - this.lastNow) / this.opts.rate));
-    this.lastNow = now;
+    let now = this.now();
+    const perfMs = this.opts.clock.perfNowMs();
+    const dt = Math.min(MAX_FRAME, Math.max(0, (perfMs - this.lastPerfMs) / 1000));
+    this.lastPerfMs = perfMs;
     if (this.opts.autoplay) this.runAutoplay(now);
+    if (this.practice && this.opts.practice!.wait) now = this.waitGate(now);
     this.judge.advance(this.judgeTimeAt(now));
+    this.playClicks(now);
     this.playEarned(now);
     this.releaseSounding(now);
     this.drainEvents(now);
@@ -412,6 +498,10 @@ export class PlaySession {
       if (!this.heldKeys.has(pitch) && now - kv.since > KEY_FLASH) this.keyVisuals.delete(pitch);
     }
     this.trimPopups();
+    if (this.practice) {
+      this.checkPassEnd(now);
+      return;
+    }
     if (this.judge.finished && this.endAt === Infinity) {
       let end = now;
       for (const s of this.sounding) end = Math.max(end, s.end);
@@ -420,7 +510,7 @@ export class PlaySession {
         const n = this.chart.notes[h.noteId]!;
         end = Math.max(end, n.time + n.duration);
       }
-      this.endAt = end + OUTRO * this.opts.rate;
+      this.endAt = end + OUTRO * this.rate;
     }
     if (this.judge.failed) {
       this.finish();
@@ -430,6 +520,112 @@ export class PlaySession {
       this.judge.finish();
       this.finish();
     }
+  }
+
+  /**
+   * Wait mode. When a pending note reaches the hit line (in the judge's time) the clock is
+   * held there until every pitch of that onset has been played; returns the song time to
+   * judge at, which is the held time while waiting.
+   */
+  private waitGate(now: number): number {
+    const view = this.practice!;
+    const notes = this.chart.notes;
+    const states = this.judge.states;
+    if (!view.waiting) {
+      while (this.holdCursor < notes.length && states[this.holdCursor] !== 'pending') this.holdCursor++;
+      const i = nextHold(notes, states, this.judgeTimeAt(now), this.holdCursor);
+      if (i < 0) return now;
+      const at = notes[i]!.time + (this.opts.inputOffsetMs / 1000) * this.rate; // the clock time the judge sees as the note
+      this.opts.clock.seek(at);
+      this.opts.clock.pause();
+      view.waiting = true;
+      this.onWait(true);
+      this.refreshOwed();
+      return at;
+    }
+    if (this.owed.length === 0) this.release();
+    return now;
+  }
+
+  /** The pitches still to press at the held onset; when none are left the song goes on. */
+  private refreshOwed(): void {
+    const view = this.practice!;
+    if (!view.waiting) return;
+    owedPitches(this.chart.notes, this.judge.states, this.judgeTimeAt(this.now()), this.owed);
+    if (this.owed.length === 0) this.release();
+  }
+
+  /** The held onset is played: the song goes on (unless the menu is open; resume() restarts the clock then). */
+  private release(): void {
+    this.practice!.waiting = false;
+    if (this.status === 'playing') this.opts.clock.resume();
+    this.onWait(false);
+  }
+
+  /** A pass is over when the loop end has gone by and its notes are judged (or their windows closed). */
+  private checkPassEnd(now: number): void {
+    const loop = this.opts.practice!.loop;
+    if (now < loop.end) return;
+    // the last note's window, plus the input offset the judge runs behind the clock by
+    const tail = (this.opts.judgeConfig.miss * TIMING_SCALE[this.opts.judgeConfig.preset] + this.opts.inputOffsetMs / 1000) * this.rate;
+    if (!this.judge.finished && now < loop.end + tail) return;
+    this.judge.finish();
+    this.drainEvents(now);
+    this.nextPass();
+  }
+
+  /** Count the pass, step the ladder, and start the next pass with a fresh judge after a count-in. */
+  private nextPass(): void {
+    const view = this.practice!;
+    const loop = this.opts.practice!.loop;
+    // Wait mode judges hit or wrong only, so an early press does not spoil a pass.
+    const clean = isCleanPass(this.judge.counts, this.opts.practice!.wait);
+    const before = this.run!;
+    this.run = endPass(before, clean);
+    view.passes = this.run.passes;
+    const rate = runRate(this.run);
+    if (rate !== this.rate) {
+      this.rate = rate;
+      this.opts.clock.setRate(rate);
+      emitCallout(this.fx, `${rate > runRate(before) ? 'FASTER' : 'SLOWER'}: ${Math.round(rate * 100)}%`, rate > runRate(before) ? 'milestone' : 'break', 1.6);
+    } else emitCallout(this.fx, clean ? 'CLEAN PASS!' : `PASS ${this.run.passes}`, clean ? 'star' : 'milestone', 1.2);
+    for (const i of this.starNotes) this.chart.notes[i]!.star = true; // a phrase spoiled last pass is a star phrase again
+    this.judge = new Judge(this.chart, this.opts.judgeConfig, this.rate);
+    for (let i = 0; i < this.noteVisuals.length; i++) {
+      const v = this.noteVisuals[i]!;
+      v.state = 'pending';
+      v.hitTime = 0;
+      v.judgment = '';
+      delete v.hold;
+      delete v.holdEnd;
+    }
+    this.keyVisuals.clear();
+    this.heldKeys.clear();
+    this.popups.length = 0;
+    this.sounding.length = 0;
+    this.earned.length = 0;
+    this.opts.synth?.allNotesOff(0);
+    this.autoCursor = 0;
+    this.autoOffs.length = 0;
+    this.holdCursor = 0;
+    this.owed.length = 0;
+    if (view.waiting) {
+      view.waiting = false;
+      this.onWait(false);
+    }
+    this.opts.clock.seek(loop.start - this.opts.barSeconds);
+    if (!this.opts.clock.playing) this.opts.clock.resume();
+    this.syncMeters();
+    this.armCountIn();
+    this.onPass(this.run);
+  }
+
+  /** Practice mode: end the session now (the player is done) and report. */
+  stopPractice(): void {
+    if (!this.practice || this.status === 'finished') return;
+    if (this.status === 'paused') this.status = 'playing';
+    if (!this.opts.clock.playing) this.opts.clock.resume();
+    this.finish();
   }
 
   private finish(): void {
@@ -443,11 +639,12 @@ export class PlaySession {
   private runAutoplay(now: number): void {
     const notes = this.chart.notes;
     const perfNow = this.opts.clock.perfNowMs();
-    const perfFor = (songTime: number) => perfNow - ((now - songTime) * 1000) / this.opts.rate;
+    const perfFor = (songTime: number) => perfNow - ((now - songTime) * 1000) / this.rate;
     if (this.judge.starReady) this.activateStar();
     while (this.autoCursor < notes.length) {
       const n = notes[this.autoCursor]!;
-      const at = n.time + (this.autoJitter[this.autoCursor] ?? 0);
+      let at = n.time + (this.autoJitter[this.autoCursor] ?? 0);
+      if (this.practice?.waiting && n.time <= now) at = Math.min(at, now);
       if (at > now) break;
       const played = n.pitch - (this.opts.relative ? this.octaveOffset : 0);
       this.handleInput({ type: 'on', pitch: played, velocity: n.velocity, channel: 0, perfMs: perfFor(at) + (this.opts.inputOffsetMs || 0), source: 'autoplay' });
@@ -475,7 +672,7 @@ export class PlaySession {
 
   resume(): void {
     if (this.status !== 'paused') return;
-    this.opts.clock.resume();
+    if (!this.practice?.waiting) this.opts.clock.resume();
     this.status = 'playing';
   }
 
@@ -503,7 +700,14 @@ export class PlaySession {
       failed: j.failed, progress: Math.min(1, Math.max(0, this.now() / this.chart.duration)),
       overholdLoss: j.overholdLoss,
       sections: sectionResults(buildSections(this.opts.barTimes ?? [], this.chart.duration), this.chart.notes, j.judgments),
+      ...(this.run && this.opts.practice ? { practice: this.practiceResult() } : {}),
     };
+  }
+
+  private practiceResult(): PracticeResult {
+    const run = this.run!;
+    const p = this.opts.practice!;
+    return { label: p.label, passes: run.passes, cleanPasses: run.cleanPasses, rate: this.rate, wait: p.wait };
   }
 
   static keysHint(window: { low: number; high: number } | null): string {
