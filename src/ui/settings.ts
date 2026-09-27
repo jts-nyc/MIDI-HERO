@@ -26,6 +26,8 @@ export interface Settings {
   easy: boolean;
   /** arcade mode: the song ends when the performance meter runs out */
   arcade: boolean;
+  /** particles and other moving effects */
+  effects: boolean;
   backingVolume: number;
   foldMode: FoldMode;
   midiPortId: string | null;
@@ -49,6 +51,7 @@ export const DEFAULT_SETTINGS: Settings = {
   wrongNotePenalty: 'combo',
   easy: false,
   arcade: false,
+  effects: true,
   backingVolume: 0.8,
   foldMode: 'fold',
   midiPortId: null,
@@ -67,7 +70,7 @@ export function urlOverrides(search: string): Partial<Settings> {
   if ([25, 49, 61, 88].includes(kb)) out.kb = kb as KeyboardSize;
   const timing = p.get('timing');
   if (timing === 'strict' || timing === 'normal' || timing === 'relaxed') out.timing = timing;
-  const bool = (k: keyof Settings & ('names' | 'synth' | 'easy' | 'noteNames' | 'hitSound' | 'arcade')) => {
+  const bool = (k: keyof Settings & ('names' | 'synth' | 'easy' | 'noteNames' | 'hitSound' | 'arcade' | 'effects')) => {
     const v = p.get(k);
     if (v === '1' || v === 'true') out[k] = true;
     else if (v === '0' || v === 'false') out[k] = false;
@@ -78,6 +81,7 @@ export function urlOverrides(search: string): Partial<Settings> {
   bool('noteNames');
   bool('hitSound');
   bool('arcade');
+  bool('effects');
   const feedback = p.get('feedback');
   if (isFeedbackSound(feedback)) {
     out.feedbackSound = feedback;
@@ -109,7 +113,7 @@ export function sanitize(raw: unknown, base: Settings = DEFAULT_SETTINGS): Setti
   };
   if ([25, 49, 61, 88].includes(Number(r.kb))) s.kb = Number(r.kb) as KeyboardSize;
   if (r.timing === 'strict' || r.timing === 'normal' || r.timing === 'relaxed') s.timing = r.timing;
-  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'firstRunDone'] as const) {
+  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'firstRunDone'] as const) {
     if (typeof r[k] === 'boolean') s[k] = r[k] as boolean;
   }
   num('speed', 100, 800);

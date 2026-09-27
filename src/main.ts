@@ -396,6 +396,9 @@ async function openSong(id: string): Promise<void> {
       const d = defaultPart(parts);
       if (d) selected = [d.key];
     }
+    // ?part=5:4 picks a part by track:channel (for checks on a specific part)
+    const urlPart = params.get('part');
+    if (urlPart && keys.has(urlPart)) selected = [urlPart];
     current = {
       lib, song, parts,
       picker: {
@@ -538,7 +541,9 @@ function play(): void {
     chart, clock, judgeConfig, rate: settings.rate, inputOffsetMs: settings.inputOffsetMs,
     synth: settings.synth ? synth : null, feedbackSound: feedback,
     feedbackPrograms: Object.fromEntries(current.parts.map((p) => [p.key, p.program])),
-    relative, visibleSeconds, barSeconds, autoplay,
+    relative, visibleSeconds, barSeconds, autoplay, countInBeats: sig.numerator,
+    // The system's reduced-motion preference turns the particles off, unless the URL asks for them.
+    effects: settings.effects && (params.has('effects') || !matchMedia('(prefers-reduced-motion: reduce)').matches),
     hint: relative ? PlaySession.keysHint(window) : partName,
   });
   const s = session;
@@ -572,6 +577,7 @@ function play(): void {
     noteVisuals: s.noteVisuals, keyVisuals: s.keyVisuals, popups: s.popups,
     hud: s.hud(), showNames: settings.names, showNoteNames: settings.noteNames,
     physical: relative ? window : null,
+    fx: s.fx,
   };
   document.title = `MIDI Hero — ${lib.title}`;
 
@@ -675,6 +681,39 @@ let fpsWindowStart = 0;
 let fps = 0;
 let workMs = 0; // accumulated update+draw time in the current window
 let frameMs = 0; // average work per frame over the last window
+/** One frame of work: update the session and draw it. Returns the time it took, in ms. */
+function step(s: PlaySession, state: RenderState): number {
+  const w0 = performance.now();
+  s.update();
+  setMix(s.mixLevel);
+  state.time = s.now() + (settings.audioOffsetMs / 1000) * settings.rate;
+  state.hud = s.hud();
+  renderer.draw(state);
+  return performance.now() - w0;
+}
+
+if (import.meta.env.DEV) {
+  // Console handle for manual and automated checks; not in production builds.
+  // `bench(seconds)` runs frames back to back, without waiting for the display, and reports the work per frame.
+  const bench = (seconds = 3): Promise<{ frames: number; meanMs: number; p95Ms: number; maxMs: number }> =>
+    new Promise((resolve) => {
+      const times: number[] = [];
+      const until = performance.now() + seconds * 1000;
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => {
+        if (session && renderState && session.status === 'playing') times.push(step(session, renderState));
+        if (performance.now() < until) channel.port2.postMessage(0);
+        else {
+          times.sort((a, b) => a - b);
+          const mean = times.reduce((a, b) => a + b, 0) / Math.max(1, times.length);
+          resolve({ frames: times.length, meanMs: +mean.toFixed(3), p95Ms: +(times[Math.floor(times.length * 0.95)] ?? 0).toFixed(3), maxMs: +(times.at(-1) ?? 0).toFixed(3) });
+        }
+      };
+      channel.port2.postMessage(0);
+    });
+  (window as unknown as { midihero: unknown }).midihero = { bench, get session() { return session; }, get renderState() { return renderState; } };
+}
+
 function frame(): void {
   frameCount++;
   const nowMs = performance.now();
@@ -686,13 +725,7 @@ function frame(): void {
     fpsWindowStart = nowMs;
   }
   if (session && renderState) {
-    const w0 = performance.now();
-    session.update();
-    setMix(session.mixLevel);
-    renderState.time = session.now() + (settings.audioOffsetMs / 1000) * settings.rate;
-    renderState.hud = session.hud();
-    renderer.draw(renderState);
-    workMs += performance.now() - w0;
+    workMs += step(session, renderState);
     const t = performance.now();
     if (t - lastDebug > 250) {
       lastDebug = t;

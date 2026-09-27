@@ -32,6 +32,10 @@ export interface ChartNote {
   velocity: number;
   /** removed notes between this note and the next one; the player earns them by hitting this note */
   carry?: CarriedNote[];
+  /** index of the phrase this note belongs to */
+  phrase?: number;
+  /** part of a star phrase */
+  star?: boolean;
 }
 
 export interface PitchWindow {

@@ -2,6 +2,9 @@ import type { GameClock } from '../audio/clock.ts';
 import { FEEDBACK_CHANNEL, FEEDBACK_CHANNELS, type Synth } from '../audio/synth.ts';
 import { ChannelFilter, OctaveTracker, type InputEvent, type OctaveEvent } from '../input/normalize.ts';
 import type { CarriedNote, Chart } from '../midi/chart.ts';
+import {
+  createFx, emitBreak, emitCallout, emitHit, emitLevel, emitMilestone, emitMiss, emitStreak, emitWrong, setCountdown, stepFx, type FxState,
+} from '../render/fx.ts';
 import { noteName } from '../render/layout.ts';
 import type { Hud, KeyVisual, NoteVisual, Popup } from '../render/renderer.ts';
 import { theme } from '../render/renderer.ts';
@@ -44,6 +47,10 @@ export interface SessionOptions {
   barSeconds: number;
   autoplay: AutoplayOptions | null;
   hint: string;
+  /** clicks of the count-in, for the countdown on screen; default 4 */
+  countInBeats?: number;
+  /** particles and other moving effects; default on. Meters and counters always show. */
+  effects?: boolean;
 }
 
 export interface PlayResult {
@@ -66,6 +73,7 @@ const JUDGMENT_COLOR: Record<Judgment, string> = {
 const KEY_FLASH = 0.25; // s, for wrong/missed key flashes
 const SOUND_LOOKAHEAD = 0.05; // s, real time: note-offs are scheduled this far ahead of their song time
 const MIN_SOUND = 0.08; // s, a hit at the very end of a note is still heard
+const MAX_FRAME = 0.1; // s, longest step the effects take in one frame
 const OUTRO = 0.6; // s, real time between the last judged note and the results, so it can ring out
 
 /** A chart note sounding on a feedback channel until `end`. */
@@ -81,6 +89,8 @@ export class PlaySession {
   readonly noteVisuals: NoteVisual[];
   readonly keyVisuals = new Map<number, KeyVisual>();
   readonly popups: Popup[] = [];
+  /** effects and meters for the renderer */
+  readonly fx: FxState = createFx();
   readonly filter = new ChannelFilter();
   readonly tracker = new OctaveTracker(3);
   /** semitones added to a played pitch to get the chart pitch (relative judging) */
@@ -104,6 +114,9 @@ export class PlaySession {
 
   constructor(readonly opts: SessionOptions) {
     this.judge = new Judge(opts.chart, opts.judgeConfig, opts.rate);
+    this.fx.enabled = opts.effects ?? true;
+    this.fx.meters.canFail = (opts.judgeConfig.failAt ?? null) !== null;
+    this.syncMeters();
     this.feedback = opts.synth ? opts.feedbackSound ?? 'press' : 'off';
     if (this.feedback === 'chart') {
       for (const n of opts.chart.notes) {
@@ -179,9 +192,12 @@ export class PlaySession {
       this.noteVisuals[result.noteId] = { state: 'hit', hitTime: this.now(), judgment: result.judgment };
       this.keyVisuals.set(pitch, { kind: result.judgment, since: t });
       this.popups.push({ text: JUDGMENT_LABEL[result.judgment], pitch, time: this.now(), color: JUDGMENT_COLOR[result.judgment] });
+      emitHit(this.fx, pitch, result.judgment === 'miss' ? 'late' : result.judgment, this.fx.meters.starActive);
+      if (this.judge.combo > 0) emitStreak(this.fx, this.judge.combo);
       if (ev.source !== 'autoplay') this.tracker.observe(true, 0);
     } else {
       this.keyVisuals.set(pitch, { kind: 'wrong', since: t });
+      emitWrong(this.fx, pitch);
       if (ev.source !== 'autoplay' && this.opts.relative) {
         const delta = this.pendingOctaveDelta(pitch, t);
         const oev = this.tracker.observe(false, delta);
@@ -257,6 +273,37 @@ export class PlaySession {
     return best;
   }
 
+  /** Turn what the judge reported since the last frame into visuals. */
+  private drainEvents(now: number): void {
+    const events = this.judge.events;
+    for (let i = 0; i < events.length; i++) {
+      const e = events[i]!;
+      switch (e.type) {
+        case 'miss':
+          this.noteVisuals[e.noteId] = { state: 'missed', hitTime: now, judgment: 'miss' };
+          this.popups.push({ text: 'Miss', pitch: e.pitch, time: now, color: JUDGMENT_COLOR.miss });
+          emitMiss(this.fx, e.pitch);
+          break;
+        case 'break': emitBreak(this.fx, e.streak ?? 0); break;
+        case 'milestone': emitMilestone(this.fx, e.streak ?? 0); break;
+        case 'level': emitLevel(this.fx, e.streak ?? 1); break;
+        case 'fail': emitCallout(this.fx, 'SONG FAILED', 'fail', 2); break;
+        default: break;
+      }
+    }
+    events.length = 0;
+  }
+
+  private syncMeters(): void {
+    const j = this.judge;
+    const m = this.fx.meters;
+    m.multiplier = j.multiplier;
+    m.multiplierProgress = j.multiplierProgress;
+    m.health = j.meter.health;
+    m.zone = j.meter.zone;
+    m.low = j.meter.low;
+  }
+
   private trimPopups(): void {
     const now = this.now();
     while (this.popups.length > 24 || (this.popups.length && now - this.popups[0]!.time > 1)) this.popups.shift();
@@ -266,20 +313,16 @@ export class PlaySession {
   update(): void {
     if (this.status !== 'playing') return;
     const now = this.now();
-    if (now < this.lastNow) {
-      // seek backwards: not supported mid-session
-    }
+    const dt = Math.min(MAX_FRAME, Math.max(0, (now - this.lastNow) / this.opts.rate));
     this.lastNow = now;
     if (this.opts.autoplay) this.runAutoplay(now);
     this.judge.advance(now);
     this.playEarned(now);
     this.releaseSounding(now);
-    for (const e of this.judge.takeEvents()) {
-      if (e.type === 'miss') {
-        this.noteVisuals[e.noteId] = { state: 'missed', hitTime: now, judgment: 'miss' };
-        this.popups.push({ text: 'Miss', pitch: e.pitch, time: now, color: JUDGMENT_COLOR.miss });
-      }
-    }
+    this.drainEvents(now);
+    this.syncMeters();
+    setCountdown(this.fx, now, this.opts.countInBeats ?? 4, this.opts.barSeconds / (this.opts.countInBeats ?? 4));
+    stepFx(this.fx, dt);
     for (const [pitch, kv] of this.keyVisuals) {
       if (!this.heldKeys.has(pitch) && now - kv.since > KEY_FLASH) this.keyVisuals.delete(pitch);
     }

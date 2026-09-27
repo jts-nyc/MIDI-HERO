@@ -423,6 +423,7 @@ export function showSettings(o: SettingsScreenOptions): void {
     <label class="field">Sound of my notes <select id="feedbackSound">${opt('chart', "the song's part when I play it right", fb)}${opt('press', 'every key I press (free play)', fb)}${opt('off', 'none: my keyboard has speakers (set Local Control ON)', fb)}</select></label>
     ${chk('easy', 'Easy mode: any octave counts')}
     ${chk('arcade', 'Arcade mode: the song ends when the performance meter runs out')}
+    ${chk('effects', 'Hit effects (turn off on a slow computer)')}
     <label class="field">Wrong notes <select id="wrongNotePenalty">${opt('combo', 'reset combo', s.wrongNotePenalty)}${opt('none', 'ignore', s.wrongNotePenalty)}${opt('score', 'reset combo and lose points', s.wrongNotePenalty)}</select></label>
     <label class="field">Notes outside my keyboard <select id="foldMode">${opt('fold', 'fold into range', s.foldMode)}${opt('drop', 'drop', s.foldMode)}</select></label>
     ${num('audioOffsetMs', 'Visual offset (ms, + if notes look late)', -300, 300, 5)}
@@ -446,6 +447,7 @@ export function showSettings(o: SettingsScreenOptions): void {
       feedbackSound: get<HTMLSelectElement>('feedbackSound').value as Settings['feedbackSound'],
       easy: get<HTMLInputElement>('easy').checked,
       arcade: get<HTMLInputElement>('arcade').checked,
+      effects: get<HTMLInputElement>('effects').checked,
       wrongNotePenalty: get<HTMLSelectElement>('wrongNotePenalty').value as Settings['wrongNotePenalty'],
       foldMode: get<HTMLSelectElement>('foldMode').value as Settings['foldMode'],
       audioOffsetMs: Number(get<HTMLInputElement>('audioOffsetMs').value),
