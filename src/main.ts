@@ -20,7 +20,7 @@ import type { FeedbackSound } from './game/session.ts';
 import { displayRange } from './render/layout.ts';
 import { Renderer, type RenderState } from './render/renderer.ts';
 import { PerspectiveRenderer } from './render/highway3d.ts';
-import { bestKey, bestsForSong, deleteSong, getBest, listSongs, parseBestKey, putSong, recordBest, type BestScore } from './storage/db.ts';
+import { bestKey, bestsForSong, deleteSong, getBest, listSongs, parseBestKey, putSong, recordBest, saveChoice, type BestScore } from './storage/db.ts';
 import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
 import {
@@ -665,7 +665,7 @@ async function startPlay(autoplay: { jitterMs: number } | null, practice: Practi
   lib.difficulty = level;
   lib.keyLevel = keyLevel;
   if (lib.source === 'bundled') rememberChoice(lib.id, choice);
-  else await putSong({ id: lib.id, name: lib.title, bytes: lib.bytes!, parts: partIds, split: picker.split, timingPreset: picker.timing, difficulty: level, keyLevel, packName: lib.packName, addedAt: Date.now() }).catch(() => undefined);
+  else await saveChoice(lib.id, { parts: partIds, split: picker.split, timingPreset: picker.timing, difficulty: level, keyLevel }).catch(() => undefined);
 
   ensureAudio();
   // The window is chosen for the notes this level actually asks for.

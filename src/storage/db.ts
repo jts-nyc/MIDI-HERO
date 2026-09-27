@@ -69,6 +69,18 @@ function tx<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore) 
 
 export const putSong = (song: StoredSong): Promise<IDBValidKey> => tx('songs', 'readwrite', (s) => s.put(song));
 export const getSong = (id: string): Promise<StoredSong | undefined> => tx('songs', 'readonly', (s) => s.get(id));
+/** What a play changes on a stored song: the part choice. Everything else (pack order, unlocks, when it was added) stays. */
+export type SongChoice = Pick<StoredSong, 'parts' | 'split' | 'timingPreset' | 'difficulty' | 'keyLevel'>;
+
+export function withChoice(song: StoredSong, choice: SongChoice): StoredSong {
+  return { ...song, ...choice };
+}
+
+/** Store the part choice on an imported song without touching its pack fields. */
+export async function saveChoice(id: string, choice: SongChoice): Promise<void> {
+  const song = await getSong(id);
+  if (song) await putSong(withChoice(song, choice));
+}
 export const listSongs = (): Promise<StoredSong[]> => tx('songs', 'readonly', (s) => s.getAll());
 export const deleteSong = (id: string): Promise<undefined> => tx('songs', 'readwrite', (s) => s.delete(id));
 
