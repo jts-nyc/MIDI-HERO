@@ -101,7 +101,9 @@ gauge runs out (16 beats for half a gauge). Esc pauses.
 
 **Holds.** Notes of a beat or more pay a point per 1/16 beat while the key (or the pedal) holds
 them. From Medium up, a key that stays down after its note is over gets a sour bonk and a red
-key; overlapping the next note by up to 150 ms (or a quarter beat) is legato and fine.
+key, and it costs: 10 points and a little of the meter on Medium, 25 points on Hard, and on
+Expert 50 points and the streak. Overlapping the next note by up to 150 ms (or a quarter beat)
+is legato and costs nothing. Easy never minds.
 
 **Calibration.** Settings → "calibrate timing" measures the input offset (tap along to 8 clicks)
 and the visual offset (tap when a marker lands).

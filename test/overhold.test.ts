@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { GameClock } from '../src/audio/clock.ts';
 import { RecordingSynth, WebAudioSynth } from '../src/audio/synth.ts';
-import { DEFAULT_JUDGE_CONFIG, Judge, type JudgeConfig } from '../src/game/judge.ts';
+import { DEFAULT_JUDGE_CONFIG, Judge, OVERHOLD_COST, type JudgeConfig } from '../src/game/judge.ts';
 import { PlaySession, type FeedbackSound } from '../src/game/session.ts';
 import { buildChart, type Chart } from '../src/midi/chart.ts';
 import { parseSong } from '../src/midi/parse.ts';
@@ -13,7 +13,8 @@ import { FakeAudioContext } from './helpers/fakeAudio.ts';
 import { end, off, on, smf, tempo } from './helpers/smf.ts';
 
 const PPQ = 480;
-const ON: JudgeConfig = { ...DEFAULT_JUDGE_CONFIG, overhold: true };
+const ON: JudgeConfig = { ...DEFAULT_JUDGE_CONFIG, overhold: OVERHOLD_COST.medium };
+const at = (level: 'easy' | 'medium' | 'hard' | 'expert'): JudgeConfig => ({ ...DEFAULT_JUDGE_CONFIG, overhold: OVERHOLD_COST[level] });
 /** Notes as [beat, pitch, beats long]. At 120 BPM a beat is 0.5 s. */
 type N = [number, number, number];
 function chartOf(notes: N[], bpm = 120): Chart {
@@ -83,31 +84,91 @@ describe('holding a key too long', () => {
     expect(j.counts.perfect).toBe(3);
   });
 
-  it('costs nothing but the sound of it: score, streak, health and accuracy stay', () => {
-    const play = (config: JudgeConfig) => {
-      const j = new Judge(chartOf(song), config);
-      j.noteOn(60, 1);
-      j.advance(1.5);
-      j.noteOn(62, 1.5);
-      j.advance(3);
+  // two notes hit perfectly, both keys left down
+  const play = (config: JudgeConfig) => {
+    const j = new Judge(chartOf(song), config);
+    j.noteOn(60, 1);
+    j.advance(1.5);
+    j.noteOn(62, 1.5);
+    j.advance(3);
+    return j;
+  };
+
+  it('costs nothing on Easy, a little on Medium, more on Hard', () => {
+    const clean = play(DEFAULT_JUDGE_CONFIG);
+    expect([clean.score, clean.combo]).toEqual([200, 2]);
+    const rows = (['easy', 'medium', 'hard'] as const).map((level) => {
+      const j = play(at(level));
+      return [j.counts.overheld, j.score, j.overholdLoss, j.combo, +(clean.meter.health - j.meter.health).toFixed(2), j.accuracy];
+    });
+    expect(rows).toEqual([
+      [0, 200, 0, 2, 0, 1],
+      [2, 180, 20, 2, 0.04, 1],
+      [2, 150, 50, 2, 0.08, 1],
+    ]);
+  });
+
+  it('on Expert it also ends the streak, like a wrong note', () => {
+    const j = play(at('expert'));
+    // the first key bonks before the second note is played, so the streak never gets past 1
+    expect([j.counts.overheld, j.score, j.combo, j.maxCombo, j.accuracy]).toEqual([2, 100, 0, 1, 1]);
+    expect(j.takeEvents().filter((e) => e.type === 'break').map((e) => e.streak)).toEqual([1, 1]);
+  });
+
+  it('on Medium the cost is a tenth of a Perfect and a quarter of what a miss takes from the meter', () => {
+    expect(OVERHOLD_COST.easy).toBeNull();
+    expect(OVERHOLD_COST.medium).toEqual({ points: 10, health: 0.02, breaksStreak: false });
+    expect(OVERHOLD_COST.medium!.points).toBeLessThan(OVERHOLD_COST.hard!.points);
+    expect(OVERHOLD_COST.hard!.points).toBeLessThan(OVERHOLD_COST.expert!.points);
+  });
+
+  it('never takes the score below zero, and reports what it took', () => {
+    const j = new Judge(chartOf(song), at('expert'));
+    j.noteOn(60, 1.1); // good: 40 points
+    j.advance(3);
+    expect(j.score).toBe(0);
+    expect(j.overholdLoss).toBe(40);
+    expect(j.takeEvents().filter((e) => e.type === 'overheld').map((e) => e.streak)).toEqual([40]);
+  });
+
+  it('spoils a star phrase on Expert only', () => {
+    const phrases: N[] = Array.from({ length: 4 }, (_, p) => [0, 1, 2, 3].map((i): N => [p * 8 + i, 60 + i, 0.5])).flat();
+    const run = (level: 'medium' | 'expert') => {
+      const j = new Judge(chartOf(phrases), at(level));
+      for (let i = 0; i < 4; i++) {
+        const t = 4 + i * 0.5; // phrase 1 is a star phrase
+        j.advance(t);
+        j.noteOn(60 + i, t);
+        if (i > 0) j.noteOff(60 + i, t + 0.2); // the first key stays down
+      }
+      j.advance(7);
       return j;
     };
-    const a = play(ON);
-    const b = play(DEFAULT_JUDGE_CONFIG);
-    expect(a.counts.overheld).toBe(2);
-    expect([a.score, a.combo, a.accuracy, a.meter.health]).toEqual([b.score, b.combo, b.accuracy, b.meter.health]);
+    expect(run('medium').starGauge).toBe(0.25);
+    expect(run('expert').starGauge).toBe(0);
+  });
+
+  it('can fail the song in arcade mode', () => {
+    const j = new Judge(chartOf(song), { ...at('hard'), failAt: 0 });
+    j.meter.health = 0.03;
+    j.noteOn(60, 1); // +0.03
+    j.advance(1.3);
+    expect(j.failed).toBe(false);
+    j.meter.health = 0.04;
+    j.advance(1.5);
+    expect(j.failed).toBe(true);
   });
 
   it('the leniency is the longer of 150 ms and a quarter of a beat', () => {
-    const at = (bpm: number, rate = 1) => {
+    const grace = (bpm: number, rate = 1) => {
       const j = new Judge(chartOf([[2, 60, 0.5], [12, 62, 0.5]], bpm), ON, rate);
       const end = j.chart.notes[0]!.time + j.chart.notes[0]!.duration;
       return +(j.overholdDeadline(0, j.chart.notes[0]!.time) - end).toFixed(3);
     };
-    expect(at(120)).toBe(0.15); // a quarter of a beat is 125 ms
-    expect(at(60)).toBe(0.25);
-    expect(at(200)).toBe(0.15);
-    expect(at(120, 0.5)).toBe(0.125); // at half speed 150 ms of real time is 75 ms of the song
+    expect(grace(120)).toBe(0.15); // a quarter of a beat is 125 ms
+    expect(grace(60)).toBe(0.25);
+    expect(grace(200)).toBe(0.15);
+    expect(grace(120, 0.5)).toBe(0.125); // at half speed 150 ms of real time is 75 ms of the song
   });
 
   it('counts from the hit when a short note was hit late', () => {
@@ -174,7 +235,7 @@ describe('PlaySession: held too long', () => {
     goTo(1.45);
     expect(bonks()).toEqual([[60, 80, 0]]); // the chart note: its pitch and its velocity
     expect(session.keyVisuals.get(60)?.kind).toBe('wrong');
-    expect(session.popups.at(-1)).toMatchObject({ text: 'Let go', pitch: 60 });
+    expect(session.popups.at(-1)).toMatchObject({ text: 'Let go −10', pitch: 60 });
     expect(activeCount(session.fx.flashes)).toBe(1);
     goTo(3);
     expect(bonks()).toHaveLength(1);
@@ -182,6 +243,7 @@ describe('PlaySession: held too long', () => {
     goTo(3.5);
     expect(session.keyVisuals.has(60)).toBe(false);
     expect(session.result().counts.overheld).toBe(1);
+    expect(session.result()).toMatchObject({ overholdLoss: 10, score: 90 });
   });
 
   it('bonks the written pitch of a folded note', () => {
@@ -235,7 +297,7 @@ describe('PlaySession: held too long', () => {
 });
 
 describe('Ode to Joy on Medium: G F E D held down until C', () => {
-  it('each of the four bonks a moment after its note is over; the score is untouched', () => {
+  it('each of the four bonks a moment after its note is over and costs 10 points; the streak goes on', () => {
     const song = parseSong(new Uint8Array(readFileSync(join(process.cwd(), 'public/songs/ode-to-joy.mid'))));
     const chart = buildChart(song, { parts: [{ track: 1, channel: 0 }], difficulty: 'medium', window: { low: 48, high: 72 } });
     const start = chart.notes.findIndex((_, i) => [67, 65, 64, 62, 60].every((p, k) => chart.notes[i + k]?.pitch === p));
@@ -270,8 +332,10 @@ describe('Ode to Joy on Medium: G F E D held down until C', () => {
     expect(held.bonks).toEqual([67, 65, 64, 62]);
     expect(clean.bonks).toEqual([]);
     expect(held.session.judge.counts.overheld).toBe(4);
-    expect(held.session.judge.score).toBe(clean.session.judge.score);
+    expect(held.session.judge.score).toBe(clean.session.judge.score - 40);
     expect(held.session.judge.combo).toBe(clean.session.judge.combo);
+    expect(held.session.judge.accuracy).toBe(1);
+    expect(clean.session.judge.meter.health - held.session.judge.meter.health).toBeCloseTo(0.08, 9);
   });
 });
 

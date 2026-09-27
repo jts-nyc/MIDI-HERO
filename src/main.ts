@@ -1,7 +1,7 @@
 import { GameClock } from './audio/clock.ts';
 import { BackingScheduler } from './audio/scheduler.ts';
 import { WebAudioSynth, type Synth } from './audio/synth.ts';
-import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type TimingPreset } from './game/judge.ts';
+import { DEFAULT_JUDGE_CONFIG, OVERHOLD_COST, type JudgeConfig, type TimingPreset } from './game/judge.ts';
 import { calibrationBeats } from './game/calibration.ts';
 import { suggestNextStep, type Suggestion } from './game/results.ts';
 import { PlaySession } from './game/session.ts';
@@ -562,7 +562,7 @@ function play(): void {
   const judgeConfig: JudgeConfig = {
     ...DEFAULT_JUDGE_CONFIG, preset: timing, easy: settings.easy, wrongNotePenalty: settings.wrongNotePenalty,
     failAt: settings.arcade && !autoplay ? 0 : null,
-    overhold: settings.letGo && difficulty !== 'easy',
+    overhold: settings.letGo ? OVERHOLD_COST[difficulty] : null,
   };
   const sig = song.timeSigs[0]!;
   const barSeconds = ticksToSeconds(song.tempoMap, song.ppq, (song.ppq * 4 * sig.numerator) / sig.denominator);

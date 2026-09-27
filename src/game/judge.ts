@@ -1,4 +1,5 @@
 import { beatAt, beatTime, type Chart } from '../midi/chart.ts';
+import type { Difficulty } from '../midi/difficulty.ts';
 import { isMilestone, PerformanceMeter } from './meter.ts';
 
 export type Judgment = 'perfect' | 'great' | 'good' | 'late' | 'miss';
@@ -21,8 +22,8 @@ export interface JudgeConfig {
   wrongNotePenalty: WrongNotePenalty;
   /** the song fails when the performance meter falls to this value; null or absent = never */
   failAt?: number | null;
-  /** notice keys that stay down after their note is over (Medium and up); absent = off */
-  overhold?: boolean;
+  /** what a key that stays down after its note is over costs (see OVERHOLD_COST); null or absent = not noticed */
+  overhold?: OverholdCost | null;
 }
 
 export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
@@ -50,7 +51,8 @@ export interface JudgeEvent {
    * phrase `streak` was spoiled; 'starOn' / 'starOff': star power went on / ran out;
    * 'held': note `noteId` was held to its end; 'released': it was let go early, at `time`.
    * For both, `streak` is the hold points the note earned.
-   * 'overheld': the key of note `noteId` is still down well after the note ended.
+   * 'overheld': the key of note `noteId` is still down well after the note ended; `streak`
+   * is the points that cost.
    */
   type: 'hit' | 'miss' | 'wrong' | 'milestone' | 'break' | 'level' | 'fail' | 'star' | 'starLost' | 'starOn' | 'starOff' | 'held' | 'released' | 'overheld';
   time: number;
@@ -94,6 +96,27 @@ export const HOLD_GRACE_BEATS = 1 / 8;
  */
 export const OVERHOLD_GRACE = 0.15;
 export const OVERHOLD_GRACE_BEATS = 0.25;
+
+/** What holding a key too long costs. */
+export interface OverholdCost {
+  /** points taken from the score (a Perfect is worth 100); the score never goes below 0 */
+  points: number;
+  /** taken from the performance meter (a miss takes 0.08) */
+  health: number;
+  /** ends the streak and spoils the star phrase, like a wrong note */
+  breaksStreak: boolean;
+}
+
+/**
+ * The cost by difficulty: nothing on Easy, little on Medium, and on Expert as much as a
+ * wrong note. Accuracy is about onsets and is never touched.
+ */
+export const OVERHOLD_COST: Record<Difficulty, OverholdCost | null> = {
+  easy: null,
+  medium: { points: 10, health: 0.02, breaksStreak: false },
+  hard: { points: 25, health: 0.04, breaksStreak: false },
+  expert: { points: 50, health: 0.04, breaksStreak: true },
+};
 
 /** A key that went down on a chart note and has not come up yet. */
 interface Pressed {
@@ -156,6 +179,8 @@ export class Judge {
   readonly holds: Hold[] = [];
   /** points earned by holding, multipliers included; part of `score` */
   holdScore = 0;
+  /** points lost to keys held too long */
+  overholdLoss = 0;
   pedalDown = false;
   /** 0..1; filled by clean star phrases, drained while star power is on */
   starGauge = 0;
@@ -291,7 +316,17 @@ export class Judge {
       if (p.deadline >= t) continue;
       this.pressed.splice(i, 1);
       this.counts.overheld++;
-      this.events.push({ type: 'overheld', time: p.deadline, pitch: this.chart.notes[p.noteId]!.pitch, noteId: p.noteId, judgment: null, delta: 0 });
+      const cost = this.config.overhold!;
+      const loss = Math.min(this.score, cost.points);
+      this.score -= loss;
+      this.overholdLoss += loss;
+      this.events.push({ type: 'overheld', time: p.deadline, pitch: this.chart.notes[p.noteId]!.pitch, noteId: p.noteId, judgment: null, delta: 0, streak: loss });
+      this.meter.penalty(cost.health);
+      if (cost.breaksStreak) {
+        this.breakStreak(p.deadline);
+        this.spoilAt(p.deadline);
+      }
+      this.checkFail(p.deadline);
     }
   }
 

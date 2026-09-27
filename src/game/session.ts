@@ -70,6 +70,8 @@ export interface PlayResult {
   progress: number;
   /** accuracy per 8-bar section, in song order */
   sections: SectionResult[];
+  /** points lost to keys held too long */
+  overholdLoss: number;
 }
 
 const JUDGMENT_LABEL: Record<Judgment, string> = { perfect: 'Perfect', great: 'Great', good: 'Good', late: 'Late', miss: 'Miss' };
@@ -317,7 +319,7 @@ export class PlaySession {
         case 'starLost': this.dimPhrase(e.streak ?? -1); break;
         case 'held': this.endHold(e.noteId, 'held', Math.min(now, e.time)); break;
         case 'released': this.endHold(e.noteId, 'released', e.time); break;
-        case 'overheld': this.heldTooLong(e.noteId, now); break;
+        case 'overheld': this.heldTooLong(e.noteId, now, e.streak ?? 0); break;
         default: break;
       }
     }
@@ -338,11 +340,11 @@ export class PlaySession {
   }
 
   /** The key of a note is still down well after the note ended: a sour bonk, a red key, "Let go". */
-  private heldTooLong(noteId: number, now: number): void {
+  private heldTooLong(noteId: number, now: number, loss: number): void {
     const n = this.chart.notes[noteId]!;
     if (this.feedback !== 'off') this.opts.synth?.bonk(n.origPitch, n.velocity, 0);
     if (this.heldKeys.has(n.pitch)) this.keyVisuals.set(n.pitch, { kind: 'wrong', since: now });
-    this.popups.push({ text: 'Let go', pitch: n.pitch, time: now, color: theme.wrong });
+    this.popups.push({ text: loss > 0 ? `Let go −${loss}` : 'Let go', pitch: n.pitch, time: now, color: theme.wrong });
     emitWrong(this.fx, n.pitch);
   }
 
@@ -490,6 +492,7 @@ export class PlaySession {
     return {
       score: j.score, accuracy: j.accuracy, maxCombo: j.maxCombo, counts: { ...j.counts }, total: j.total, judged: j.judged,
       failed: j.failed, progress: Math.min(1, Math.max(0, this.now() / this.chart.duration)),
+      overholdLoss: j.overholdLoss,
       sections: sectionResults(buildSections(this.opts.barTimes ?? [], this.chart.duration), this.chart.notes, j.judgments),
     };
   }

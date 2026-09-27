@@ -42,6 +42,8 @@ export class PerformanceMeter {
   miss(): void { this.add(this.config.miss); }
   wrong(): void { this.add(this.config.wrong); }
   late(): void { this.add(this.config.late); }
+  /** Take `amount` of health, for anything that is not a hit, a miss or a wrong note. */
+  penalty(amount: number): void { this.add(-Math.abs(amount)); }
 
   get zone(): MeterZone {
     return this.health >= GREEN_HEALTH ? 'green' : this.health >= LOW_HEALTH ? 'yellow' : 'red';

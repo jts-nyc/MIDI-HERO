@@ -403,7 +403,7 @@ export function showResults(o: ResultsOptions): void {
       <tr><td>Perfect</td><td>${c.perfect}</td><td>Great</td><td>${c.great}</td></tr>
       <tr><td>Good</td><td>${c.good}</td><td>Late/early</td><td>${c.late}</td></tr>
       <tr><td>Missed</td><td>${c.miss}</td><td>Wrong notes</td><td>${c.wrong}</td></tr>
-      ${c.overheld ? `<tr><td>Held too long</td><td>${c.overheld}</td><td></td><td></td></tr>` : ''}
+      ${c.overheld ? `<tr><td>Held too long</td><td>${c.overheld}</td><td>That cost</td><td>${r.overholdLoss} points</td></tr>` : ''}
     </table>
     ${sug ? `<p class="next">Next step: <b>${esc(sug.text)}</b></p>` : ''}
     <div class="row" style="justify-content:center">
@@ -473,7 +473,7 @@ export function showSettings(o: SettingsScreenOptions): void {
     ${chk('easy', 'Easy mode: any octave counts')}
     ${chk('arcade', 'Arcade mode: the song ends when the performance meter runs out')}
     ${chk('effects', 'Hit effects (turn off on a slow computer)')}
-    ${chk('letGo', 'Bonk when a key is held after its note is over (Medium and up)')}
+    ${chk('letGo', 'Keys held after their note is over bonk and cost points (Medium and up)')}
     <label class="field">Wrong notes <select id="wrongNotePenalty">${opt('combo', 'reset combo', s.wrongNotePenalty)}${opt('none', 'ignore', s.wrongNotePenalty)}${opt('score', 'reset combo and lose points', s.wrongNotePenalty)}</select></label>
     <label class="field">Notes outside my keyboard <select id="foldMode">${opt('fold', 'fold into range', s.foldMode)}${opt('drop', 'drop', s.foldMode)}</select></label>
     ${num('audioOffsetMs', 'Visual offset (ms, + if notes look late)', -300, 300, 5)}

@@ -29,7 +29,7 @@ Where the work departs from the text below, and why:
   and anything within 150 ms still consumes the note. `jitter=220` shows misses, wrong notes,
   falling health and the thinned mix.
 - **Added** at the owner's request: from Medium up, a key held after its note is over gets a
-  bonk (see README, "Holds").
+  bonk and a cost that grows with the level (`OVERHOLD_COST` in `judge.ts`; README, "Holds").
 
 ## Repo orientation (read these, in this order)
 
@@ -52,7 +52,7 @@ Where the work departs from the text below, and why:
 | `src/midi/difficulty.ts`, `src/midi/phrases.ts` | Beat grid and `simplify()`; phrase splitting and star phrases. Pure. |
 | `src/game/meter.ts`, `src/game/results.ts`, `src/game/calibration.ts` | Performance meter; sections and the next-step suggestion; tap calibration. Pure. |
 | `src/render/fx.ts` | Effects state in fixed pools. Pure; see `docs/RENDER-CONTRACT.md`. |
-| `test/*.test.ts` | 330 tests with the local fixtures (127 before this session). `test/golden.test.ts` runs extra checks when `MIDI_FIXTURES_DIR` points at local .mid files. |
+| `test/*.test.ts` | 335 tests with the local fixtures (127 before this session). `test/golden.test.ts` runs extra checks when `MIDI_FIXTURES_DIR` points at local .mid files. |
 
 Commands: `npm run dev` (http://localhost:5173), `npm test`, `npm run build`, `npm run gen-songs`.
 Debug: the page mirrors session state into `document.getElementById('stage').dataset.state`
