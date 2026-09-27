@@ -1,6 +1,7 @@
 import { CALIBRATION_BEATS, TapCalibrator, visualOffset, type CalibrationResult } from '../game/calibration.ts';
 import { bestDelta, starCount, type Suggestion } from '../game/results.ts';
-import type { PlayResult } from '../game/session.ts';
+import type { PracticeSectionInfo } from '../game/practice.ts';
+import type { PlayResult, PracticeResult } from '../game/session.ts';
 import type { TimingPreset } from '../game/judge.ts';
 import type { MidiPort } from '../input/midiInput.ts';
 import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Hand, type LevelStats } from '../midi/chart.ts';
@@ -91,6 +92,9 @@ export interface SongRow {
   title: string;
   subtitle: string;
   group: 'class' | 'builtin';
+  /** the pack it came in, and its place in the pack's setlist */
+  pack?: string;
+  packIndex?: number;
   best?: string;
   deletable: boolean;
 }
@@ -113,11 +117,17 @@ export function showSongSelect(o: SongSelectOptions): void {
     </div>`;
   const cls = o.songs.filter((s) => s.group === 'class');
   const builtin = o.songs.filter((s) => s.group === 'builtin');
+  // Songs from a pack are its setlist: under the pack's name, in pack order. Loose imports come first.
+  const loose = cls.filter((s) => !s.pack);
+  const packs = [...new Set(cls.filter((s) => s.pack).map((s) => s.pack!))];
+  const setlist = (name: string) =>
+    `<h2>${esc(name)}</h2><div class="list">${cls.filter((s) => s.pack === name).sort((a, b) => (a.packIndex ?? 0) - (b.packIndex ?? 0)).map(row).join('')}</div>`;
   const el = screen(`<div class="panel">
     <div class="row" style="justify-content:space-between"><h1>MIDI Hero</h1><div class="row"><button id="import">Import .mid / pack</button><button id="export">Export class pack</button><button id="settings">Settings</button></div></div>
     <p>${esc(o.midiStatus)} ${o.onRetryMidi ? '<button id="retry-midi">Retry</button>' : ''}</p>
     <p>Drop <b>.mid</b> files or a <b>.midihero.json</b> pack anywhere on this page to add songs. Computer keyboard: <span class="kbd">Z</span>–<span class="kbd">M</span> / <span class="kbd">Q</span>–<span class="kbd">U</span> play notes, <span class="kbd">-</span>/<span class="kbd">=</span> shift octave.</p>
-    ${cls.length ? `<h2>Class songs</h2><div class="list">${cls.map(row).join('')}</div>` : ''}
+    ${loose.length ? `<h2>Class songs</h2><div class="list">${loose.map(row).join('')}</div>` : ''}
+    ${packs.map(setlist).join('')}
     <h2>Built-in</h2><div class="list">${builtin.map(row).join('')}</div>
     <input type="file" id="file" accept=".mid,.midi,.json" multiple style="display:none" />
   </div>`);
@@ -163,18 +173,19 @@ export function installDropZone(onFiles: (files: File[]) => void): void {
 // ---------------------------------------------------------------------------
 // Export pack dialog
 // ---------------------------------------------------------------------------
-export function showExportDialog(o: { songs: { id: string; title: string }[]; defaultName: string; onExport: (name: string, ids: string[]) => void; onBack: () => void }): void {
+export function showExportDialog(o: { songs: { id: string; title: string }[]; defaultName: string; onExport: (name: string, ids: string[], unlocks: boolean) => void; onBack: () => void }): void {
   const el = screen(`<div class="panel">
     <h2>Export class pack</h2>
     <p>Choose the songs to include. Each song keeps the part, split and timing you picked for it. The pack also carries the current keyboard size, timing preset and display settings as class defaults.</p>
     <label class="field">Pack name <input id="name" value="${esc(o.defaultName)}" /></label>
     <div class="list">${o.songs.map((s) => `<label class="item"><span>${esc(s.title)}</span><input type="checkbox" data-id="${esc(s.id)}" checked /></label>`).join('')}</div>
+    <label class="field"><input type="checkbox" id="unlocks" /> Unlock levels in order: a harder level opens once the one below has 4 stars</label>
     <div class="row"><button class="primary" id="go">Download pack</button><button id="back">Back</button></div>
   </div>`);
   el.querySelector('#go')!.addEventListener('click', () => {
-    const ids = [...el.querySelectorAll<HTMLInputElement>('input[type=checkbox]')].filter((c) => c.checked).map((c) => c.dataset.id!);
+    const ids = [...el.querySelectorAll<HTMLInputElement>('input[type=checkbox][data-id]')].filter((c) => c.checked).map((c) => c.dataset.id!);
     const name = (el.querySelector<HTMLInputElement>('#name')!.value || o.defaultName).trim();
-    if (ids.length) o.onExport(name, ids);
+    if (ids.length) o.onExport(name, ids, el.querySelector<HTMLInputElement>('#unlocks')!.checked);
   });
   el.querySelector('#back')!.addEventListener('click', o.onBack);
 }
@@ -205,11 +216,17 @@ export interface PartPickerOptions {
   levels: LevelStats[];
   /** the level that will be played: the chosen one, or the nearest the selection has */
   level: Difficulty;
+  /** levels shown but not offered yet (a pack that unlocks levels in order) */
+  locked?: readonly Difficulty[];
+  /** stars on the level below that unlock a level */
+  unlockStars?: number;
   state: PartPickerState;
   kb: KeyboardSize;
   /** true when the single selected part spans more than two octaves */
   onChange: (state: PartPickerState) => void;
   onPlay: () => void;
+  /** open practice mode on the selection */
+  onPractise: () => void;
   onBack: () => void;
 }
 
@@ -247,8 +264,11 @@ export function showPartPicker(o: PartPickerOptions): void {
       <tr><th></th><th>Part</th><th>Notes</th><th>Notes/s</th><th>Chord</th><th>Range</th><th>Starts</th><th>Folded</th></tr>
       ${rows}
     </table>
-    ${o.levels.length ? `<div class="seg" id="difficulty" role="radiogroup" aria-label="Difficulty" style="grid-template-columns:repeat(${o.levels.length},1fr)">${o.levels.map((l) =>
-      `<button role="radio" aria-checked="${o.level === l.level}" class="${o.level === l.level ? 'primary' : ''}" data-level="${l.level}">
+    ${o.levels.length ? `<div class="seg" id="difficulty" role="radiogroup" aria-label="Difficulty" style="grid-template-columns:repeat(${o.levels.length},1fr)">${o.levels.map((l, i) =>
+      o.locked?.includes(l.level)
+        ? `<button role="radio" aria-checked="false" disabled title="Locked" data-level="${l.level}">
+        <b>${DIFFICULTY_LABEL[l.level]}</b><span>Locked: ${o.unlockStars ?? 4} stars on ${DIFFICULTY_LABEL[o.levels[i - 1]?.level ?? l.level]} opens it</span></button>`
+        : `<button role="radio" aria-checked="${o.level === l.level}" class="${o.level === l.level ? 'primary' : ''}" data-level="${l.level}">
         <b>${DIFFICULTY_LABEL[l.level]}</b><span>${l.noteCount} notes · ${l.notesPerSec.toFixed(1)}/s</span></button>`).join('')}</div>
       ${o.levels.length < DIFFICULTIES.length ? `<p class="levels-note">${DIFFICULTY_LABEL[o.levels[o.levels.length - 1]!.level]} is the whole part: there is nothing harder to add.</p>` : ''}` : ''}
     ${wide ? `<div class="row" style="margin-top:12px">
@@ -265,6 +285,7 @@ export function showPartPicker(o: PartPickerOptions): void {
       </select></label>
       <span style="flex:1"></span>
       <button id="back">Back</button>
+      <button class="big" id="practise" ${st.selected.size ? '' : 'disabled'} title="Loop a few bars, slower, until they are clean">Practise…</button>
       <button class="primary big" id="play" ${st.selected.size ? '' : 'disabled'}>Play</button>
     </div>
   </div>`);
@@ -302,6 +323,108 @@ export function showPartPicker(o: PartPickerOptions): void {
   });
   el.querySelector('#back')!.addEventListener('click', o.onBack);
   el.querySelector('#play')!.addEventListener('click', o.onPlay);
+  el.querySelector('#practise')!.addEventListener('click', o.onPractise);
+}
+
+// ---------------------------------------------------------------------------
+// Practice: pick the bars to loop
+// ---------------------------------------------------------------------------
+export interface PracticeChoice {
+  /** first and last section of the loop, indices into `sections` */
+  from: number;
+  to: number;
+  wait: boolean;
+  ladder: boolean;
+  rate: number;
+}
+
+export interface PracticePickerOptions {
+  title: string;
+  /** the level being practised, e.g. "Medium" */
+  level: string;
+  sections: readonly PracticeSectionInfo[];
+  choice: PracticeChoice;
+  rates: readonly number[];
+  onStart: (choice: PracticeChoice) => void;
+  onBack: () => void;
+}
+
+export function showPracticePicker(o: PracticePickerOptions): void {
+  const c = { ...o.choice };
+  const el = screen(`<div class="panel" style="width:min(640px,100%)">
+    <h2>Practise: ${esc(o.title)}</h2>
+    <p>Pick the bars to loop (${esc(o.level)}). Click a section; shift-click another to loop a run of them. Each pass starts with a one-bar count-in. Practice never changes your best scores.</p>
+    <div class="list" id="sections" role="listbox" aria-multiselectable="true">${o.sections.map((s, i) =>
+      `<button class="item" role="option" data-i="${i}"><span>${esc(s.label)}</span><span class="meta">${s.notes} notes · ${s.notesPerSec.toFixed(1)}/s</span></button>`).join('')}</div>
+    <div class="row" style="margin-top:12px">
+      <label class="field">Start at <select id="rate">${o.rates.map((r) => `<option value="${r}" ${Math.abs(r - c.rate) < 1e-9 ? 'selected' : ''}>${Math.round(r * 100)}% speed</option>`).join('')}</select></label>
+      <label class="field"><input type="checkbox" id="ladder" ${c.ladder ? 'checked' : ''} /> Speed ladder: faster after two clean passes, slower after two missed ones</label>
+      <label class="field"><input type="checkbox" id="wait" ${c.wait ? 'checked' : ''} /> Wait for me: the song holds at each note until I play it</label>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <span style="flex:1"></span>
+      <button id="back">Back</button>
+      <button class="primary big" id="start">Start practice</button>
+    </div>
+  </div>`);
+  const items = [...el.querySelectorAll<HTMLButtonElement>('#sections .item')];
+  const mark = (): void => {
+    const a = Math.min(c.from, c.to);
+    const b = Math.max(c.from, c.to);
+    items.forEach((it, i) => {
+      const on = i >= a && i <= b;
+      it.classList.toggle('selected', on);
+      it.setAttribute('aria-selected', String(on));
+    });
+  };
+  items.forEach((it, i) =>
+    it.addEventListener('click', (e) => {
+      if (e.shiftKey) c.to = i;
+      else c.from = c.to = i;
+      mark();
+    }),
+  );
+  mark();
+  el.querySelector<HTMLSelectElement>('#rate')!.addEventListener('change', (e) => (c.rate = Number((e.target as HTMLSelectElement).value)));
+  el.querySelector<HTMLInputElement>('#ladder')!.addEventListener('change', (e) => (c.ladder = (e.target as HTMLInputElement).checked));
+  el.querySelector<HTMLInputElement>('#wait')!.addEventListener('change', (e) => (c.wait = (e.target as HTMLInputElement).checked));
+  el.querySelector('#back')!.addEventListener('click', o.onBack);
+  el.querySelector('#start')!.addEventListener('click', () => o.onStart({ ...c, from: Math.min(c.from, c.to), to: Math.max(c.from, c.to) }));
+}
+
+export interface PracticeResultsOptions {
+  title: string;
+  detail: string;
+  practice: PracticeResult;
+  /** the pass that was under way when practice stopped, or the last one */
+  result: PlayResult;
+  onAgain: () => void;
+  onPlaySong: () => void;
+  onQuit: () => void;
+}
+
+export function showPracticeResults(o: PracticeResultsOptions): void {
+  const p = o.practice;
+  const c = o.result.counts;
+  const el = screen(`<div class="panel results still" style="text-align:center">
+    <h2>Practice: ${esc(o.title)}</h2>
+    <p>${esc(o.detail)}</p>
+    <div class="accuracy">${esc(p.label)}</div>
+    <table style="max-width:420px;margin:12px auto">
+      <tr><td>Passes</td><td><b>${p.passes}</b></td><td>Clean passes</td><td><b>${p.cleanPasses}</b></td></tr>
+      <tr><td>Speed reached</td><td><b>${Math.round(p.rate * 100)}%</b></td><td>Wait for me</td><td>${p.wait ? 'on' : 'off'}</td></tr>
+      <tr><td>This pass: hit</td><td>${c.perfect + c.great + c.good} of ${o.result.total}</td><td>Missed / wrong</td><td>${c.miss} / ${c.wrong}</td></tr>
+    </table>
+    <p class="next">${p.cleanPasses > 0 ? (p.rate >= 1 ? 'Clean at full speed: try it in the whole song.' : 'Clean passes! Keep going, or play the whole song.') : 'A clean pass has no missed or wrong notes. Slow down if it keeps slipping.'}</p>
+    <div class="row" style="justify-content:center">
+      <button class="primary big" id="again">Practise again</button>
+      <button id="song">Play the whole song</button>
+      <button id="quit">Song select</button>
+    </div>
+  </div>`);
+  el.querySelector('#again')!.addEventListener('click', o.onAgain);
+  el.querySelector('#song')!.addEventListener('click', o.onPlaySong);
+  el.querySelector('#quit')!.addEventListener('click', o.onQuit);
 }
 
 // ---------------------------------------------------------------------------
@@ -326,23 +449,33 @@ export function gateMessage(el: HTMLElement, msg: string): void {
 // ---------------------------------------------------------------------------
 // Play HUD, pause, results
 // ---------------------------------------------------------------------------
-export function showPlayHud(o: { onPause: () => void; onSkip: (() => void) | null }): void {
+export function showPlayHud(o: { onPause: () => void; onSkip: (() => void) | null; practice?: { rate: number; onStop: () => void } }): HTMLElement {
   const el = screen(`<div class="hud-hint">
       ${o.onSkip ? '<button id="skip">Skip to my part ⏩</button>' : ''}
+      ${o.practice ? `<span class="badge" id="practice-rate" aria-live="polite">${Math.round(o.practice.rate * 100)}% speed</span><button id="stop">Stop practice</button>` : ''}
       <button id="pause">Pause</button>
     </div>`, true);
   el.querySelector('#pause')!.addEventListener('click', o.onPause);
+  el.querySelector('#stop')?.addEventListener('click', () => o.practice?.onStop());
   el.querySelector('#skip')?.addEventListener('click', () => {
     o.onSkip?.();
     el.querySelector('#skip')?.remove();
   });
+  return el;
 }
 
-export function showPause(o: { onResume: () => void; onRestart: () => void; onSettings: () => void; onQuit: () => void }): void {
+/** The practice speed shown on the play screen, after the ladder moved it. */
+export function setPracticeRate(el: HTMLElement, rate: number): void {
+  const r = el.querySelector('#practice-rate');
+  if (r) r.textContent = `${Math.round(rate * 100)}% speed`;
+}
+
+export function showPause(o: { onResume: () => void; onRestart: () => void; onSettings: () => void; onQuit: () => void; onStopPractice?: () => void }): void {
   const el = screen(`<div class="panel" style="text-align:center">
     <h2>Paused</h2>
     <div class="row" style="justify-content:center">
       <button class="primary big" id="resume">Resume</button>
+      ${o.onStopPractice ? '<button id="stop">Stop practice</button>' : ''}
       <button id="restart">Restart</button>
       <button id="settings">Settings</button>
       <button id="quit">Song select</button>
@@ -351,6 +484,7 @@ export function showPause(o: { onResume: () => void; onRestart: () => void; onSe
   </div>`);
   el.querySelector('#resume')!.addEventListener('click', o.onResume);
   el.querySelector('#restart')!.addEventListener('click', o.onRestart);
+  el.querySelector('#stop')?.addEventListener('click', () => o.onStopPractice?.());
   el.querySelector('#settings')!.addEventListener('click', o.onSettings);
   el.querySelector('#quit')!.addEventListener('click', o.onQuit);
 }
@@ -370,9 +504,13 @@ export interface ResultsOptions {
   /** the one next step to offer, with what happens when it is taken */
   suggestion?: Suggestion | null;
   onSuggestion?: (s: Suggestion) => void;
+  /** open practice mode on the suggested section */
+  onPractise?: (s: Suggestion) => void;
   onRetry: () => void;
   onQuit: () => void;
 }
+
+const sectionLabel = (s: { fromBar: number; toBar: number }): string => (s.fromBar === s.toBar ? `Bar ${s.fromBar}` : `Bars ${s.fromBar}–${s.toBar}`);
 
 const COUNT_UP_MS = 1200;
 const STAR_STAGGER_MS = 220;
@@ -409,12 +547,14 @@ export function showResults(o: ResultsOptions): void {
     ${sug ? `<p class="next">Next step: <b>${esc(sug.text)}</b></p>` : ''}
     <div class="row" style="justify-content:center">
       ${sug && (sug.difficulty || sug.rate) ? `<button class="primary big" id="next">${esc(sug.text)}</button><button id="retry">Play again</button>` : '<button class="primary big" id="retry">Play again</button>'}
+      ${sug?.section && o.onPractise ? `<button id="practise">Practise ${esc(sectionLabel(sug.section).toLowerCase())}</button>` : ''}
       <button id="quit">Song select</button>
     </div>
   </div>`);
   el.querySelector('#retry')!.addEventListener('click', o.onRetry);
   el.querySelector('#quit')!.addEventListener('click', o.onQuit);
   el.querySelector('#next')?.addEventListener('click', () => o.onSuggestion?.(sug!));
+  el.querySelector('#practise')?.addEventListener('click', () => o.onPractise?.(sug!));
   if (still) return;
   // Count the percentage up, easing out; the stars follow one by one (CSS, delayed past the count).
   const acc = el.querySelector<HTMLElement>('#accuracy')!;
@@ -475,6 +615,7 @@ export function showSettings(o: SettingsScreenOptions): void {
     ${chk('easy', 'Easy mode: any octave counts')}
     ${chk('arcade', 'Arcade mode: the song ends when the performance meter runs out')}
     ${chk('effects', 'Hit effects (turn off on a slow computer)')}
+    <label class="field">Timing words over hits <select id="tierText">${opt('perfect', 'Perfect only', s.tierText)}${opt('all', 'Perfect, Great, Good', s.tierText)}${opt('off', 'none (misses still show)', s.tierText)}</select></label>
     ${chk('letGo', 'Keys held after their note is over bonk and cost points (Medium and up)')}
     <label class="field">Wrong notes <select id="wrongNotePenalty">${opt('combo', 'reset combo', s.wrongNotePenalty)}${opt('none', 'ignore', s.wrongNotePenalty)}${opt('score', 'reset combo and lose points', s.wrongNotePenalty)}</select></label>
     <label class="field">Notes outside my keyboard <select id="foldMode">${opt('fold', 'fold into range', s.foldMode)}${opt('drop', 'drop', s.foldMode)}</select></label>
@@ -502,6 +643,7 @@ export function showSettings(o: SettingsScreenOptions): void {
       easy: get<HTMLInputElement>('easy').checked,
       arcade: get<HTMLInputElement>('arcade').checked,
       effects: get<HTMLInputElement>('effects').checked,
+      tierText: get<HTMLSelectElement>('tierText').value as Settings['tierText'],
       letGo: get<HTMLInputElement>('letGo').checked,
       wrongNotePenalty: get<HTMLSelectElement>('wrongNotePenalty').value as Settings['wrongNotePenalty'],
       foldMode: get<HTMLSelectElement>('foldMode').value as Settings['foldMode'],

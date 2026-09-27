@@ -1,7 +1,7 @@
 /** What the results screen says beyond the raw counts: sections, stars, and what to do next. Pure. */
 
 import type { Difficulty } from '../midi/difficulty.ts';
-import { DIFFICULTIES, DIFFICULTY_LABEL } from '../midi/difficulty.ts';
+import { DIFFICULTIES, DIFFICULTY_LABEL, resolveLevel } from '../midi/difficulty.ts';
 import { WEIGHTS, type Judgment } from './judge.ts';
 
 export interface Section {
@@ -72,6 +72,8 @@ export interface Suggestion {
   /** settings to play next with, when the suggestion changes them */
   difficulty?: Difficulty;
   rate?: number;
+  /** kind 'section': the section to work on, which practice mode can loop */
+  section?: Section;
 }
 
 export interface SuggestionInput {
@@ -122,9 +124,95 @@ export function suggestNextStep(r: SuggestionInput): Suggestion {
   const sections = r.sections ?? [];
   if (sections.length > 1) {
     const weakest = sections.reduce((a, b) => (b.accuracy < a.accuracy ? b : a));
-    if (weakest.accuracy < r.accuracy - 0.1) return { kind: 'section', text: `Play it again: work on ${weakest.label.toLowerCase()}` };
+    if (weakest.accuracy < r.accuracy - 0.1) {
+      const { fromBar, toBar, start, end } = weakest;
+      return { kind: 'section', text: `Play it again: work on ${weakest.label.toLowerCase()}`, section: { fromBar, toBar, start, end } };
+    }
   }
   return { kind: 'again', text: `Play it again: ${Math.round(MOVE_UP * 100)}% unlocks the next step` };
+}
+
+// ---------------------------------------------------------------------------
+// Which best-score key a level is kept under
+// ---------------------------------------------------------------------------
+/**
+ * The level that is played for a wanted one (the nearest the part has at or below it), and its
+ * name in the best-score key: the part's top level keeps the key it had before levels existed
+ * ('expert', no suffix), whatever it is called for this song.
+ */
+export function keyLevelOf(wanted: Difficulty, offered: readonly Difficulty[]): { level: Difficulty; keyLevel: Difficulty } {
+  const level = resolveLevel(wanted, offered);
+  return { level, keyLevel: offered.length > 1 && level === offered[offered.length - 1] ? 'expert' : level };
+}
+
+/**
+ * The key level a song's best is looked up under on the song list, the way the play path
+ * stores it. A stored `keyLevel` is that already. A level alone (a pack's choice) is resolved
+ * against the levels the part has; `offered` is asked for only then. With neither (a choice
+ * saved before levels existed) the best is where v0.1 kept it: the no-suffix key.
+ */
+export function listKeyLevel(choice: { keyLevel?: string; difficulty?: Difficulty }, offered: () => readonly Difficulty[]): string {
+  if (choice.keyLevel) return choice.keyLevel;
+  if (!choice.difficulty) return 'expert';
+  const levels = offered();
+  return levels.length ? keyLevelOf(choice.difficulty, levels).keyLevel : 'expert';
+}
+
+// ---------------------------------------------------------------------------
+// Pack progress: stars per song and levels unlocked in order (WP10)
+// ---------------------------------------------------------------------------
+/** Stars on the level below that offer the next level up, when a pack unlocks levels in order. */
+export const UNLOCK_STARS = 4;
+/** The level of a best recorded before levels were stored and kept under the no-suffix key: the part's top level. */
+export const TOP_LEVEL = 'top';
+
+export interface LevelBest {
+  accuracy: number;
+  /** playback rate the best was set at */
+  rate: number;
+  /** level name, or TOP_LEVEL */
+  level: string;
+}
+
+/**
+ * Stars per level from a song's bests, best across parts and timing. Only full-speed plays
+ * count: a level is not earned at half speed.
+ */
+export function starsByLevel(bests: readonly LevelBest[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const b of bests) {
+    if (!(b.rate >= 1 - 1e-9)) continue;
+    const n = starCount(b.accuracy);
+    if (n > (out.get(b.level) ?? 0)) out.set(b.level, n);
+  }
+  return out;
+}
+
+/** The most stars a song has, and the level they were earned on (the higher level on a tie); null when none. */
+export function songStars(bests: readonly LevelBest[]): { stars: number; level: string } | null {
+  let best: { stars: number; level: string } | null = null;
+  const rank = (l: string) => (l === TOP_LEVEL ? DIFFICULTIES.length : DIFFICULTIES.indexOf(l as Difficulty));
+  for (const [level, stars] of starsByLevel(bests)) {
+    if (stars === 0) continue;
+    if (!best || stars > best.stars || (stars === best.stars && rank(level) > rank(best.level))) best = { stars, level };
+  }
+  return best;
+}
+
+/**
+ * The levels a player may pick, lowest first. Without unlocks, all of them. With unlocks, the
+ * lowest always, and each one above once the level below has UNLOCK_STARS stars. `stars` is
+ * keyed by level name; TOP_LEVEL counts as the last of `levels`.
+ */
+export function unlockedLevels(levels: readonly Difficulty[], stars: ReadonlyMap<string, number>, unlocks: boolean): Difficulty[] {
+  if (!unlocks) return [...levels];
+  const starsOf = (l: Difficulty, i: number) => Math.max(stars.get(l) ?? 0, i === levels.length - 1 ? stars.get(TOP_LEVEL) ?? 0 : 0);
+  const out: Difficulty[] = [];
+  for (let i = 0; i < levels.length; i++) {
+    if (i > 0 && starsOf(levels[i - 1]!, i - 1) < UNLOCK_STARS) break;
+    out.push(levels[i]!);
+  }
+  return out;
 }
 
 /** "+4.0%" / "−2.5%" against the previous best accuracy, or null when there is none. */

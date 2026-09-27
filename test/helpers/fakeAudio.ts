@@ -32,7 +32,8 @@ export class FakeAudioContext {
   state = 'running';
   destination = new Node();
   oscillators: FakeOscillator[] = [];
-  createGain() { return Object.assign(new Node(), { gain: param() }); }
+  gains: { gain: FakeParam }[] = [];
+  createGain() { const g = Object.assign(new Node(), { gain: param() }); this.gains.push(g); return g; }
   createBiquadFilter() { return Object.assign(new Node(), { type: 'lowpass', frequency: param(), Q: param() }); }
   createDynamicsCompressor() { return Object.assign(new Node(), { threshold: param(), ratio: param() }); }
   createOscillator() { const o = new FakeOscillator(); this.oscillators.push(o); return o; }

@@ -3,7 +3,8 @@ import { BackingScheduler } from './audio/scheduler.ts';
 import { WebAudioSynth, type Synth } from './audio/synth.ts';
 import { DEFAULT_JUDGE_CONFIG, OVERHOLD_COST, type JudgeConfig, type TimingPreset } from './game/judge.ts';
 import { calibrationBeats } from './game/calibration.ts';
-import { suggestNextStep, type Suggestion } from './game/results.ts';
+import { loopLabel, loopOf, practiceSections, trimChart, type PracticeSectionInfo } from './game/practice.ts';
+import { keyLevelOf, listKeyLevel, RATES, songStars, starsByLevel, suggestNextStep, TOP_LEVEL, unlockedLevels, UNLOCK_STARS, type LevelBest, type Suggestion } from './game/results.ts';
 import { PlaySession } from './game/session.ts';
 import { KeyboardInput } from './input/keyboardInput.ts';
 import { MidiInput } from './input/midiInput.ts';
@@ -12,19 +13,20 @@ import {
   buildChart, chooseWindow, DIFFICULTY_LABEL, isDifficulty, offeredLevels, resolveLevel, splitNotes,
   type Chart, type ChartOptions, type Difficulty, type Hand, type PitchWindow,
 } from './midi/chart.ts';
-import { buildPack, parsePackJson, sha256Hex, type PackSettings } from './midi/pack.ts';
+import { buildPack, parsePackJson, sha256Hex, type PackSettings, type PackValidation } from './midi/pack.ts';
 import { beatLines, parseSong, ticksToSeconds } from './midi/parse.ts';
 import { buildParts, defaultPart, notesOf } from './midi/parts.ts';
 import type { FeedbackSound } from './game/session.ts';
 import { displayRange } from './render/layout.ts';
 import { Renderer, type RenderState } from './render/renderer.ts';
 import { PerspectiveRenderer } from './render/highway3d.ts';
-import { bestKey, deleteSong, getBest, listSongs, putSong, recordBest, type StoredSong } from './storage/db.ts';
+import { bestKey, bestsForSong, deleteSong, getBest, listSongs, parseBestKey, putSong, recordBest, saveChoice, type BestScore } from './storage/db.ts';
 import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
 import {
-  gateMessage, installDropZone, showCalibration, showError, showExportDialog, showFirstRun, showGate, showPartPicker, showPause, showPlayHud,
-  showResults, showSettings, showSongSelect, showUnsupported, toast, type PartPickerState, type PartRow, type SongRow,
+  gateMessage, installDropZone, setPracticeRate, showCalibration, showError, showExportDialog, showFirstRun, showGate, showPartPicker, showPause, showPlayHud,
+  showPracticePicker, showPracticeResults, showResults, showSettings, showSongSelect, showUnsupported, toast,
+  type PartPickerState, type PartRow, type PracticeChoice, type SongRow,
 } from './ui/screens.ts';
 import { effectiveFeedback, loadSettings, resetToClassDefaults, saveClassDefaults, saveSettings, type Settings } from './ui/settings.ts';
 
@@ -54,6 +56,10 @@ interface LibrarySong {
   /** level name in the best-score key (see bestKey) */
   keyLevel?: string;
   packName?: string;
+  /** position in its pack */
+  packIndex?: number;
+  /** its pack unlocks levels in order */
+  unlocks?: boolean;
 }
 
 interface PartChoice {
@@ -73,6 +79,8 @@ interface Current {
   song: SongData;
   parts: Part[];
   picker: PartPickerState;
+  /** stars per level on this machine, when the song's pack unlocks levels in order */
+  stars: Map<string, number> | null;
 }
 
 const base = import.meta.env.BASE_URL;
@@ -98,7 +106,9 @@ let tapHandler: ((perfMs: number) => void) | null = null;
 let calibrating = false;
 /** hardware octave shift learned at the gate, per MIDI port, for this page session */
 const octaveShiftByPort = new Map<string, number>();
-let lastPlay: { window: PitchWindow; relative: boolean; autoplay: { jitterMs: number } | null } | null = null;
+let lastPlay: { window: PitchWindow; relative: boolean; autoplay: { jitterMs: number } | null; practice: PracticeChoice | null } | null = null;
+/** the play screen's overlay, for the practice speed shown on it */
+let hudEl: HTMLElement | null = null;
 
 const midi = new MidiInput();
 const keyboard = new KeyboardInput();
@@ -217,6 +227,7 @@ async function loadLibrary(): Promise<void> {
       .map((s) => ({
         id: s.id, title: s.name, source: 'imported', bytes: s.bytes, defaultParts: s.parts, parts: s.parts, split: s.split,
         timingPreset: s.timingPreset as TimingPreset | undefined, difficulty: isDifficulty(s.difficulty) ? s.difficulty : undefined, keyLevel: s.keyLevel, packName: s.packName,
+        packIndex: s.packIndex, unlocks: s.unlocks,
       }));
   } catch (e) {
     console.warn('IndexedDB unavailable', e);
@@ -238,17 +249,7 @@ async function importFiles(files: File[]): Promise<void> {
       if (/\.json$/i.test(file.name)) {
         const v = parsePackJson(await file.text());
         if (!v.ok) throw new Error(v.error);
-        for (const [i, { song, bytes }] of v.songs.entries()) {
-          const id = song.id || (await sha256Hex(bytes));
-          const stored: StoredSong = {
-            id, name: song.title, bytes, parts: song.defaultParts, addedAt: Date.now() + i, packName: v.pack.name,
-            ...(song.split !== undefined ? { split: song.split } : {}), ...(song.timingPreset ? { timingPreset: song.timingPreset } : {}),
-            ...(song.difficulty ? { difficulty: song.difficulty } : {}),
-          };
-          await putSong(stored);
-          added++;
-        }
-        applyPackSettings(v.pack.settings);
+        added += await storePack(v);
         toast(`Imported pack "${v.pack.name}" (${v.songs.length} songs)`);
       } else {
         const bytes = new Uint8Array(await file.arrayBuffer());
@@ -265,6 +266,21 @@ async function importFiles(files: File[]): Promise<void> {
     await loadLibrary();
     songSelect();
   }
+}
+
+/** Store a validated pack's songs in pack order, then apply its class settings. Returns the song count. */
+async function storePack(v: Extract<PackValidation, { ok: true }>): Promise<number> {
+  const now = Date.now();
+  for (const [i, { song, bytes }] of v.songs.entries()) {
+    const id = song.id || (await sha256Hex(bytes));
+    await putSong({
+      id, name: song.title, bytes, parts: song.defaultParts, addedAt: now + i, packName: v.pack.name, packIndex: i, unlocks: v.pack.settings.unlocks === true,
+      ...(song.split !== undefined ? { split: song.split } : {}), ...(song.timingPreset ? { timingPreset: song.timingPreset } : {}),
+      ...(song.difficulty ? { difficulty: song.difficulty } : {}),
+    });
+  }
+  applyPackSettings(v.pack.settings);
+  return v.songs.length;
 }
 
 function applyPackSettings(ps: PackSettings): void {
@@ -288,26 +304,18 @@ async function loadPackFromUrl(path: string): Promise<void> {
   if (!res.ok) throw new Error(`Pack not found: ${path}`);
   const v = parsePackJson(await res.text());
   if (!v.ok) throw new Error(v.error);
-  for (const [i, { song, bytes }] of v.songs.entries()) {
-    const id = song.id || (await sha256Hex(bytes));
-    await putSong({
-      id, name: song.title, bytes, parts: song.defaultParts, addedAt: Date.now() + i, packName: v.pack.name,
-      ...(song.split !== undefined ? { split: song.split } : {}), ...(song.timingPreset ? { timingPreset: song.timingPreset } : {}),
-      ...(song.difficulty ? { difficulty: song.difficulty } : {}),
-    });
-  }
-  applyPackSettings(v.pack.settings);
+  await storePack(v);
   toast(`Loaded pack "${v.pack.name}"`);
 }
 
-async function exportPack(name: string, ids: string[]): Promise<void> {
+async function exportPack(name: string, ids: string[], unlocks: boolean): Promise<void> {
   const songs = [];
   for (const id of ids) {
     const lib = library.find((l) => l.id === id);
     if (!lib) continue;
     songs.push({ title: lib.title, bytes: await songBytes(lib), defaultParts: lib.parts, split: lib.split, timingPreset: lib.timingPreset, difficulty: lib.difficulty });
   }
-  const pack = await buildPack(name, { kb: settings.kb, timing: settings.timing, names: settings.names, synth: settings.synth }, songs);
+  const pack = await buildPack(name, { kb: settings.kb, timing: settings.timing, names: settings.names, synth: settings.synth, unlocks }, songs);
   const blob = new Blob([JSON.stringify(pack)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -331,6 +339,7 @@ function songSelect(): void {
     title: l.title,
     subtitle: l.source === 'bundled' ? 'built-in' : l.packName ? `pack: ${l.packName}` : 'imported',
     group: l.source === 'imported' ? 'class' : 'builtin',
+    ...(l.packName ? { pack: l.packName, packIndex: l.packIndex ?? 0 } : {}),
     deletable: l.source === 'imported',
   }));
   showSongSelect({
@@ -343,7 +352,7 @@ function songSelect(): void {
       showExportDialog({
         songs: library.map((l) => ({ id: l.id, title: l.title })),
         defaultName: 'Class pack',
-        onExport: (name, ids) => void exportPack(name, ids),
+        onExport: (name, ids, unlocks) => void exportPack(name, ids, unlocks),
         onBack: songSelect,
       }),
     onSettings: () => settingsScreen(songSelect),
@@ -352,7 +361,8 @@ function songSelect(): void {
   // Best scores load asynchronously and are added to the rows when known.
   for (const l of library) {
     if (!l.parts.length) continue;
-    void getBest(bestKey(l.id, l.parts, l.split, l.timingPreset ?? settings.timing, settings.rate, settings.easy, l.keyLevel ?? l.difficulty ?? DEFAULT_DIFFICULTY))
+    void listBestKey(l)
+      .then((key) => getBest(key))
       .then((b) => {
         if (!b) return;
         const item = document.querySelector<HTMLElement>(`.item[data-id="${CSS.escape(l.id)}"] .meta`);
@@ -360,6 +370,51 @@ function songSelect(): void {
       })
       .catch(() => undefined);
   }
+  // A pack is a setlist: each of its songs shows the stars it has earned and on which level.
+  for (const l of library) {
+    if (!l.packName) continue;
+    void levelBests(l.id)
+      .then((bests) => {
+        const got = songStars(bests);
+        if (!got) return;
+        const item = document.querySelector<HTMLElement>(`.item[data-id="${CSS.escape(l.id)}"] .meta`);
+        const on = got.level === TOP_LEVEL ? 'the full part' : DIFFICULTY_LABEL[got.level as Difficulty] ?? got.level;
+        if (item) item.textContent += ` · ${'★'.repeat(got.stars)}${'☆'.repeat(5 - got.stars)} on ${on}`;
+      })
+      .catch(() => undefined);
+  }
+}
+
+/**
+ * The best-score key the song list shows for a song: the one the play path records under, with
+ * the level resolved the same way (the top level is the no-suffix key) and the hand split only
+ * for a single wide part.
+ */
+async function listBestKey(l: LibrarySong): Promise<string> {
+  const song = parseSong(await songBytes(l));
+  const parts = buildParts(song);
+  const p0 = l.parts.length === 1 ? parts.find((x) => x.key === partKey(l.parts[0]!)) : undefined;
+  const wide = !!p0 && p0.maxPitch - p0.minPitch > 24;
+  const split = wide ? l.split ?? 60 : undefined;
+  const keyLevel = listKeyLevel(l, () =>
+    offeredLevels(splitNotes(song, { parts: l.parts, split, hands: wide ? l.hands ?? ['L', 'R'] : undefined }).player, song).map((x) => x.level));
+  return bestKey(l.id, l.parts, split, l.timingPreset ?? settings.timing, settings.rate, settings.easy, keyLevel);
+}
+
+/** A song's best scores as levels and rates, for its stars. */
+async function levelBests(songId: string): Promise<LevelBest[]> {
+  const bests: BestScore[] = await bestsForSong(songId);
+  return bests.map((b) => {
+    const k = parseBestKey(b.key);
+    return { accuracy: b.accuracy, rate: k.rate, level: b.level ?? k.level ?? TOP_LEVEL };
+  });
+}
+
+/** Stars per level of the current song, when its pack unlocks levels in order. */
+async function loadStars(): Promise<void> {
+  if (!current) return;
+  const c = current;
+  c.stars = c.lib.unlocks ? starsByLevel(await levelBests(c.lib.id).catch(() => [])) : null;
 }
 
 function settingsScreen(onClose: () => void): void {
@@ -461,11 +516,21 @@ async function openSong(id: string): Promise<void> {
         selected: new Set(selected), split: lib.split ?? 60, hands: lib.hands ?? ['L', 'R'], timing: lib.timingPreset ?? settings.timing, guideTrack: false,
         difficulty: urlDifficulty ?? lib.difficulty ?? DEFAULT_DIFFICULTY,
       },
+      stars: null,
     };
+    await loadStars();
     partPicker();
   } catch (e) {
     showError('Could not load song', e instanceof Error ? e.message : String(e), songSelect);
   }
+}
+
+/** ?practice=2 (with autoplay): loop section 2; &practiceTo=3 extends the loop, &wait=1 turns wait mode on, &ladder=0 off. */
+function urlPractice(): PracticeChoice | null {
+  const n = Number(params.get('practice'));
+  if (!Number.isInteger(n) || n < 1) return null;
+  const to = Number(params.get('practiceTo') ?? n);
+  return { from: n - 1, to: Math.max(n, Number.isInteger(to) ? to : n) - 1, wait: params.get('wait') === '1', ladder: params.get('ladder') !== '0', rate: nearestRate(settings.rate) };
 }
 
 const urlDifficulty: Difficulty | null = isDifficulty(params.get('difficulty')) ? (params.get('difficulty') as Difficulty) : null;
@@ -492,12 +557,14 @@ function selectionOptions(): (Pick<ChartOptions, 'parts' | 'split' | 'hands'> & 
  * The levels the selection has, the one that will be played (the chosen level, or the nearest
  * one below it that this part has), and its name in the best-score key.
  */
-function levelsOfSelection(): { offered: ReturnType<typeof offeredLevels>; level: Difficulty; keyLevel: Difficulty } {
+function levelsOfSelection(): { offered: ReturnType<typeof offeredLevels>; level: Difficulty; keyLevel: Difficulty; locked: Difficulty[] } {
   const sel = selectionOptions();
   const offered = sel && current ? offeredLevels(splitNotes(current.song, sel).player, current.song) : [];
   const names = offered.map((l) => l.level);
-  const level = resolveLevel(current?.picker.difficulty ?? DEFAULT_DIFFICULTY, names);
-  return { offered, level, keyLevel: names.length > 1 && level === names[names.length - 1] ? 'expert' : level };
+  // A pack that unlocks levels in order offers the next one once the one below has its stars.
+  const open = unlockedLevels(names, current?.stars ?? new Map(), !!current?.lib.unlocks);
+  const level = resolveLevel(current?.picker.difficulty ?? DEFAULT_DIFFICULTY, open);
+  return { offered, level, keyLevel: keyLevelOf(level, names).keyLevel, locked: names.filter((n) => !open.includes(n)) };
 }
 
 /** Chart notes removed by the difficulty level sound on a hit; without chart feedback the band plays them. */
@@ -526,15 +593,63 @@ function partPicker(): void {
     rows,
     levels: levels.offered,
     level: levels.level,
+    locked: levels.locked,
+    unlockStars: UNLOCK_STARS,
     state: picker,
     kb: settings.kb,
     onChange: () => partPicker(),
     onPlay: () => void startPlay(null),
+    onPractise: () => practicePicker(),
     onBack: songSelect,
   });
 }
 
-async function startPlay(autoplay: { jitterMs: number } | null): Promise<void> {
+/** Bar-line times of the current song, and its sections with the notes of the selected level. */
+function sectionsOfSelection(): { sections: PracticeSectionInfo[]; barTimes: number[] } | null {
+  if (!current) return null;
+  const sel = selectionOptions();
+  if (!sel) return null;
+  const { level } = levelsOfSelection();
+  const chart = buildChart(current.song, { parts: sel.parts, split: sel.split, hands: sel.hands, difficulty: level });
+  const barTimes = beatLines(current.song, chart.duration).filter((l) => l.isBar).map((l) => l.time);
+  return { sections: practiceSections(barTimes, chart.duration, chart.notes), barTimes };
+}
+
+/** Practice mode: pick the sections to loop, then play them. `section` preselects the one starting there. */
+function practicePicker(sectionStart?: number): void {
+  if (!current) return;
+  const found = sectionsOfSelection();
+  if (!found || found.sections.length === 0) return;
+  const { sections } = found;
+  const last = sections.length - 1;
+  const prev = lastPlay?.practice;
+  let from = 0;
+  let to = 0;
+  if (sectionStart !== undefined) from = to = Math.max(0, sections.findIndex((s) => Math.abs(s.start - sectionStart) < 1e-6));
+  else if (prev) {
+    from = Math.min(prev.from, last);
+    to = Math.min(prev.to, last);
+  }
+  const { level } = levelsOfSelection();
+  showPracticePicker({
+    title: current.lib.title,
+    level: DIFFICULTY_LABEL[level],
+    sections,
+    rates: RATES,
+    choice: { from, to, wait: settings.practiceWait, ladder: settings.practiceLadder, rate: prev?.rate ?? nearestRate(settings.rate) },
+    onStart: (choice) => {
+      settings.practiceWait = choice.wait;
+      settings.practiceLadder = choice.ladder;
+      saveSettings(settings);
+      void startPlay(null, choice);
+    },
+    onBack: partPicker,
+  });
+}
+
+const nearestRate = (rate: number): number => RATES.reduce((a, b) => (Math.abs(b - rate) < Math.abs(a - rate) ? b : a));
+
+async function startPlay(autoplay: { jitterMs: number } | null, practice: PracticeChoice | null = null): Promise<void> {
   if (!current) return;
   const { lib, song, picker } = current;
   const sel = selectionOptions();
@@ -550,39 +665,51 @@ async function startPlay(autoplay: { jitterMs: number } | null): Promise<void> {
   lib.difficulty = level;
   lib.keyLevel = keyLevel;
   if (lib.source === 'bundled') rememberChoice(lib.id, choice);
-  else await putSong({ id: lib.id, name: lib.title, bytes: lib.bytes!, parts: partIds, split: picker.split, timingPreset: picker.timing, difficulty: level, keyLevel, packName: lib.packName, addedAt: Date.now() }).catch(() => undefined);
+  else await saveChoice(lib.id, { parts: partIds, split: picker.split, timingPreset: picker.timing, difficulty: level, keyLevel }).catch(() => undefined);
 
   ensureAudio();
   // The window is chosen for the notes this level actually asks for.
   const unfolded = buildChart(song, { parts: sel.parts, split: sel.split, hands: sel.hands, difficulty: level });
   const { window, relative } = windowFor(settings.kb, unfolded.notes.map((n) => n.origPitch));
-  lastPlay = { window, relative, autoplay };
+  lastPlay = { window, relative, autoplay, practice };
   play();
 }
 
 function play(): void {
   if (!current || !lastPlay) return;
   const { lib, song, picker } = current;
-  const { window, relative, autoplay } = lastPlay;
+  const { window, relative, autoplay, practice: choice } = lastPlay;
   const sel = selectionOptions();
   if (!sel) return;
   const partIds = sel.parts;
   const wide = sel.wide;
   const { offered, level: difficulty, keyLevel } = levelsOfSelection();
   const feedback = effectiveFeedback(settings);
-  const chart: Chart = buildChart(song, {
+  const fullChart: Chart = buildChart(song, {
     parts: sel.parts, split: sel.split, hands: sel.hands, window, foldMode: settings.foldMode, difficulty, removed: removedFor(feedback),
   });
-  if (chart.notes.length === 0) {
+  if (fullChart.notes.length === 0) {
     showError('Nothing to play', 'The selected part has no notes in range.', partPicker);
     return;
   }
-  const range = displayRange(chart.minPitch, chart.maxPitch, window);
-  const lines = beatLines(song, chart.duration);
+  const range = displayRange(fullChart.minPitch, fullChart.maxPitch, window);
+  const lines = beatLines(song, fullChart.duration);
+  const barTimes = lines.filter((l) => l.isBar).map((l) => l.time);
+  // Practice mode: the chart is cut to the loop; the band, the beat lines and the display range stay the song's.
+  const sections = choice ? practiceSections(barTimes, fullChart.duration, fullChart.notes) : [];
+  const from = choice ? Math.min(choice.from, sections.length - 1) : 0;
+  const to = choice ? Math.min(choice.to, sections.length - 1) : 0;
+  const loop = choice && sections.length ? loopOf(sections, from, to) : null;
+  const chart = loop ? trimChart(fullChart, loop) : fullChart;
+  if (chart.notes.length === 0) {
+    showError('Nothing to practise', 'These bars have no notes to play.', partPicker);
+    return;
+  }
+  const rate = choice ? choice.rate : settings.rate;
   const timing = picker.timing;
   const judgeConfig: JudgeConfig = {
     ...DEFAULT_JUDGE_CONFIG, preset: timing, easy: settings.easy, wrongNotePenalty: settings.wrongNotePenalty,
-    failAt: settings.arcade && !autoplay ? 0 : null,
+    failAt: settings.arcade && !autoplay && !loop ? 0 : null,
     overhold: settings.letGo ? OVERHOLD_COST[difficulty] : null,
   };
   const sig = song.timeSigs[0]!;
@@ -605,22 +732,43 @@ function play(): void {
         if (picker.selected.has(p.key) && p.duplicateOf) muted.add(p.duplicateOf);
       }
     }
+    // In practice the session counts in before every pass itself.
     scheduler = new BackingScheduler(chart.backing, backingSynth, clock, {
       mutedParts: muted,
-      countIn: { beats: sig.numerator, beatSeconds: barSeconds / sig.numerator },
+      countIn: loop ? null : { beats: sig.numerator, beatSeconds: barSeconds / sig.numerator },
     });
   }
   session = new PlaySession({
-    chart, clock, judgeConfig, rate: settings.rate, inputOffsetMs: settings.inputOffsetMs,
+    chart, clock, judgeConfig, rate, inputOffsetMs: settings.inputOffsetMs,
     synth: settings.synth ? synth : null, feedbackSound: feedback,
     feedbackPrograms: Object.fromEntries(current.parts.map((p) => [p.key, p.program])),
     relative, visibleSeconds, barSeconds, autoplay, countInBeats: sig.numerator,
-    barTimes: lines.filter((l) => l.isBar).map((l) => l.time),
+    barTimes,
     // The system's reduced-motion preference turns the particles off, unless the URL asks for them.
     effects: settings.effects && (params.has('effects') || !matchMedia('(prefers-reduced-motion: reduce)').matches),
+    tierText: settings.tierText,
     hint: relative ? PlaySession.keysHint(window) : partName,
+    ...(loop && choice ? {
+      practice: { loop, sections, current: from, label: loopLabel(sections, from, to), wait: choice.wait, ladder: choice.ladder },
+      // the count-in clicks of the scheduler's, on the band's drum channel
+      click: (accent: boolean, when: number) => backingSynth?.noteOn(9, accent ? 76 : 37, accent ? 110 : 80, when),
+    } : {}),
   });
   const s = session;
+  s.onPass = () => {
+    // The clock went back to the count-in: the band starts again from there.
+    if (scheduler?.running) {
+      scheduler.stop();
+      scheduler.start();
+    }
+    if (hudEl) setPracticeRate(hudEl, s.rate);
+  };
+  s.onWait = (waiting) => {
+    // Wait mode: the band is silent while the song is held, and picks up where it left off.
+    if (!scheduler || s.status !== 'playing') return;
+    if (waiting) scheduler.stop();
+    else scheduler.start();
+  };
   s.onOctave = (ev) => {
     if (ev.type === 'reoffset') {
       toast(`Octave adjusted (${ev.delta > 0 ? '+' : ''}${ev.delta / 12}). Keep playing.`);
@@ -634,6 +782,19 @@ function play(): void {
   };
   s.onFinished = (result) => {
     stopBacking();
+    if (result.practice) {
+      // Practice never writes bests or stars.
+      showPracticeResults({
+        title: lib.title,
+        detail: `${partName} · ${DIFFICULTY_LABEL[difficulty]} · ${timing} timing`,
+        practice: result.practice,
+        result,
+        onAgain: () => practicePicker(),
+        onPlaySong: () => void startPlay(null),
+        onQuit: songSelect,
+      });
+      return;
+    }
     const badges = [...(result.failed ? ['Song failed'] : []), ...(settings.easy ? ['Easy mode'] : []), ...(settings.rate < 1 ? [`${Math.round(settings.rate * 100)}% speed`] : []), ...(autoplay ? ['Autoplay'] : [])];
     const detail = `${partName} · ${DIFFICULTY_LABEL[difficulty]} · ${timing} timing · ${Math.round(settings.rate * 100)}% speed`;
     const suggestion = suggestNextStep({
@@ -642,7 +803,7 @@ function play(): void {
     const show = (extra: string[], previousBest: number | null) =>
       showResults({
         title: lib.title, detail, result, badges: [...badges, ...extra], previousBest, suggestion,
-        onSuggestion: takeSuggestion, onRetry: play, onQuit: songSelect,
+        onSuggestion: takeSuggestion, onPractise: (sg) => practicePicker(sg.section?.start), onRetry: play, onQuit: songSelect,
       });
     if (autoplay || result.failed) show([], null);
     else {
@@ -650,8 +811,8 @@ function play(): void {
       getBest(key)
         .catch(() => undefined)
         .then((before) =>
-          recordBest({ key, songId: lib.id, score: result.score, accuracy: result.accuracy, maxCombo: result.maxCombo, at: Date.now() })
-            .then(({ isNew }) => show(isNew ? ['New best!'] : [], before?.accuracy ?? null)))
+          recordBest({ key, songId: lib.id, score: result.score, accuracy: result.accuracy, maxCombo: result.maxCombo, at: Date.now(), level: difficulty })
+            .then(({ isNew }) => loadStars().then(() => show(isNew ? ['New best!'] : [], before?.accuracy ?? null))))
         .catch(() => show([], null));
     }
   };
@@ -661,6 +822,7 @@ function play(): void {
     hud: s.hud(), showNames: settings.names, showNoteNames: settings.noteNames,
     physical: relative ? window : null,
     fx: s.fx,
+    ...(s.practice ? { practice: s.practice } : {}),
   };
   document.title = `MIDI Hero — ${lib.title}`;
 
@@ -691,8 +853,13 @@ function takeSuggestion(s: Suggestion): void {
 }
 
 function playHud(s: PlaySession): void {
-  showPlayHud({ onPause: pause, onSkip: s.chart.firstNoteTime > 8 ? () => { s.skipToFirstNote(); scheduler?.stop(); scheduler?.start(); } : null });
-  if (s.status === 'playing') scheduler?.start();
+  hudEl = showPlayHud({
+    onPause: pause,
+    onSkip: !s.practice && s.chart.firstNoteTime > 8 ? () => { s.skipToFirstNote(); scheduler?.stop(); scheduler?.start(); } : null,
+    ...(s.practice ? { practice: { rate: s.rate, onStop: () => s.stopPractice() } } : {}),
+  });
+  // While wait mode holds the song the band stays quiet; the session starts it again.
+  if (s.status === 'playing' && !s.practice?.waiting) scheduler?.start();
 }
 
 /** Thin the band's drums and pads to `level` (the session's mixLevel). */
@@ -738,13 +905,16 @@ function runGate(window: PitchWindow, s: PlaySession): void {
 
 function pause(): void {
   if (!session || session.status !== 'playing') return;
-  session.pause();
+  const s = session;
+  s.pause();
   scheduler?.stop();
+  const stop = s.practice ? { onStopPractice: () => s.stopPractice() } : {};
   showPause({
     onResume: resume,
     onRestart: () => { session = null; play(); },
-    onSettings: () => settingsScreen(() => showPause({ onResume: resume, onRestart: () => { session = null; play(); }, onSettings: () => settingsScreen(resume), onQuit: songSelect })),
+    onSettings: () => settingsScreen(() => showPause({ onResume: resume, onRestart: () => { session = null; play(); }, onSettings: () => settingsScreen(resume), onQuit: songSelect, ...stop })),
     onQuit: songSelect,
+    ...stop,
   });
 }
 
@@ -785,7 +955,7 @@ function step(s: PlaySession, state: RenderState): number {
   const w0 = performance.now();
   s.update();
   setMix(s.mixLevel);
-  state.time = s.now() + (settings.audioOffsetMs / 1000) * settings.rate;
+  state.time = s.now() + (settings.audioOffsetMs / 1000) * s.rate;
   state.hud = s.hud();
   (settings.highway === 'perspective' ? perspectiveRenderer : renderer).draw(state);
   return performance.now() - w0;
@@ -829,7 +999,7 @@ function frame(): void {
     if (t - lastDebug > 250) {
       lastDebug = t;
       const j = session.judge;
-      canvas.dataset.state = JSON.stringify({ status: session.status, now: +session.now().toFixed(2), score: j.score, combo: j.combo, multiplier: j.scoreMultiplier, star: +j.starGauge.toFixed(2), starOn: j.starActive, health: +j.meter.health.toFixed(2), mix: +mix.toFixed(2), counts: j.counts, offset: session.octaveOffset, locked: session.filter.locked, backing: scheduler?.running ?? false, audio: audioCtx?.state ?? 'none', notes: session.chart.notes.length, fps: +fps.toFixed(1), frameMs: +frameMs.toFixed(2) });
+      canvas.dataset.state = JSON.stringify({ status: session.status, now: +session.now().toFixed(2), score: j.score, combo: j.combo, multiplier: j.scoreMultiplier, star: +j.starGauge.toFixed(2), starOn: j.starActive, health: +j.meter.health.toFixed(2), mix: +mix.toFixed(2), counts: j.counts, ...(session.practice ? { practice: { passes: session.practice.passes, waiting: session.practice.waiting, waitingFor: session.practice.waitingFor, rate: session.rate } } : {}), offset: session.octaveOffset, locked: session.filter.locked, backing: scheduler?.running ?? false, audio: audioCtx?.state ?? 'none', notes: session.chart.notes.length, fps: +fps.toFixed(1), frameMs: +frameMs.toFixed(2) });
     }
   }
   requestAnimationFrame(frame);
@@ -867,7 +1037,7 @@ async function boot(): Promise<void> {
       const lib = library.find((l) => l.id === quick);
       if (lib) {
         await openSong(quick);
-        await startPlay({ jitterMs: Number(params.get('jitter') ?? 0) });
+        await startPlay({ jitterMs: Number(params.get('jitter') ?? 0) }, urlPractice());
         return;
       }
     }

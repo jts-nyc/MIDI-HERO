@@ -5,8 +5,13 @@
  */
 
 export interface Synth {
-  noteOn(channel: number, pitch: number, velocity: number, when: number): void;
-  noteOff(channel: number, pitch: number, when: number): void;
+  /** Start a note; returns its voice id (0 for a drum hit, which has no voice to stop). */
+  noteOn(channel: number, pitch: number, velocity: number, when: number): number;
+  /**
+   * Stop a note. With `voice`, only that voice: a note-off scheduled for an earlier note of the
+   * same pitch must not cut off the note that retriggered it. Without, every voice of the pitch.
+   */
+  noteOff(channel: number, pitch: number, when: number, voice?: number): void;
   program(channel: number, program: number): void;
   control(channel: number, controller: number, value: number, when: number): void;
   bend(channel: number, value: number, when: number): void;
@@ -77,6 +82,7 @@ export function familyFor(program: number): Family {
 }
 
 interface Voice {
+  id: number;
   channel: number;
   pitch: number;
   start: number;
@@ -103,10 +109,20 @@ interface ChannelState {
 
 const MAX_VOICES = 32;
 
+/** A drum hit that may still be scheduled or ringing: its gains, so an all-notes-off can mute it. */
+interface DrumHit {
+  channel: number;
+  gains: GainNode[];
+  end: number;
+}
+
 export class WebAudioSynth implements Synth {
   private master: GainNode;
   private channels: ChannelState[] = [];
   private voices: Voice[] = [];
+  private nextVoiceId = 1;
+  /** drum hits scheduled or still ringing; they have no voice, but all-notes-off must stop them too */
+  private drums: DrumHit[] = [];
   private drumChannels = new Set<number>([9]);
   private groupGains: Record<ChannelGroup, number> = { drums: 1, pads: 1 };
   private noiseBuffer: AudioBuffer;
@@ -200,13 +216,13 @@ export class WebAudioSynth implements Synth {
     }
   }
 
-  noteOn(channel: number, pitch: number, velocity: number, when: number): void {
+  noteOn(channel: number, pitch: number, velocity: number, when: number): number {
     const ctx = this.ctx;
     const t = Math.max(when, ctx.currentTime);
     const ch = this.channels[channel]!;
     if (this.drumChannels.has(channel)) {
       this.drumHit(channel, pitch, velocity, t);
-      return;
+      return 0;
     }
     // Voice stealing
     if (this.voices.length >= MAX_VOICES) {
@@ -246,17 +262,18 @@ export class WebAudioSynth implements Synth {
     }
     filter.connect(env).connect(ch.gain);
     osc1.start(t);
-    const voice: Voice = { channel, pitch, start: t, osc1, osc2, filter, env, release: patch.release, released: false };
+    const voice: Voice = { id: this.nextVoiceId++, channel, pitch, start: t, osc1, osc2, filter, env, release: patch.release, released: false };
     this.voices.push(voice);
     // Same pitch already sounding on this channel: release it (retrigger).
     for (const v of this.voices) if (v !== voice && v.channel === channel && v.pitch === pitch && !v.released) this.release(v, t);
+    return voice.id;
   }
 
-  noteOff(channel: number, pitch: number, when: number): void {
+  noteOff(channel: number, pitch: number, when: number, voice?: number): void {
     const t = Math.max(when, this.ctx.currentTime);
     const ch = this.channels[channel]!;
     for (const v of this.voices) {
-      if (v.channel === channel && v.pitch === pitch && !v.released) {
+      if (v.channel === channel && v.pitch === pitch && !v.released && (voice === undefined || v.id === voice)) {
         if (ch.sustain) v.released = true; // mark; actually released when the pedal lifts
         else this.release(v, t);
         (v as Voice & { sustained?: boolean }).sustained = ch.sustain;
@@ -309,11 +326,30 @@ export class WebAudioSynth implements Synth {
   private allNotesOffChannel(channel: number, when: number): void {
     const t = Math.max(when, this.ctx.currentTime);
     for (const v of [...this.voices]) if (v.channel === channel && !v.released) this.release(v, t);
+    this.muteDrums(t, channel);
   }
 
   allNotesOff(when: number): void {
     const t = Math.max(when, this.ctx.currentTime);
     for (const v of [...this.voices]) this.kill(v, t);
+    this.muteDrums(t, null);
+  }
+
+  /** Silence drum hits from `t`, including ones scheduled for later (a cancelled calibration's clicks). */
+  private muteDrums(t: number, channel: number | null): void {
+    const kept: DrumHit[] = [];
+    for (const d of this.drums) {
+      if (channel !== null && d.channel !== channel) {
+        kept.push(d);
+        continue;
+      }
+      if (d.end <= t) continue;
+      for (const g of d.gains) {
+        g.gain.cancelScheduledValues(t);
+        g.gain.setValueAtTime(0, t);
+      }
+    }
+    this.drums = kept;
   }
 
   bonk(pitch: number, velocity: number, when: number): void {
@@ -389,6 +425,10 @@ export class WebAudioSynth implements Synth {
   private drumHit(channel: number, pitch: number, velocity: number, t: number): void {
     const ctx = this.ctx;
     const ch = this.channels[channel]!;
+    const now = ctx.currentTime;
+    if (this.drums.length > 64 || (this.drums.length && this.drums[0]!.end < now)) this.drums = this.drums.filter((d) => d.end >= now);
+    const hit: DrumHit = { channel, gains: [], end: t + 0.35 };
+    this.drums.push(hit);
     const vel = Math.max(0.05, velocity / 127);
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuffer;
@@ -408,6 +448,7 @@ export class WebAudioSynth implements Synth {
       const og = ctx.createGain();
       og.gain.setValueAtTime(vel * 0.9, t);
       og.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+      hit.gains.push(og);
       osc.connect(og).connect(ch.gain);
       osc.start(t);
       osc.stop(t + 0.3);
@@ -436,6 +477,8 @@ export class WebAudioSynth implements Synth {
     }
     env.gain.setValueAtTime(gain * vel, t);
     env.gain.exponentialRampToValueAtTime(0.001, t + decay);
+    hit.gains.push(env);
+    hit.end = Math.max(hit.end, t + decay + 0.05);
     src.connect(filter).connect(env).connect(ch.gain);
     src.start(t);
     src.stop(t + decay + 0.02);
@@ -448,8 +491,15 @@ export class RecordingSynth implements Synth {
   private rec(method: string, ...args: unknown[]): void {
     this.calls.push({ method, args });
   }
-  noteOn(channel: number, pitch: number, velocity: number, when: number): void { this.rec('noteOn', channel, pitch, velocity, when); }
-  noteOff(channel: number, pitch: number, when: number): void { this.rec('noteOff', channel, pitch, when); }
+  private nextVoiceId = 1;
+  noteOn(channel: number, pitch: number, velocity: number, when: number): number {
+    this.rec('noteOn', channel, pitch, velocity, when);
+    return this.nextVoiceId++;
+  }
+  noteOff(channel: number, pitch: number, when: number, voice?: number): void {
+    if (voice === undefined) this.rec('noteOff', channel, pitch, when);
+    else this.rec('noteOff', channel, pitch, when, voice);
+  }
   program(channel: number, program: number): void { this.rec('program', channel, program); }
   control(channel: number, controller: number, value: number, when: number): void { this.rec('control', channel, controller, value, when); }
   bend(channel: number, value: number, when: number): void { this.rec('bend', channel, value, when); }

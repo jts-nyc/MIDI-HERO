@@ -1,5 +1,5 @@
 import type { TimingPreset, WrongNotePenalty } from '../game/judge.ts';
-import type { FeedbackSound } from '../game/session.ts';
+import type { FeedbackSound, TierText } from '../game/session.ts';
 import type { FoldMode } from '../midi/chart.ts';
 
 export type KeyboardSize = 25 | 49 | 61 | 88;
@@ -29,9 +29,15 @@ export interface Settings {
   arcade: boolean;
   /** particles and other moving effects */
   effects: boolean;
+  /** timing words over hits: every tier, Perfect only (default), or none */
+  tierText: TierText;
   /** from Medium up: a bonk when a key stays down after its note is over */
   letGo: boolean;
   backingVolume: number;
+  /** practice mode: hold the song at an unplayed note until it is played */
+  practiceWait: boolean;
+  /** practice mode: step the speed up after two clean passes, down after two failed ones */
+  practiceLadder: boolean;
   foldMode: FoldMode;
   midiPortId: string | null;
   /** computer-keyboard fallback base pitch */
@@ -56,8 +62,11 @@ export const DEFAULT_SETTINGS: Settings = {
   easy: false,
   arcade: false,
   effects: true,
+  tierText: 'perfect',
   letGo: true,
   backingVolume: 0.8,
+  practiceWait: false,
+  practiceLadder: true,
   foldMode: 'fold',
   midiPortId: null,
   keyboardBase: 48,
@@ -93,6 +102,8 @@ export function urlOverrides(search: string): Partial<Settings> {
     out.feedbackSound = feedback;
     out.synth = feedback !== 'off';
   }
+  const tiers = p.get('tiers');
+  if (isTierText(tiers)) out.tierText = tiers;
   const rate = Number(p.get('rate'));
   if (rate >= 0.25 && rate <= 1.5) out.rate = rate;
   const speed = Number(p.get('speed'));
@@ -101,6 +112,7 @@ export function urlOverrides(search: string): Partial<Settings> {
 }
 
 const isFeedbackSound = (v: unknown): v is FeedbackSound => v === 'chart' || v === 'press' || v === 'off';
+const isTierText = (v: unknown): v is TierText => v === 'all' || v === 'perfect' || v === 'off';
 
 /** The feedback mode in effect: `synth` off always means the instrument sounds itself. */
 export function effectiveFeedback(s: Pick<Settings, 'synth' | 'feedbackSound'>): FeedbackSound {
@@ -120,7 +132,7 @@ export function sanitize(raw: unknown, base: Settings = DEFAULT_SETTINGS): Setti
   if ([25, 49, 61, 88].includes(Number(r.kb))) s.kb = Number(r.kb) as KeyboardSize;
   if (r.highway === 'flat' || r.highway === 'perspective') s.highway = r.highway;
   if (r.timing === 'strict' || r.timing === 'normal' || r.timing === 'relaxed') s.timing = r.timing;
-  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'letGo', 'firstRunDone'] as const) {
+  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'letGo', 'firstRunDone', 'practiceWait', 'practiceLadder'] as const) {
     if (typeof r[k] === 'boolean') s[k] = r[k] as boolean;
   }
   num('speed', 100, 800);
@@ -132,6 +144,7 @@ export function sanitize(raw: unknown, base: Settings = DEFAULT_SETTINGS): Setti
   if (r.wrongNotePenalty === 'none' || r.wrongNotePenalty === 'combo' || r.wrongNotePenalty === 'score') s.wrongNotePenalty = r.wrongNotePenalty;
   if (r.foldMode === 'fold' || r.foldMode === 'drop') s.foldMode = r.foldMode;
   if (isFeedbackSound(r.feedbackSound)) s.feedbackSound = r.feedbackSound;
+  if (isTierText(r.tierText)) s.tierText = r.tierText;
   // `synth` on with feedback 'off' cannot be expressed in the UI; an old or pack value of `synth` wins.
   if (s.synth && s.feedbackSound === 'off') s.feedbackSound = 'chart';
   if (typeof r.midiPortId === 'string' || r.midiPortId === null) s.midiPortId = r.midiPortId as string | null;
