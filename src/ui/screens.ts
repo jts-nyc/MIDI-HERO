@@ -1,3 +1,4 @@
+import { CALIBRATION_BEATS, TapCalibrator, visualOffset, type CalibrationResult } from '../game/calibration.ts';
 import { bestDelta, starCount, type Suggestion } from '../game/results.ts';
 import type { PlayResult } from '../game/session.ts';
 import type { TimingPreset } from '../game/judge.ts';
@@ -446,6 +447,7 @@ export interface SettingsScreenOptions {
   onSelectPort: (id: string | null) => void;
   onResetChannel: () => void;
   onResetClassDefaults: () => void;
+  onCalibrate: () => void;
   onClose: () => void;
 }
 
@@ -474,6 +476,7 @@ export function showSettings(o: SettingsScreenOptions): void {
     <label class="field">Notes outside my keyboard <select id="foldMode">${opt('fold', 'fold into range', s.foldMode)}${opt('drop', 'drop', s.foldMode)}</select></label>
     ${num('audioOffsetMs', 'Visual offset (ms, + if notes look late)', -300, 300, 5)}
     ${num('inputOffsetMs', 'Input offset (ms, + if hits judge late)', -300, 300, 5)}
+    <div class="row" style="justify-content:flex-end"><button id="calibrate">Measure these: calibrate timing…</button></div>
     ${num('backingVolume', 'Backing volume (0–1)', 0, 1, 0.05)}
     <p>Audio latency: ${o.latencyMs === null ? 'audio not started yet' : `${o.latencyMs.toFixed(0)} ms${o.latencyMs > 60 ? ' — high; use wired headphones or speakers' : ''}`}.
        Input channel: ${o.lockedChannel === null ? 'any' : `${o.lockedChannel + 1}`} <button id="resetch">Reset</button></p>
@@ -508,5 +511,153 @@ export function showSettings(o: SettingsScreenOptions): void {
   el.querySelector<HTMLSelectElement>('#port')!.addEventListener('change', (e) => o.onSelectPort((e.target as HTMLSelectElement).value || null));
   el.querySelector('#resetch')!.addEventListener('click', o.onResetChannel);
   el.querySelector('#resetclass')!.addEventListener('click', o.onResetClassDefaults);
+  el.querySelector('#calibrate')!.addEventListener('click', o.onCalibrate);
   el.querySelector('#close')!.addEventListener('click', o.onClose);
+}
+
+// ---------------------------------------------------------------------------
+// Calibration: tap along to 8 clicks, then to 8 things you see
+// ---------------------------------------------------------------------------
+export type CalibrationKind = 'input' | 'visual';
+
+export interface CalibrationOptions {
+  inputOffsetMs: number;
+  audioOffsetMs: number;
+  /**
+   * Start a run on a fresh clock; 'input' plays the clicks, 'visual' is silent. Returns the beat
+   * times in seconds, or null when the sound is not running yet.
+   */
+  start: (kind: CalibrationKind) => { leadIn: number[]; scored: number[] } | null;
+  /** seconds on the clock of the run: now, and at a performance timestamp */
+  now: () => number;
+  timeOf: (perfMs: number) => number;
+  /** every key press (MIDI or computer keyboard) goes to the handler while the screen is open; null stops that */
+  onTaps: (handler: ((perfMs: number) => void) | null) => void;
+  onSave: (offsets: { inputOffsetMs?: number; audioOffsetMs?: number }) => void;
+  onClose: () => void;
+}
+
+const CAL_TRAVEL = 1.2; // s a falling marker is on screen before it lands
+
+export function showCalibration(o: CalibrationOptions): void {
+  let inputOffset = o.inputOffsetMs;
+  let running = false;
+  const el = screen(`<div class="panel calib" style="text-align:center">
+    <h2 id="cal-title"></h2>
+    <p id="cal-text"></p>
+    <div class="cal-stage" id="cal-stage" hidden><div class="cal-line"></div><div class="cal-ball" id="cal-ball"></div></div>
+    <div class="cal-dots" id="cal-dots">${'<span class="dot"></span>'.repeat(CALIBRATION_BEATS)}</div>
+    <p id="cal-result"></p>
+    <div class="row" style="justify-content:center" id="cal-buttons"></div>
+  </div>`);
+  const $ = <T extends HTMLElement>(id: string) => el.querySelector<T>(`#${id}`)!;
+  const dots = [...el.querySelectorAll<HTMLElement>('.dot')];
+  const buttons = (list: [string, () => void, boolean?][]): void => {
+    $('cal-buttons').replaceChildren(
+      ...list.map(([label, fn, primary]) => {
+        const b = document.createElement('button');
+        b.textContent = label;
+        if (primary) b.className = 'primary';
+        b.addEventListener('click', fn);
+        return b;
+      }),
+    );
+  };
+  let tap: ((perfMs: number) => void) | null = null;
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.code !== 'Space' || e.repeat || !running) return;
+    e.preventDefault();
+    tap?.(e.timeStamp);
+  };
+  window.addEventListener('keydown', onKey, true);
+  const close = (): void => {
+    running = false;
+    o.onTaps(null);
+    window.removeEventListener('keydown', onKey, true);
+    o.onClose();
+  };
+
+  const intro = (kind: CalibrationKind): void => {
+    running = false;
+    o.onTaps(null);
+    dots.forEach((d) => (d.className = 'dot'));
+    $('cal-stage').hidden = kind !== 'visual';
+    $('cal-result').textContent = '';
+    $('cal-title').textContent = kind === 'input' ? 'Calibrate: your keyboard' : 'Calibrate: your screen';
+    $('cal-text').textContent = kind === 'input'
+      ? `You will hear 4 soft clicks, then ${CALIBRATION_BEATS} loud ones. Tap any key on your keyboard (or the space bar) exactly on each loud click. Close your eyes if it helps.`
+      : `No sound this time. A marker falls onto the line ${CALIBRATION_BEATS} times, after 4 to get the feel. Tap a key exactly when it lands.`;
+    buttons([['Start', () => run(kind), true], ['Cancel', close]]);
+  };
+
+  const run = (kind: CalibrationKind): void => {
+    const beats = o.start(kind);
+    if (!beats) {
+      $('cal-result').textContent = 'The sound is not running yet. Press Start again.';
+      return;
+    }
+    $('cal-result').textContent = '';
+    const all = [...beats.leadIn, ...beats.scored];
+    const cal = new TapCalibrator(beats.scored);
+    running = true;
+    dots.forEach((d) => (d.className = 'dot'));
+    $('cal-text').textContent = kind === 'input' ? 'Listen… then tap on every loud click.' : 'Watch… then tap when the marker lands.';
+    buttons([['Cancel', close]]);
+    tap = (perfMs) => {
+      const i = cal.tap(o.timeOf(perfMs));
+      if (i >= 0) dots[i]!.className = 'dot on';
+    };
+    o.onTaps(tap);
+    const ball = $('cal-ball');
+    const stage = $('cal-stage');
+    const frame = (): void => {
+      if (!running || !el.isConnected) return;
+      const now = o.now();
+      if (kind === 'visual') {
+        const next = all.find((b) => b >= now - 0.08);
+        const travel = stage.clientHeight - 24;
+        if (next === undefined) ball.style.opacity = '0';
+        else {
+          const t = Math.max(0, Math.min(1, 1 - (next - now) / CAL_TRAVEL));
+          ball.style.opacity = next - now > CAL_TRAVEL ? '0' : '1';
+          ball.style.transform = `translate(-50%, ${t * travel}px)`;
+          ball.classList.toggle('scored', beats.scored.includes(next));
+        }
+      }
+      if (cal.done(now)) finish(kind, cal.result());
+      else requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  };
+
+  const finish = (kind: CalibrationKind, r: CalibrationResult): void => {
+    running = false;
+    o.onTaps(null);
+    if (!r.ok) {
+      $('cal-result').textContent = r.count < 5
+        ? `Only ${r.count} of ${CALIBRATION_BEATS} taps landed on a beat. Tap once for every ${kind === 'input' ? 'loud click' : 'landing'}.`
+        : `The taps were too uneven to measure (±${r.spreadMs} ms). Try again, as steadily as you can.`;
+      buttons([['Try again', () => run(kind), true], ['Cancel', close]]);
+      return;
+    }
+    if (kind === 'input') {
+      $('cal-result').textContent = `Input offset: ${r.offsetMs} ms (steady within ±${r.spreadMs} ms). It was ${o.inputOffsetMs} ms.`;
+      const save = (): void => {
+        inputOffset = r.offsetMs;
+        o.onSave({ inputOffsetMs: r.offsetMs });
+      };
+      buttons([
+        ['Save, then check the screen', () => { save(); intro('visual'); }, true],
+        ['Save', () => { save(); close(); }],
+        ['Try again', () => run(kind)],
+        ['Cancel', close],
+      ]);
+    } else {
+      const v = visualOffset(r.offsetMs, inputOffset);
+      $('cal-result').textContent = `Visual offset: ${v} ms (tapped ${r.offsetMs} ms after the landing, ${inputOffset} ms of that is the keyboard). It was ${o.audioOffsetMs} ms.`;
+      buttons([['Save', () => { o.onSave({ audioOffsetMs: v }); close(); }, true], ['Try again', () => run(kind)], ['Cancel', close]]);
+    }
+  };
+
+  intro('input');
 }

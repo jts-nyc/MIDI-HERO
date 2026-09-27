@@ -2,6 +2,7 @@ import { GameClock } from './audio/clock.ts';
 import { BackingScheduler } from './audio/scheduler.ts';
 import { WebAudioSynth, type Synth } from './audio/synth.ts';
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type TimingPreset } from './game/judge.ts';
+import { calibrationBeats } from './game/calibration.ts';
 import { suggestNextStep, type Suggestion } from './game/results.ts';
 import { PlaySession } from './game/session.ts';
 import { KeyboardInput } from './input/keyboardInput.ts';
@@ -21,7 +22,7 @@ import { bestKey, deleteSong, getBest, listSongs, putSong, recordBest, type Stor
 import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
 import {
-  gateMessage, installDropZone, showError, showExportDialog, showFirstRun, showGate, showPartPicker, showPause, showPlayHud,
+  gateMessage, installDropZone, showCalibration, showError, showExportDialog, showFirstRun, showGate, showPartPicker, showPause, showPlayHud,
   showResults, showSettings, showSongSelect, showUnsupported, toast, type PartPickerState, type PartRow, type SongRow,
 } from './ui/screens.ts';
 import { effectiveFeedback, loadSettings, resetToClassDefaults, saveClassDefaults, saveSettings, type Settings } from './ui/settings.ts';
@@ -87,6 +88,9 @@ let renderState: RenderState | null = null;
 let library: LibrarySong[] = [];
 let current: Current | null = null;
 let gateHandler: ((ev: InputEvent) => void) | null = null;
+/** calibration: every key press is a tap */
+let tapHandler: ((perfMs: number) => void) | null = null;
+let calibrating = false;
 /** hardware octave shift learned at the gate, per MIDI port, for this page session */
 const octaveShiftByPort = new Map<string, number>();
 let lastPlay: { window: PitchWindow; relative: boolean; autoplay: { jitterMs: number } | null } | null = null;
@@ -101,7 +105,9 @@ keyboard.onOctaveChange = (b) => {
 };
 
 const onInput = (ev: InputEvent): void => {
-  if (gateHandler) gateHandler(ev);
+  if (calibrating) {
+    if (ev.type === 'on') tapHandler?.(ev.perfMs);
+  } else if (gateHandler) gateHandler(ev);
   else session?.handleInput(ev);
 };
 keyboard.onEvent = onInput;
@@ -375,12 +381,56 @@ function settingsScreen(onClose: () => void): void {
       session?.filter.reset();
       toast('Input channel reset');
     },
+    onCalibrate: () => calibrate(() => settingsScreen(onClose)),
     onResetClassDefaults: () => {
       settings = resetToClassDefaults();
       toast('Settings reset to class defaults');
       settingsScreen(onClose);
     },
     onClose,
+  });
+}
+
+/** Guided calibration: 8 clicks to tap along to (input offset), then 8 silent landings (visual offset). */
+function calibrate(onClose: () => void): void {
+  ensureAudio();
+  calibrating = true;
+  // A clock of its own, on the same audio timeline as the game's: the song's clock may be paused mid-song.
+  let cal = new GameClock();
+  showCalibration({
+    inputOffsetMs: settings.inputOffsetMs,
+    audioOffsetMs: settings.audioOffsetMs,
+    start: (kind) => {
+      // The audio clock counts once sound is coming out; until then there is nothing to tap along to.
+      const audible = audioCtx?.state === 'running' && (audioCtx.getOutputTimestamp?.().contextTime ?? 0) > 0;
+      if (!audible && kind === 'input') {
+        ensureAudio();
+        return null;
+      }
+      cal = new GameClock();
+      if (audible) cal.attach(audioCtx!);
+      cal.start(0);
+      const beats = calibrationBeats(1);
+      if (kind === 'input' && synth) {
+        for (const t of beats.leadIn) synth.noteOn(9, 37, 60, cal.songTimeToContextTime(t));
+        for (const t of beats.scored) synth.noteOn(9, 76, 115, cal.songTimeToContextTime(t));
+      }
+      return beats;
+    },
+    now: () => cal.now(),
+    timeOf: (perfMs) => cal.audibleSongTime(perfMs),
+    onTaps: (handler) => (tapHandler = handler),
+    onSave: (offsets) => {
+      settings = { ...settings, ...offsets };
+      saveSettings(settings);
+      toast('Timing saved');
+    },
+    onClose: () => {
+      tapHandler = null;
+      calibrating = false;
+      synth?.allNotesOff(0);
+      onClose();
+    },
   });
 }
 
@@ -683,7 +733,7 @@ function resume(): void {
 // Esc pauses and resumes. Space switches star power on while playing, and resumes a paused song.
 window.addEventListener('keydown', (e) => {
   if (e.code !== 'Escape' && e.code !== 'Space') return;
-  if (!session || gateHandler) return;
+  if (!session || gateHandler || calibrating) return;
   const target = e.target as HTMLElement | null;
   if (target && /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(target.tagName)) return;
   e.preventDefault();
