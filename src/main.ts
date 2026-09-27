@@ -562,6 +562,7 @@ function play(): void {
   const judgeConfig: JudgeConfig = {
     ...DEFAULT_JUDGE_CONFIG, preset: timing, easy: settings.easy, wrongNotePenalty: settings.wrongNotePenalty,
     failAt: settings.arcade && !autoplay ? 0 : null,
+    overhold: settings.letGo && difficulty !== 'easy',
   };
   const sig = song.timeSigs[0]!;
   const barSeconds = ticksToSeconds(song.tempoMap, song.ppq, (song.ppq * 4 * sig.numerator) / sig.denominator);

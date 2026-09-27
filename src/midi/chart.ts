@@ -167,6 +167,14 @@ export function splitNotes(song: SongData, opts: Pick<ChartOptions, 'parts' | 's
   return { player, backing };
 }
 
+/** Song time of a (fractional) beat position; the inverse of beatAt. */
+export function beatTime(beats: readonly number[], beat: number): number {
+  const n = beats.length;
+  if (n < 2) return n === 1 ? beats[0]! + beat : beat;
+  const i = Math.min(n - 2, Math.max(0, Math.floor(beat)));
+  return beats[i]! + (beat - i) * (beats[i + 1]! - beats[i]!);
+}
+
 export function buildChart(song: SongData, opts: ChartOptions): Chart {
   const split = opts.split;
   const window = opts.window ?? null;

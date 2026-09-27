@@ -1,4 +1,4 @@
-import { beatAt, type Chart } from '../midi/chart.ts';
+import { beatAt, beatTime, type Chart } from '../midi/chart.ts';
 import { isMilestone, PerformanceMeter } from './meter.ts';
 
 export type Judgment = 'perfect' | 'great' | 'good' | 'late' | 'miss';
@@ -21,6 +21,8 @@ export interface JudgeConfig {
   wrongNotePenalty: WrongNotePenalty;
   /** the song fails when the performance meter falls to this value; null or absent = never */
   failAt?: number | null;
+  /** notice keys that stay down after their note is over (Medium and up); absent = off */
+  overhold?: boolean;
 }
 
 export const DEFAULT_JUDGE_CONFIG: JudgeConfig = {
@@ -48,8 +50,9 @@ export interface JudgeEvent {
    * phrase `streak` was spoiled; 'starOn' / 'starOff': star power went on / ran out;
    * 'held': note `noteId` was held to its end; 'released': it was let go early, at `time`.
    * For both, `streak` is the hold points the note earned.
+   * 'overheld': the key of note `noteId` is still down well after the note ended.
    */
-  type: 'hit' | 'miss' | 'wrong' | 'milestone' | 'break' | 'level' | 'fail' | 'star' | 'starLost' | 'starOn' | 'starOff' | 'held' | 'released';
+  type: 'hit' | 'miss' | 'wrong' | 'milestone' | 'break' | 'level' | 'fail' | 'star' | 'starLost' | 'starOn' | 'starOff' | 'held' | 'released' | 'overheld';
   time: number;
   pitch: number;
   noteId: number;
@@ -65,6 +68,8 @@ export interface Counts {
   late: number;
   miss: number;
   wrong: number;
+  /** notes whose key stayed down too long after the note was over */
+  overheld: number;
 }
 
 /** A clean star phrase adds this much to the star gauge. */
@@ -81,6 +86,22 @@ export const SUSTAIN_BEATS = 1;
 export const HOLD_POINTS_PER_BEAT = 16;
 /** Letting go this close to the end (in beats) still counts as holding to the end. */
 export const HOLD_GRACE_BEATS = 1 / 8;
+
+/**
+ * How long a key may stay down after its note is over before that counts as holding too
+ * long: the longer of 150 ms of real time and a quarter of a beat. Overlapping the next
+ * note a little is legato, not a mistake.
+ */
+export const OVERHOLD_GRACE = 0.15;
+export const OVERHOLD_GRACE_BEATS = 0.25;
+
+/** A key that went down on a chart note and has not come up yet. */
+interface Pressed {
+  noteId: number;
+  key: number;
+  /** song time after which the key is held too long */
+  deadline: number;
+}
 
 /** A sustained note that was hit and is being held, by the key or by the pedal. */
 export interface Hold {
@@ -124,7 +145,9 @@ export class Judge {
   readonly judgments: (Judgment | null)[];
   /** per-note miss boundary (s), clamped to half the gap to the nearest same-pitch neighbour */
   readonly windows: number[];
-  readonly counts: Counts = { perfect: 0, great: 0, good: 0, late: 0, miss: 0, wrong: 0 };
+  readonly counts: Counts = { perfect: 0, great: 0, good: 0, late: 0, miss: 0, wrong: 0, overheld: 0 };
+  /** keys down on a chart note, watched for holding too long; empty unless `config.overhold` */
+  private readonly pressed: Pressed[] = [];
   score = 0;
   combo = 0;
   maxCombo = 0;
@@ -253,15 +276,45 @@ export class Judge {
     this.events.push({ type: complete ? 'held' : 'released', time: t, pitch: this.chart.notes[h.noteId]!.pitch, noteId: h.noteId, judgment: null, delta: 0, streak: h.paid });
   }
 
+  /** Song time after which the key of a note that was hit at `t` is held too long. */
+  overholdDeadline(id: number, t: number): number {
+    const n = this.chart.notes[id]!;
+    const end = n.time + n.duration;
+    const beat = beatAt(this.chart.beats, end);
+    const quarterBeat = (beatTime(this.chart.beats, beat + OVERHOLD_GRACE_BEATS) - end);
+    return Math.max(end, t) + Math.max(OVERHOLD_GRACE * this.rate, quarterBeat);
+  }
+
+  private advancePressed(t: number): void {
+    for (let i = this.pressed.length - 1; i >= 0; i--) {
+      const p = this.pressed[i]!;
+      if (p.deadline >= t) continue;
+      this.pressed.splice(i, 1);
+      this.counts.overheld++;
+      this.events.push({ type: 'overheld', time: p.deadline, pitch: this.chart.notes[p.noteId]!.pitch, noteId: p.noteId, judgment: null, delta: 0 });
+    }
+  }
+
   /** A key went up. A hold goes on if the pedal is down. */
   noteOff(pitch: number, t: number): void {
     const key = this.key(pitch);
+    if (this.pressed.length) {
+      this.advancePressed(t);
+      for (let i = this.pressed.length - 1; i >= 0; i--) if (this.pressed[i]!.key === key) this.pressed.splice(i, 1);
+    }
     for (let i = this.holds.length - 1; i >= 0; i--) {
       const h = this.holds[i]!;
       if (h.key !== key || !h.keyDown) continue;
       h.keyDown = false;
       if (!this.pedalDown) this.endHold(i, t);
     }
+  }
+
+  /** Every key counts as let go (the game was paused: what the keys do meanwhile is not seen). */
+  releaseAll(t: number): void {
+    this.pressed.length = 0;
+    this.pedalDown = false;
+    for (let i = this.holds.length - 1; i >= 0; i--) this.endHold(i, t);
   }
 
   /** The sustain pedal went down or up. Lifting it lets go of every hold whose key is already up. */
@@ -405,6 +458,7 @@ export class Judge {
     const judgment: Judgment = d <= this.perfect ? 'perfect' : d <= this.great ? 'great' : d <= this.good ? 'good' : 'late';
     this.events.push({ type: 'hit', time: t, pitch: n.pitch, noteId: id, judgment, delta });
     this.apply(id, judgment, t);
+    if (this.config.overhold) this.pressed.push({ noteId: id, key: this.key(n.pitch), deadline: this.overholdDeadline(id, t) });
     if (judgment !== 'late' && this.isSustain(id)) {
       const from = beatAt(this.chart.beats, n.time);
       this.holds.push({ noteId: id, key: this.key(n.pitch), from, end: from + this.beatsOf(id), paid: 0, keyDown: true });
@@ -437,6 +491,7 @@ export class Judge {
 
   /** Mark notes whose window has passed as missed. */
   advance(t: number): void {
+    if (this.pressed.length) this.advancePressed(t);
     this.advanceHolds(t);
     this.drainStar(t);
     const notes = this.chart.notes;

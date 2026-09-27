@@ -15,6 +15,8 @@ export interface Synth {
   setMasterGain(gain: number): void;
   /** Level of a whole group of channels, on top of each channel's own volume. */
   setChannelGroupGain(group: ChannelGroup, gain: number): void;
+  /** "Let go": a short, distorted, sour version of a note whose key is held too long. */
+  bonk(pitch: number, velocity: number, when: number): void;
   /** Unpitched "wrong note" thud: a short low-passed noise burst over a 90 Hz body. */
   clunk(velocity: number, when: number): void;
 }
@@ -27,6 +29,9 @@ export const FEEDBACK_CHANNEL = 16;
 export const FEEDBACK_CHANNELS = 8;
 const NUM_CHANNELS = FEEDBACK_CHANNEL + FEEDBACK_CHANNELS;
 const CLUNK_SECONDS = 0.08;
+const BONK_SECONDS = 0.28;
+/** The bonk is the note and its two nearest neighbours above: as sour as a keyboard gets. */
+const BONK_CLUSTER = [0, 1, 2];
 
 type Family = 'keys' | 'organ' | 'plucked' | 'bass' | 'pad' | 'lead' | 'brass';
 
@@ -105,6 +110,7 @@ export class WebAudioSynth implements Synth {
   private drumChannels = new Set<number>([9]);
   private groupGains: Record<ChannelGroup, number> = { drums: 1, pads: 1 };
   private noiseBuffer: AudioBuffer;
+  private clip: Float32Array<ArrayBuffer> | null = null;
 
   constructor(private ctx: AudioContext) {
     this.master = ctx.createGain();
@@ -310,6 +316,48 @@ export class WebAudioSynth implements Synth {
     for (const v of [...this.voices]) this.kill(v, t);
   }
 
+  bonk(pitch: number, velocity: number, when: number): void {
+    const ctx = this.ctx;
+    const t = Math.max(when, ctx.currentTime);
+    const vel = Math.max(0.3, velocity / 127);
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.linearRampToValueAtTime(0.4 * vel, t + 0.006);
+    env.gain.exponentialRampToValueAtTime(0.001, t + BONK_SECONDS);
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 2400;
+    filter.Q.value = 2;
+    // Overdrive: the cluster is pushed hard into a clipping curve.
+    const drive = ctx.createGain();
+    drive.gain.value = 6;
+    const shaper = typeof ctx.createWaveShaper === 'function' ? ctx.createWaveShaper() : null;
+    if (shaper) {
+      shaper.curve = this.clipCurve();
+      drive.connect(shaper).connect(filter);
+    } else drive.connect(filter);
+    filter.connect(env).connect(this.master);
+    for (const semitones of BONK_CLUSTER) {
+      const osc = ctx.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = 440 * Math.pow(2, (pitch + semitones - 69) / 12);
+      osc.detune.setValueAtTime(0, t);
+      osc.detune.linearRampToValueAtTime(-180, t + BONK_SECONDS); // it sags as it dies
+      osc.connect(drive);
+      osc.start(t);
+      osc.stop(t + BONK_SECONDS + 0.02);
+    }
+  }
+
+  private clipCurve(): Float32Array<ArrayBuffer> {
+    if (!this.clip) {
+      const n = 1024;
+      this.clip = new Float32Array(n);
+      for (let i = 0; i < n; i++) this.clip[i] = Math.tanh(((i / (n - 1)) * 2 - 1) * 4);
+    }
+    return this.clip;
+  }
+
   clunk(velocity: number, when: number): void {
     const ctx = this.ctx;
     const t = Math.max(when, ctx.currentTime);
@@ -409,5 +457,6 @@ export class RecordingSynth implements Synth {
   setDrumChannels(channels: number[]): void { this.rec('setDrumChannels', channels); }
   setMasterGain(gain: number): void { this.rec('setMasterGain', gain); }
   clunk(velocity: number, when: number): void { this.rec('clunk', velocity, when); }
+  bonk(pitch: number, velocity: number, when: number): void { this.rec('bonk', pitch, velocity, when); }
   setChannelGroupGain(group: ChannelGroup, gain: number): void { this.rec('setChannelGroupGain', group, gain); }
 }

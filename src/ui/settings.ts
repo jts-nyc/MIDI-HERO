@@ -28,6 +28,8 @@ export interface Settings {
   arcade: boolean;
   /** particles and other moving effects */
   effects: boolean;
+  /** from Medium up: a bonk when a key stays down after its note is over */
+  letGo: boolean;
   backingVolume: number;
   foldMode: FoldMode;
   midiPortId: string | null;
@@ -52,6 +54,7 @@ export const DEFAULT_SETTINGS: Settings = {
   easy: false,
   arcade: false,
   effects: true,
+  letGo: true,
   backingVolume: 0.8,
   foldMode: 'fold',
   midiPortId: null,
@@ -70,7 +73,7 @@ export function urlOverrides(search: string): Partial<Settings> {
   if ([25, 49, 61, 88].includes(kb)) out.kb = kb as KeyboardSize;
   const timing = p.get('timing');
   if (timing === 'strict' || timing === 'normal' || timing === 'relaxed') out.timing = timing;
-  const bool = (k: keyof Settings & ('names' | 'synth' | 'easy' | 'noteNames' | 'hitSound' | 'arcade' | 'effects')) => {
+  const bool = (k: keyof Settings & ('names' | 'synth' | 'easy' | 'noteNames' | 'hitSound' | 'arcade' | 'effects' | 'letGo')) => {
     const v = p.get(k);
     if (v === '1' || v === 'true') out[k] = true;
     else if (v === '0' || v === 'false') out[k] = false;
@@ -82,6 +85,7 @@ export function urlOverrides(search: string): Partial<Settings> {
   bool('hitSound');
   bool('arcade');
   bool('effects');
+  bool('letGo');
   const feedback = p.get('feedback');
   if (isFeedbackSound(feedback)) {
     out.feedbackSound = feedback;
@@ -113,7 +117,7 @@ export function sanitize(raw: unknown, base: Settings = DEFAULT_SETTINGS): Setti
   };
   if ([25, 49, 61, 88].includes(Number(r.kb))) s.kb = Number(r.kb) as KeyboardSize;
   if (r.timing === 'strict' || r.timing === 'normal' || r.timing === 'relaxed') s.timing = r.timing;
-  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'firstRunDone'] as const) {
+  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'letGo', 'firstRunDone'] as const) {
     if (typeof r[k] === 'boolean') s[k] = r[k] as boolean;
   }
   num('speed', 100, 800);

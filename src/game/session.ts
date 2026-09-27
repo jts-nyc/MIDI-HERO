@@ -317,6 +317,7 @@ export class PlaySession {
         case 'starLost': this.dimPhrase(e.streak ?? -1); break;
         case 'held': this.endHold(e.noteId, 'held', Math.min(now, e.time)); break;
         case 'released': this.endHold(e.noteId, 'released', e.time); break;
+        case 'overheld': this.heldTooLong(e.noteId, now); break;
         default: break;
       }
     }
@@ -334,6 +335,15 @@ export class PlaySession {
       vis.holdEnd = at;
     }
     if (how === 'held') emitHit(this.fx, this.chart.notes[noteId]!.pitch, 'good', this.fx.meters.starActive);
+  }
+
+  /** The key of a note is still down well after the note ended: a sour bonk, a red key, "Let go". */
+  private heldTooLong(noteId: number, now: number): void {
+    const n = this.chart.notes[noteId]!;
+    if (this.feedback !== 'off') this.opts.synth?.bonk(n.origPitch, n.velocity, 0);
+    if (this.heldKeys.has(n.pitch)) this.keyVisuals.set(n.pitch, { kind: 'wrong', since: now });
+    this.popups.push({ text: 'Let go', pitch: n.pitch, time: now, color: theme.wrong });
+    emitWrong(this.fx, n.pitch);
   }
 
   /** Sparks rise from the keys of the notes that are being held. */
@@ -442,6 +452,9 @@ export class PlaySession {
 
   pause(): void {
     if (this.status !== 'playing') return;
+    this.judge.releaseAll(this.now());
+    this.drainEvents(this.now());
+    this.heldKeys.clear();
     this.opts.clock.pause();
     this.status = 'paused';
     this.sounding.length = 0;
