@@ -92,7 +92,7 @@ describe('chart-note feedback', () => {
     goTo(1.3);
     expect(offs()).toHaveLength(0);
     goTo(1.36); // inside the scheduling lookahead
-    expect(offs()).toEqual([{ method: 'noteOff', args: [FEEDBACK_CHANNEL, 60, 1.4] }]);
+    expect(offs()).toEqual([{ method: 'noteOff', args: [FEEDBACK_CHANNEL, 60, 1.4, 1] }]); // the voice the hit started
     goTo(3);
     expect(offs()).toHaveLength(1);
   });
@@ -107,7 +107,7 @@ describe('chart-note feedback', () => {
     goTo(1.9);
     expect(offs()).toHaveLength(0);
     goTo(1.96);
-    expect(offs()).toEqual([{ method: 'noteOff', args: [FEEDBACK_CHANNEL, 60, 2] }]);
+    expect(offs()).toEqual([{ method: 'noteOff', args: [FEEDBACK_CHANNEL, 60, 2, 1] }]);
   });
 
   it('lets the last note ring out before the song finishes', () => {

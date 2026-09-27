@@ -1,7 +1,8 @@
 // Regression tests for the round-1 review fixes (round 2).
 import { describe, expect, it } from 'vitest';
 import { GameClock } from '../src/audio/clock.ts';
-import { RecordingSynth } from '../src/audio/synth.ts';
+import { FEEDBACK_CHANNEL, RecordingSynth, WebAudioSynth } from '../src/audio/synth.ts';
+import { FakeAudioContext } from './helpers/fakeAudio.ts';
 import { DEFAULT_JUDGE_CONFIG, OVERHOLD_COST } from '../src/game/judge.ts';
 import { PlaySession, type SessionOptions } from '../src/game/session.ts';
 import { buildChart } from '../src/midi/chart.ts';
@@ -69,5 +70,39 @@ describe('fix 1: the judge advances on the input-offset time', () => {
     goTo(3);
     expect(session.judge.counts.overheld).toBe(0);
     expect(session.judge.counts.perfect).toBe(1);
+  });
+});
+
+describe('fix 2: a note-off stops the voice its note started, not a retriggered one', () => {
+  it('the synth releases only the voice named by the note-off', () => {
+    const ctx = new FakeAudioContext();
+    const synth = new WebAudioSynth(ctx as unknown as AudioContext);
+    const first = synth.noteOn(FEEDBACK_CHANNEL, 60, 100, 0);
+    const oscFirst = ctx.oscillators.length;
+    const second = synth.noteOn(FEEDBACK_CHANNEL, 60, 100, 0); // retrigger: the first is released
+    expect(second).not.toBe(first);
+    const secondOscs = ctx.oscillators.slice(oscFirst);
+    synth.noteOff(FEEDBACK_CHANNEL, 60, ctx.currentTime + 0.07, first); // the first note's scheduled end
+    expect(secondOscs.every((o) => o.stopped === null)).toBe(true);
+    synth.noteOff(FEEDBACK_CHANNEL, 60, ctx.currentTime + 0.57, second);
+    expect(secondOscs.every((o) => o.stopped !== null)).toBe(true);
+  });
+
+  it('notes 1.0–1.5 and 1.5–2.0 on one pitch, the second hit early at 1.43: it sounds to 2.0', () => {
+    const chart = makeChart([[1, 60, 0.5], [1.5, 60, 0.5], [3, 62]]);
+    const { session, synth, goTo, down, up } = harness({ chart, feedbackSound: 'chart' });
+    goTo(1);
+    down(60);
+    up(60);
+    goTo(1.43);
+    down(60);
+    up(60);
+    goTo(2.5);
+    expect(session.judge.counts.miss).toBe(0);
+    const ons = synth.calls.filter((c) => c.method === 'noteOn' && c.args[0] === FEEDBACK_CHANNEL);
+    const offs = synth.calls.filter((c) => c.method === 'noteOff' && c.args[0] === FEEDBACK_CHANNEL);
+    expect(ons).toHaveLength(2);
+    // voices are numbered 1 and 2 by the recording synth, in order
+    expect(offs.map((c) => [c.args[2], c.args[3]])).toEqual([[1.5, 1], [2, 2]]);
   });
 });

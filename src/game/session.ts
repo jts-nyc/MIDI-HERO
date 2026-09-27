@@ -136,11 +136,12 @@ const SPARK_EVERY = 0.07; // s, real time between the sparks of a held note
 const MAX_FRAME = 0.1; // s, longest step the effects take in one frame
 const OUTRO = 0.6; // s, real time between the last judged note and the results, so it can ring out
 
-/** A chart note sounding on a feedback channel until `end`. */
+/** A chart note sounding on a feedback channel until `end`; its note-off stops `voice` only. */
 interface Sounding {
   channel: number;
   pitch: number;
   end: number;
+  voice: number;
 }
 
 /** One play-through of a chart: input → judge → visuals, plus autoplay and the player-note synth. */
@@ -351,8 +352,8 @@ export class PlaySession {
   private soundChartNote(synth: Synth, noteId: number, t: number): void {
     const n = this.chart.notes[noteId]!;
     const channel = this.feedbackChannels.get(n.partKey) ?? FEEDBACK_CHANNEL;
-    synth.noteOn(channel, n.origPitch, n.velocity, 0);
-    this.sounding.push({ channel, pitch: n.origPitch, end: Math.max(n.time + n.duration, t + MIN_SOUND * this.rate) });
+    const voice = synth.noteOn(channel, n.origPitch, n.velocity, 0);
+    this.sounding.push({ channel, pitch: n.origPitch, end: Math.max(n.time + n.duration, t + MIN_SOUND * this.rate), voice });
     this.earned.length = 0;
     if (n.carry) {
       for (const c of n.carry) this.earned.push(c);
@@ -370,8 +371,8 @@ export class PlaySession {
       const c = this.earned[due++]!;
       if (c.time + c.duration <= now) continue; // already over
       const channel = this.feedbackChannels.get(c.partKey) ?? FEEDBACK_CHANNEL;
-      synth.noteOn(channel, c.pitch, c.velocity, c.time <= now ? 0 : this.opts.clock.songTimeToContextTime(c.time));
-      this.sounding.push({ channel, pitch: c.pitch, end: c.time + c.duration });
+      const voice = synth.noteOn(channel, c.pitch, c.velocity, c.time <= now ? 0 : this.opts.clock.songTimeToContextTime(c.time));
+      this.sounding.push({ channel, pitch: c.pitch, end: c.time + c.duration, voice });
     }
     if (due) this.earned.splice(0, due);
   }
@@ -384,7 +385,7 @@ export class PlaySession {
     let kept = 0;
     for (let i = 0; i < this.sounding.length; i++) {
       const s = this.sounding[i]!;
-      if (s.end <= horizon) synth.noteOff(s.channel, s.pitch, this.opts.clock.songTimeToContextTime(s.end));
+      if (s.end <= horizon) synth.noteOff(s.channel, s.pitch, this.opts.clock.songTimeToContextTime(s.end), s.voice);
       else this.sounding[kept++] = s;
     }
     this.sounding.length = kept;
