@@ -1,3 +1,4 @@
+import { bestDelta, starCount, type Suggestion } from '../game/results.ts';
 import type { PlayResult } from '../game/session.ts';
 import type { TimingPreset } from '../game/judge.ts';
 import type { MidiPort } from '../input/midiInput.ts';
@@ -353,32 +354,77 @@ export function showPause(o: { onResume: () => void; onRestart: () => void; onSe
 }
 
 export function stars(accuracy: number): string {
-  const n = accuracy >= 0.95 ? 5 : accuracy >= 0.85 ? 4 : accuracy >= 0.7 ? 3 : accuracy >= 0.5 ? 2 : accuracy > 0 ? 1 : 0;
+  const n = starCount(accuracy);
   return '★'.repeat(n) + '☆'.repeat(5 - n);
 }
 
-export function showResults(o: { title: string; detail: string; result: PlayResult; badges: string[]; onRetry: () => void; onQuit: () => void }): void {
+export interface ResultsOptions {
+  title: string;
+  detail: string;
+  result: PlayResult;
+  badges: string[];
+  /** accuracy of the best play before this one, if there was one */
+  previousBest?: number | null;
+  /** the one next step to offer, with what happens when it is taken */
+  suggestion?: Suggestion | null;
+  onSuggestion?: (s: Suggestion) => void;
+  onRetry: () => void;
+  onQuit: () => void;
+}
+
+const COUNT_UP_MS = 1200;
+const STAR_STAGGER_MS = 220;
+
+export function showResults(o: ResultsOptions): void {
   const r = o.result;
   const c = r.counts;
-  const el = screen(`<div class="panel" style="text-align:center">
+  const n = starCount(r.accuracy);
+  const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const delta = bestDelta(r.accuracy, o.previousBest);
+  const better = o.previousBest !== null && o.previousBest !== undefined && r.accuracy > o.previousBest;
+  const sections = r.sections.length > 1 ? `<div class="sections">${r.sections.map((s, i) => `<div class="section">
+      <span>${esc(s.label)}</span>
+      <div class="bar"><div class="fill ${s.accuracy >= 0.9 ? 'good' : s.accuracy >= 0.7 ? 'ok' : 'weak'}" style="--w:${(s.accuracy * 100).toFixed(1)}%;--i:${i}"></div></div>
+      <span>${Math.round(s.accuracy * 100)}%</span>
+    </div>`).join('')}</div>` : '';
+  const sug = o.suggestion;
+  const el = screen(`<div class="panel results${still ? ' still' : ''}" style="text-align:center">
     <h2>${esc(o.title)}</h2>
     <p>${esc(o.detail)}</p>
-    <div class="accuracy">${(r.accuracy * 100).toFixed(1)}%</div>
-    <div class="stars">${stars(r.accuracy)}</div>
+    <div class="accuracy" id="accuracy">${still ? (r.accuracy * 100).toFixed(1) : '0.0'}%</div>
+    ${delta ? `<div class="delta ${better ? 'up' : ''}">${esc(delta)} against your best (${(o.previousBest! * 100).toFixed(1)}%)</div>` : ''}
+    <div class="stars">${[0, 1, 2, 3, 4].map((i) => `<span class="star ${i < n ? 'on' : ''}" style="--d:${COUNT_UP_MS + i * STAR_STAGGER_MS}ms">${i < n ? '★' : '☆'}</span>`).join('')}</div>
     <p>${o.badges.map((b) => `<span class="badge warn">${esc(b)}</span>`).join(' ')}</p>
+    <p class="streak-line">Longest streak <b>${r.maxCombo}</b> of ${r.total} notes</p>
+    ${sections}
     <table style="max-width:420px;margin:12px auto">
-      <tr><td>Score</td><td><b>${r.score}</b></td><td>Max combo</td><td><b>${r.maxCombo}</b></td></tr>
+      <tr><td>Score</td><td><b>${r.score}</b></td><td>Notes hit</td><td><b>${c.perfect + c.great + c.good}</b> of ${r.total}</td></tr>
       <tr><td>Perfect</td><td>${c.perfect}</td><td>Great</td><td>${c.great}</td></tr>
       <tr><td>Good</td><td>${c.good}</td><td>Late/early</td><td>${c.late}</td></tr>
       <tr><td>Missed</td><td>${c.miss}</td><td>Wrong notes</td><td>${c.wrong}</td></tr>
     </table>
+    ${sug ? `<p class="next">Next step: <b>${esc(sug.text)}</b></p>` : ''}
     <div class="row" style="justify-content:center">
-      <button class="primary big" id="retry">Play again</button>
+      ${sug && (sug.difficulty || sug.rate) ? `<button class="primary big" id="next">${esc(sug.text)}</button><button id="retry">Play again</button>` : '<button class="primary big" id="retry">Play again</button>'}
       <button id="quit">Song select</button>
     </div>
   </div>`);
   el.querySelector('#retry')!.addEventListener('click', o.onRetry);
   el.querySelector('#quit')!.addEventListener('click', o.onQuit);
+  el.querySelector('#next')?.addEventListener('click', () => o.onSuggestion?.(sug!));
+  if (still) return;
+  // Count the percentage up, easing out; the stars follow one by one (CSS, delayed past the count).
+  const acc = el.querySelector<HTMLElement>('#accuracy')!;
+  const t0 = performance.now();
+  const tick = (now: number): void => {
+    if (!acc.isConnected) return;
+    const t = Math.min(1, (now - t0) / COUNT_UP_MS);
+    const eased = 1 - Math.pow(1 - t, 3);
+    acc.textContent = `${(r.accuracy * 100 * eased).toFixed(1)}%`;
+    if (t < 1) requestAnimationFrame(tick);
+    else acc.classList.add('landed');
+  };
+  requestAnimationFrame(tick);
 }
 
 export function showError(title: string, message: string, onBack?: () => void): void {

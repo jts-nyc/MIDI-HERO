@@ -2,6 +2,7 @@ import { GameClock } from './audio/clock.ts';
 import { BackingScheduler } from './audio/scheduler.ts';
 import { WebAudioSynth, type Synth } from './audio/synth.ts';
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type TimingPreset } from './game/judge.ts';
+import { suggestNextStep, type Suggestion } from './game/results.ts';
 import { PlaySession } from './game/session.ts';
 import { KeyboardInput } from './input/keyboardInput.ts';
 import { MidiInput } from './input/midiInput.ts';
@@ -542,6 +543,7 @@ function play(): void {
     synth: settings.synth ? synth : null, feedbackSound: feedback,
     feedbackPrograms: Object.fromEntries(current.parts.map((p) => [p.key, p.program])),
     relative, visibleSeconds, barSeconds, autoplay, countInBeats: sig.numerator,
+    barTimes: lines.filter((l) => l.isBar).map((l) => l.time),
     // The system's reduced-motion preference turns the particles off, unless the URL asks for them.
     effects: settings.effects && (params.has('effects') || !matchMedia('(prefers-reduced-motion: reduce)').matches),
     hint: relative ? PlaySession.keysHint(window) : partName,
@@ -562,14 +564,21 @@ function play(): void {
     stopBacking();
     const badges = [...(result.failed ? ['Song failed'] : []), ...(settings.easy ? ['Easy mode'] : []), ...(settings.rate < 1 ? [`${Math.round(settings.rate * 100)}% speed`] : []), ...(autoplay ? ['Autoplay'] : [])];
     const detail = `${partName} · ${DIFFICULTY_LABEL[difficulty]} · ${timing} timing · ${Math.round(settings.rate * 100)}% speed`;
-    const show = (extra: string[]) =>
-      showResults({ title: lib.title, detail, result, badges: [...badges, ...extra], onRetry: play, onQuit: songSelect });
-    if (autoplay || result.failed) show([]);
+    const suggestion = suggestNextStep({ accuracy: result.accuracy, difficulty, rate: settings.rate, failed: result.failed, sections: result.sections });
+    const show = (extra: string[], previousBest: number | null) =>
+      showResults({
+        title: lib.title, detail, result, badges: [...badges, ...extra], previousBest, suggestion,
+        onSuggestion: takeSuggestion, onRetry: play, onQuit: songSelect,
+      });
+    if (autoplay || result.failed) show([], null);
     else {
       const key = bestKey(lib.id, partIds, wide ? picker.split : undefined, timing, settings.rate, settings.easy, difficulty);
-      recordBest({ key, songId: lib.id, score: result.score, accuracy: result.accuracy, maxCombo: result.maxCombo, at: Date.now() })
-        .then(({ isNew }) => show(isNew ? ['New best!'] : []))
-        .catch(() => show([]));
+      getBest(key)
+        .catch(() => undefined)
+        .then((before) =>
+          recordBest({ key, songId: lib.id, score: result.score, accuracy: result.accuracy, maxCombo: result.maxCombo, at: Date.now() })
+            .then(({ isNew }) => show(isNew ? ['New best!'] : [], before?.accuracy ?? null)))
+        .catch(() => show([], null));
     }
   };
   renderState = {
@@ -594,6 +603,17 @@ function play(): void {
   } else {
     playHud(s);
   }
+}
+
+/** Play the same song again the way the results screen suggested. */
+function takeSuggestion(s: Suggestion): void {
+  if (!current) return;
+  if (s.difficulty) current.picker.difficulty = s.difficulty;
+  if (s.rate) {
+    settings.rate = s.rate;
+    saveSettings(settings);
+  }
+  void startPlay(lastPlay?.autoplay ?? null);
 }
 
 function playHud(s: PlaySession): void {

@@ -9,6 +9,7 @@ import { noteName } from '../render/layout.ts';
 import type { Hud, KeyVisual, NoteVisual, Popup } from '../render/renderer.ts';
 import { theme } from '../render/renderer.ts';
 import { Judge, type Counts, type JudgeConfig, type Judgment } from './judge.ts';
+import { buildSections, sectionResults, type SectionResult } from './results.ts';
 
 export type SessionStatus = 'playing' | 'paused' | 'finished';
 
@@ -47,6 +48,8 @@ export interface SessionOptions {
   barSeconds: number;
   autoplay: AutoplayOptions | null;
   hint: string;
+  /** bar-line times in seconds, for the per-section accuracy of the result */
+  barTimes?: readonly number[];
   /** clicks of the count-in, for the countdown on screen; default 4 */
   countInBeats?: number;
   /** particles and other moving effects; default on. Meters and counters always show. */
@@ -64,6 +67,8 @@ export interface PlayResult {
   failed: boolean;
   /** how far into the song the play got, 0..1 */
   progress: number;
+  /** accuracy per 8-bar section, in song order */
+  sections: SectionResult[];
 }
 
 const JUDGMENT_LABEL: Record<Judgment, string> = { perfect: 'Perfect', great: 'Great', good: 'Good', late: 'Late', miss: 'Miss' };
@@ -408,6 +413,7 @@ export class PlaySession {
     return {
       score: j.score, accuracy: j.accuracy, maxCombo: j.maxCombo, counts: { ...j.counts }, total: j.total, judged: j.judged,
       failed: j.failed, progress: Math.min(1, Math.max(0, this.now() / this.chart.duration)),
+      sections: sectionResults(buildSections(this.opts.barTimes ?? [], this.chart.duration), this.chart.notes, j.judgments),
     };
   }
 
