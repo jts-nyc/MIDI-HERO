@@ -42,7 +42,7 @@ function harness(over: Partial<SessionOptions> = {}, notes: [number, number][] =
 
 describe('PlaySession', () => {
   it('starts in the lead-in and judges input at the input time', () => {
-    const { session, goTo, t } = harness();
+    const { session, goTo, t } = harness({ tierText: 'all' });
     expect(session.now()).toBeCloseTo(-2, 9); // visibleSeconds + barSeconds
     goTo(1.05);
     session.handleInput({ type: 'on', pitch: 60, velocity: 90, channel: 0, perfMs: t.perfMs, source: 'midi' });

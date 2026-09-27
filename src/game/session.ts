@@ -49,6 +49,22 @@ export interface PracticeResult {
  */
 export type FeedbackSound = 'chart' | 'press' | 'off';
 
+/**
+ * Which timing words float up from a hit (assessment #15: hit or miss first, tiers second).
+ * 'all': Perfect, Great, Good and Late. 'perfect': only Perfect, plus Late as the warning it is;
+ * Great and Good hit silently with their particles. 'off': no timing words.
+ * Misses and "Let go" always show; scoring is the same either way.
+ */
+export type TierText = 'all' | 'perfect' | 'off';
+
+/** The word a hit of this tier shows, or null to hit silently. */
+export function tierWord(judgment: Judgment, tierText: TierText): string | null {
+  if (judgment === 'miss') return JUDGMENT_LABEL.miss;
+  if (tierText === 'all') return JUDGMENT_LABEL[judgment];
+  if (tierText === 'perfect' && (judgment === 'perfect' || judgment === 'late')) return JUDGMENT_LABEL[judgment];
+  return null;
+}
+
 export interface AutoplayOptions {
   /** random timing error, ms (uniform ±) */
   jitterMs: number;
@@ -82,6 +98,8 @@ export interface SessionOptions {
   countInBeats?: number;
   /** particles and other moving effects; default on. Meters and counters always show. */
   effects?: boolean;
+  /** timing words over hits; default 'perfect' */
+  tierText?: TierText;
   /** practice mode; absent for a normal play */
   practice?: PracticeOptions;
   /** a count-in click at an audio-context time (practice mode counts in before every pass) */
@@ -302,7 +320,8 @@ export class PlaySession {
         : { state: 'hit', hitTime: this.now(), judgment: result.judgment };
       this.keyVisuals.set(pitch, { kind: result.judgment, since: t });
       // Wait mode has no timing judgment: a hit is a hit, shown by its particles alone.
-      if (!this.opts.practice?.wait) this.popups.push({ text: JUDGMENT_LABEL[result.judgment], pitch, time: this.now(), color: JUDGMENT_COLOR[result.judgment] });
+      const word = tierWord(result.judgment, this.opts.practice?.wait ? 'off' : this.opts.tierText ?? 'perfect');
+      if (word) this.popups.push({ text: word, pitch, time: this.now(), color: JUDGMENT_COLOR[result.judgment] });
       emitHit(this.fx, pitch, result.judgment === 'miss' ? 'late' : result.judgment, this.fx.meters.starActive);
       if (this.judge.combo > 0) emitStreak(this.fx, this.judge.combo);
       if (this.practice?.waiting) this.refreshOwed();

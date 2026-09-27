@@ -689,6 +689,7 @@ function play(): void {
     barTimes,
     // The system's reduced-motion preference turns the particles off, unless the URL asks for them.
     effects: settings.effects && (params.has('effects') || !matchMedia('(prefers-reduced-motion: reduce)').matches),
+    tierText: settings.tierText,
     hint: relative ? PlaySession.keysHint(window) : partName,
     ...(loop && choice ? {
       practice: { loop, sections, current: from, label: loopLabel(sections, from, to), wait: choice.wait, ladder: choice.ladder },
