@@ -1,6 +1,6 @@
 /**
  * Reproducible update+draw benchmark using the app's dev-only window.midihero.bench.
- * npm run bench -- [--file /path/darude-sandstorm.mid --part 5:4] [--seconds 5]
+ * npm run bench -- [--file /path/darude-sandstorm.mid --part 5:4] [--seconds 5] [--practice]
  * Without a fixture, selects the densest melodic part among the bundled songs.
  * CHROME_PATH overrides the installed Chrome executable. JSON goes to stdout;
  * progress goes to stderr. CPU throttling is a proxy, not a real Chromebook test.
@@ -15,6 +15,7 @@ import { parseSong } from '../src/midi/parse.ts';
 import { buildParts } from '../src/midi/parts.ts';
 
 const { values } = parseArgs({ options: {
+  practice: { type: 'boolean', default: false },
   file: { type: 'string' }, part: { type: 'string' }, seconds: { type: 'string', default: '5' },
 } });
 const seconds = Number(values.seconds);
@@ -65,13 +66,21 @@ try {
           return s.now() >= s.chart.firstNoteTime + 1;
         }, null, { timeout: 120000 });
         console.error(`${highway} ${throttle}x: ${selected.id}, part ${selected.part.key}`);
-        const result = await Promise.race([page.evaluate(async seconds => {
+        const result = await Promise.race([page.evaluate(async ({ seconds, practice }) => {
           const api = window.midihero;
           const start = api.session.now();
           const notes = api.session.chart.notes.length;
+          if (practice) {
+            // Synthetic render contract only; no practice/session gameplay is substituted.
+            api.renderState.practice = {
+              sections: [{ start, end: start + seconds, label: 'Benchmark section' }], current: 0,
+              loop: { start: start + 0.5, end: start + seconds }, passes: 2, waiting: true,
+              waitingFor: [api.renderState.low, api.renderState.low + 1, api.renderState.low + 4],
+            };
+          }
           const metrics = await api.bench(seconds);
           return { ...metrics, notes, start, end: api.session.now(), status: api.session.status };
-        }, seconds), new Promise((_, reject) => {
+        }, { seconds, practice: values.practice }), new Promise((_, reject) => {
           const timer = setTimeout(() => reject(new Error('Benchmark timed out')), (seconds + 30) * 1000);
           timer.unref();
         })]);
@@ -85,7 +94,7 @@ try {
     }
   }
   console.log(JSON.stringify({ browser: browser.version(), platform: platform(), cpu: cpus()[0]?.model,
-    viewport: '1024x600', dpr: 1, seconds, song: selected.id, part: selected.part.key,
+    viewport: '1024x600', dpr: 1, seconds, syntheticPractice: values.practice, song: selected.id, part: selected.part.key,
     sourceNotes: selected.part.noteCount, sourceNotesPerSecond: selected.part.notesPerSec, results,
   }, null, 2));
   if (results.some(r => r.highway === 'perspective' && r.throttle === 4 && r.p95Ms > 2)) process.exitCode = 1;

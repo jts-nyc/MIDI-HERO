@@ -3,7 +3,7 @@ import type { BeatLine } from '../midi/parse.ts';
 import type { FxState } from './fx.ts';
 import { fitCanvas, MAX_DPR } from './canvas.ts';
 import { layoutKeys, noteName, type KeyColumn, type KeyboardLayout } from './layout.ts';
-import { theme, type NoteVisual, type RenderState } from './renderer.ts';
+import { PracticeVenueVisuals, theme, type NoteVisual, type RenderState } from './renderer.ts';
 
 const TOP_SCALE = 0.35;
 const HIT_FADE = 0.15;
@@ -55,6 +55,7 @@ class CachedText {
 /** Canvas 2D highway; only consumes the same state as the flat renderer. */
 export class PerspectiveRenderer {
   private ctx: CanvasRenderingContext2D;
+  private practiceVenue = new PracticeVenueVisuals();
   private background: HTMLCanvasElement;
   private motion: MediaQueryList;
   private reduceMotion: boolean;
@@ -187,6 +188,7 @@ export class PerspectiveRenderer {
   draw(s: RenderState): void {
     this.ensureLayout(s);
     this.reduceMotion = this.motion.matches;
+    this.practiceVenue.update(s, this.reduceMotion);
     const ctx = this.ctx;
     const hitY = this.hitY;
     const width = this.width;
@@ -237,6 +239,7 @@ export class PerspectiveRenderer {
       ctx.fill();
       ctx.globalAlpha = 1;
     }
+    this.practiceVenue.drawVenue(ctx, s.fx, width, hitY, TOP_SCALE, this.reduceMotion);
     // Counters use screen coordinates and sit behind the projected notes.
     ctx.restore();
     this.drawStreak(s.fx, width, hitY);
@@ -273,11 +276,12 @@ export class PerspectiveRenderer {
       if (!col || (vis?.state === 'hit' && vis.hold !== 'holding' && vis.hold !== 'released' && s.time - (vis.holdEnd ?? vis.hitTime) > HIT_FADE) || n.time + n.duration < s.time - 0.5) continue;
       this.drawNote(n, col, vis, s);
     }
+    this.practiceVenue.drawLoop(ctx, s, width, hitY, TOP_SCALE);
     ctx.restore();
     ctx.lineWidth = 1;
-    this.drawHitLine(s.fx, this.layout!, width, hitY, s.fx.meters.starActive);
+    this.drawHitLine(s.fx, this.layout!, width, hitY, s.fx.meters.starActive, s.practice?.waiting === true);
     // Keep a passed bar visible above the keyboard for its entire 120 ms pulse.
-    if (pulse > 0) {
+    if (pulse > 0 && !this.reduceMotion) {
       ctx.fillStyle = theme.text;
       ctx.globalAlpha = 0.16 + 0.5 * pulse;
       const thickness = 2 + 2 * pulse;
@@ -290,6 +294,7 @@ export class PerspectiveRenderer {
     this.drawPopups(s);
     this.drawGlow(s.fx, width, this.height);
     this.drawHud(s, width, hitY);
+    this.practiceVenue.drawHud(ctx, s, width);
     this.drawCallouts(s.fx, width, hitY);
     this.drawCountdown(s.fx, width, hitY);
   }
@@ -451,6 +456,7 @@ export class PerspectiveRenderer {
         ctx.fillRect(col.x + 0.5, hitY, col.w - 1, h);
         ctx.globalAlpha = 1;
       }
+      this.practiceVenue.drawKey(ctx, col.pitch, col.x + 0.5, hitY, col.w - 1, h);
       ctx.strokeStyle = theme.keyBorder;
       ctx.strokeRect(col.x + 0.5, hitY + 0.5, col.w - 1, h - 1);
       const isC = col.pitch % 12 === 0;
@@ -485,14 +491,14 @@ export class PerspectiveRenderer {
       const t = age / POPUP_LIFE;
       ctx.globalAlpha = 1 - t;
       ctx.fillStyle = p.color;
-      ctx.fillText(p.text, col.x + col.w / 2, this.hitY - 40 - t * 30);
+      ctx.fillText(p.text, col.x + col.w / 2, this.hitY - 40 - (this.reduceMotion ? 0 : t * 30));
     }
     ctx.globalAlpha = 1;
   }
 
-  private drawHitLine(fx: FxState, layout: KeyboardLayout, width: number, hitY: number, star: boolean): void {
+  private drawHitLine(fx: FxState, layout: KeyboardLayout, width: number, hitY: number, star: boolean, waiting: boolean): void {
     const ctx = this.ctx;
-    ctx.fillStyle = star ? theme.star : theme.hitLine;
+    ctx.fillStyle = waiting ? '#54e4e8' : star ? theme.star : theme.hitLine;
     ctx.globalAlpha = 0.9;
     ctx.fillRect(0, hitY - 2, width, 3);
     // Shockwaves run along the line from the key that was hit
