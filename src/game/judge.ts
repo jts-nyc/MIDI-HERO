@@ -45,9 +45,11 @@ export interface JudgeEvent {
    * 'milestone': the streak reached `streak`; 'break': a streak of `streak` notes ended;
    * 'level': the combo multiplier rose to `streak`; 'fail': the performance meter ran out;
    * 'star': star phrase `streak` was played clean and filled the gauge; 'starLost': star
-   * phrase `streak` was spoiled; 'starOn' / 'starOff': star power went on / ran out.
+   * phrase `streak` was spoiled; 'starOn' / 'starOff': star power went on / ran out;
+   * 'held': note `noteId` was held to its end; 'released': it was let go early, at `time`.
+   * For both, `streak` is the hold points the note earned.
    */
-  type: 'hit' | 'miss' | 'wrong' | 'milestone' | 'break' | 'level' | 'fail' | 'star' | 'starLost' | 'starOn' | 'starOff';
+  type: 'hit' | 'miss' | 'wrong' | 'milestone' | 'break' | 'level' | 'fail' | 'star' | 'starLost' | 'starOn' | 'starOff' | 'held' | 'released';
   time: number;
   pitch: number;
   noteId: number;
@@ -72,6 +74,26 @@ export const STAR_MIN = 0.5;
 /** A full gauge lasts this many beats, so the minimum lasts 16. */
 export const STAR_FULL_BEATS = 32;
 export const STAR_MULTIPLIER = 2;
+
+/** Notes at least this many beats long are sustains: holding them scores. */
+export const SUSTAIN_BEATS = 1;
+/** Hold points per beat: one for every 1/16 beat held. */
+export const HOLD_POINTS_PER_BEAT = 16;
+/** Letting go this close to the end (in beats) still counts as holding to the end. */
+export const HOLD_GRACE_BEATS = 1 / 8;
+
+/** A sustained note that was hit and is being held, by the key or by the pedal. */
+export interface Hold {
+  noteId: number;
+  /** judge key of the note (pitch, or pitch class in easy mode) */
+  key: number;
+  /** beat positions of the start and the end of the note */
+  from: number;
+  end: number;
+  /** points paid so far, before multipliers */
+  paid: number;
+  keyDown: boolean;
+}
 
 /** Streak lengths at which the multiplier rises to 2x, 3x, 4x. */
 export const MULTIPLIER_STEPS = [10, 30, 50] as const;
@@ -107,6 +129,11 @@ export class Judge {
   combo = 0;
   maxCombo = 0;
   judged = 0;
+  /** sustains being held right now */
+  readonly holds: Hold[] = [];
+  /** points earned by holding, multipliers included; part of `score` */
+  holdScore = 0;
+  pedalDown = false;
   /** 0..1; filled by clean star phrases, drained while star power is on */
   starGauge = 0;
   starActive = false;
@@ -194,6 +221,64 @@ export class Judge {
 
   get failed(): boolean {
     return this.meter.failed;
+  }
+
+  /** Length of a note in beats. */
+  beatsOf(id: number): number {
+    const n = this.chart.notes[id]!;
+    return beatAt(this.chart.beats, n.time + n.duration) - beatAt(this.chart.beats, n.time);
+  }
+
+  isSustain(id: number): boolean {
+    return this.beatsOf(id) >= SUSTAIN_BEATS - 1e-6;
+  }
+
+  /** Pay a hold for the beats held up to `beat`. */
+  private payHold(h: Hold, beat: number): void {
+    const held = Math.min(beat, h.end) - h.from;
+    const points = Math.max(0, Math.floor(held * HOLD_POINTS_PER_BEAT + 1e-6));
+    if (points <= h.paid) return;
+    const gain = (points - h.paid) * this.scoreMultiplier;
+    h.paid = points;
+    this.score += gain;
+    this.holdScore += gain;
+  }
+
+  private endHold(index: number, t: number): void {
+    const h = this.holds[index]!;
+    const beat = beatAt(this.chart.beats, t);
+    const complete = beat >= h.end - HOLD_GRACE_BEATS;
+    this.payHold(h, complete ? h.end : beat);
+    this.holds.splice(index, 1);
+    this.events.push({ type: complete ? 'held' : 'released', time: t, pitch: this.chart.notes[h.noteId]!.pitch, noteId: h.noteId, judgment: null, delta: 0, streak: h.paid });
+  }
+
+  /** A key went up. A hold goes on if the pedal is down. */
+  noteOff(pitch: number, t: number): void {
+    const key = this.key(pitch);
+    for (let i = this.holds.length - 1; i >= 0; i--) {
+      const h = this.holds[i]!;
+      if (h.key !== key || !h.keyDown) continue;
+      h.keyDown = false;
+      if (!this.pedalDown) this.endHold(i, t);
+    }
+  }
+
+  /** The sustain pedal went down or up. Lifting it lets go of every hold whose key is already up. */
+  pedal(down: boolean, t: number): void {
+    this.pedalDown = down;
+    if (down) return;
+    for (let i = this.holds.length - 1; i >= 0; i--) if (!this.holds[i]!.keyDown) this.endHold(i, t);
+  }
+
+  private advanceHolds(t: number): void {
+    if (this.holds.length === 0) return;
+    const beat = beatAt(this.chart.beats, t);
+    for (let i = this.holds.length - 1; i >= 0; i--) {
+      const h = this.holds[i]!;
+      if (beat >= h.end) this.endHold(i, t);
+      else this.payHold(h, beat);
+    }
   }
 
   /** Enough gauge to switch star power on, and it is not on already. */
@@ -320,6 +405,10 @@ export class Judge {
     const judgment: Judgment = d <= this.perfect ? 'perfect' : d <= this.great ? 'great' : d <= this.good ? 'good' : 'late';
     this.events.push({ type: 'hit', time: t, pitch: n.pitch, noteId: id, judgment, delta });
     this.apply(id, judgment, t);
+    if (judgment !== 'late' && this.isSustain(id)) {
+      const from = beatAt(this.chart.beats, n.time);
+      this.holds.push({ noteId: id, key: this.key(n.pitch), from, end: from + this.beatsOf(id), paid: 0, keyDown: true });
+    }
     return { kind: 'hit', noteId: id, judgment, delta };
   }
 
@@ -348,6 +437,7 @@ export class Judge {
 
   /** Mark notes whose window has passed as missed. */
   advance(t: number): void {
+    this.advanceHolds(t);
     this.drainStar(t);
     const notes = this.chart.notes;
     while (this.cursor < notes.length) {

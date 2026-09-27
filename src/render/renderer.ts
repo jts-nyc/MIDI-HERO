@@ -11,6 +11,13 @@ export interface NoteVisual {
   /** song time of the hit, for the fade */
   hitTime: number;
   judgment: string;
+  /**
+   * Sustains only. 'holding': the key or the pedal is holding the note; 'released': it was
+   * let go early and the rest of the trail is cut; 'held': it was held to its end.
+   */
+  hold?: 'holding' | 'released' | 'held';
+  /** song time the hold ended: the release, or the end of the note */
+  holdEnd?: number;
 }
 
 export interface KeyVisual {
@@ -253,7 +260,7 @@ export class Renderer {
       const vis = s.noteVisuals[i];
       const col = layout.columns.get(n.pitch);
       if (!col) continue;
-      if (vis?.state === 'hit' && s.time - vis.hitTime > HIT_FADE) continue;
+      if (vis?.state === 'hit' && vis.hold !== 'holding' && vis.hold !== 'released' && s.time - (vis.holdEnd ?? vis.hitTime) > HIT_FADE) continue;
       if (n.time + n.duration < s.time - 0.5) continue;
       if (vis?.state === 'missed' && n.time < s.time && this.passingCount < MAX_PASSING) this.passing[this.passingCount++] = i;
       this.drawNote(n, col, vis, s, hitY, star);
@@ -287,6 +294,10 @@ export class Renderer {
     if (y > hitY + 40 || y + h < -10) return;
     const missed = vis?.state === 'missed';
     const hit = vis?.state === 'hit';
+    if (hit && (vis!.hold === 'holding' || vis!.hold === 'released')) {
+      this.drawHold(n, col, vis!, s, hitY, yTop, star);
+      return;
+    }
     const gold = !missed && (star || n.star === true);
     let color: string;
     if (missed) color = theme.noteMissed;
@@ -297,7 +308,7 @@ export class Renderer {
     let alpha = 1;
     if (hit) {
       // gem pop: the note swells around its head and fades
-      const t = Math.max(0, Math.min(1, (s.time - vis!.hitTime) / HIT_FADE));
+      const t = Math.max(0, Math.min(1, (s.time - (vis!.holdEnd ?? vis!.hitTime)) / HIT_FADE));
       alpha = 0.75 * (1 - t);
       const grow = 1 + POP_SCALE * t;
       const head = Math.min(h, w * 1.2);
@@ -342,6 +353,56 @@ export class Renderer {
       ctx.fillText(noteName(n.pitch).replace(/-?\d+$/, ''), x + w / 2, yBottom - 8);
     }
     ctx.globalAlpha = 1;
+  }
+
+  /**
+   * A sustain after it was hit. While it is held its trail burns down into the hit line and
+   * a bar fills across the key; let go early, what is left of the trail goes grey.
+   */
+  private drawHold(
+    n: ChartNote,
+    col: { x: number; w: number; isBlack: boolean },
+    vis: NoteVisual,
+    s: RenderState,
+    hitY: number,
+    yTop: number,
+    star: boolean,
+  ): void {
+    const ctx = this.ctx;
+    const x = col.x + 1;
+    const w = Math.max(2, col.w - 2);
+    const top = Math.max(-10, yTop);
+    if (top >= hitY) return;
+    const h = hitY - top;
+    if (vis.hold === 'released') {
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = theme.noteMissed;
+      ctx.beginPath();
+      ctx.roundRect(x + w * 0.2, top, w * 0.6, h, 3);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      return;
+    }
+    const gold = star || n.star === true;
+    const pulse = 0.5 + 0.5 * Math.sin(s.fx.clock * 14);
+    ctx.fillStyle = gold ? 'rgba(255,210,63,0.3)' : 'rgba(255,255,255,0.22)';
+    ctx.globalAlpha = 0.6 + 0.4 * pulse;
+    ctx.beginPath();
+    ctx.roundRect(x - 3, top - 3, w + 6, h + 3, 6);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = gold ? theme.star : n.hand === 'L' ? theme.noteL : theme.noteR;
+    ctx.beginPath();
+    ctx.roundRect(x, top, w, h, Math.min(4, w / 2, h / 2));
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillRect(x + w * 0.35, top, w * 0.3, h);
+    // hold bar: fills across the key as the note is held
+    const progress = Math.max(0, Math.min(1, (s.time - n.time) / n.duration));
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(col.x, hitY - 7, col.w, 6);
+    ctx.fillStyle = gold ? theme.star : theme.perfect;
+    ctx.fillRect(col.x, hitY - 7, col.w * progress, 6);
   }
 
   private drawHitLine(fx: FxState, layout: KeyboardLayout, width: number, hitY: number, star: boolean): void {

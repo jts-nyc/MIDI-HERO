@@ -3,7 +3,8 @@ import { FEEDBACK_CHANNEL, FEEDBACK_CHANNELS, type Synth } from '../audio/synth.
 import { ChannelFilter, OctaveTracker, type InputEvent, type OctaveEvent } from '../input/normalize.ts';
 import type { CarriedNote, Chart } from '../midi/chart.ts';
 import {
-  createFx, emitBreak, emitCallout, emitHit, emitLevel, emitMilestone, emitMiss, emitStar, emitStreak, emitWrong, setCountdown, stepFx, type FxState,
+  createFx, emitBreak, emitCallout, emitHit, emitLevel, emitMilestone, emitMiss, emitSpark, emitStar, emitStreak, emitWrong, setCountdown, stepFx,
+  type FxState,
 } from '../render/fx.ts';
 import { noteName } from '../render/layout.ts';
 import type { Hud, KeyVisual, NoteVisual, Popup } from '../render/renderer.ts';
@@ -78,6 +79,7 @@ const JUDGMENT_COLOR: Record<Judgment, string> = {
 const KEY_FLASH = 0.25; // s, for wrong/missed key flashes
 const SOUND_LOOKAHEAD = 0.05; // s, real time: note-offs are scheduled this far ahead of their song time
 const MIN_SOUND = 0.08; // s, a hit at the very end of a note is still heard
+const SPARK_EVERY = 0.07; // s, real time between the sparks of a held note
 const MAX_FRAME = 0.1; // s, longest step the effects take in one frame
 const OUTRO = 0.6; // s, real time between the last judged note and the results, so it can ring out
 
@@ -116,6 +118,7 @@ export class PlaySession {
   private readonly earned: CarriedNote[] = [];
   /** song time at which a fully judged song ends */
   private endAt = Infinity;
+  private nextSpark = 0;
 
   constructor(readonly opts: SessionOptions) {
     this.judge = new Judge(opts.chart, opts.judgeConfig, opts.rate);
@@ -167,6 +170,9 @@ export class PlaySession {
     const chartSound = this.feedback === 'chart' ? this.opts.synth : null;
     if (ev.type === 'pedal') {
       press?.control(0, 64, ev.velocity, 0);
+      // The pedal holds sustained notes, as on a piano, and switches star power on.
+      this.judge.pedal(ev.velocity >= 64, this.songTimeOf(ev));
+      if (this.judge.events.length) this.drainEvents(this.now());
       if (ev.velocity >= 64) this.activateStar();
       return;
     }
@@ -177,6 +183,8 @@ export class PlaySession {
       const kv = this.keyVisuals.get(pitch);
       if (kv) kv.since = Math.max(kv.since, this.now() - KEY_FLASH * 0.6);
       press?.noteOff(0, pitch, 0);
+      this.judge.noteOff(pitch, this.songTimeOf(ev));
+      if (this.judge.events.length) this.drainEvents(this.now()); // a released hold loses its trail at once
       return;
     }
     // Sound first: synchronous, at the audio clock's current time.
@@ -195,7 +203,11 @@ export class PlaySession {
     }
     if (result.kind === 'hit') {
       if (ev.source === 'midi' && this.filter.locked === null) this.filter.lock(ev.channel);
-      this.noteVisuals[result.noteId] = { state: 'hit', hitTime: this.now(), judgment: result.judgment };
+      const n = this.chart.notes[result.noteId]!;
+      const holding = this.judge.holds.some((h) => h.noteId === result.noteId);
+      this.noteVisuals[result.noteId] = holding
+        ? { state: 'hit', hitTime: this.now(), judgment: result.judgment, hold: 'holding', holdEnd: n.time + n.duration }
+        : { state: 'hit', hitTime: this.now(), judgment: result.judgment };
       this.keyVisuals.set(pitch, { kind: result.judgment, since: t });
       this.popups.push({ text: JUDGMENT_LABEL[result.judgment], pitch, time: this.now(), color: JUDGMENT_COLOR[result.judgment] });
       emitHit(this.fx, pitch, result.judgment === 'miss' ? 'late' : result.judgment, this.fx.meters.starActive);
@@ -303,10 +315,33 @@ export class PlaySession {
         case 'star': emitCallout(this.fx, this.judge.starReady ? 'STAR POWER READY' : 'STAR PHRASE!', 'star', 1); break;
         case 'starOn': emitStar(this.fx); break;
         case 'starLost': this.dimPhrase(e.streak ?? -1); break;
+        case 'held': this.endHold(e.noteId, 'held', Math.min(now, e.time)); break;
+        case 'released': this.endHold(e.noteId, 'released', e.time); break;
         default: break;
       }
     }
     events.length = 0;
+  }
+
+  /**
+   * A hold is over. Let go early, the trail is cut and the rest of the hold points are
+   * gone; the note itself keeps sounding for its written length.
+   */
+  private endHold(noteId: number, how: 'held' | 'released', at: number): void {
+    const vis = this.noteVisuals[noteId];
+    if (vis) {
+      vis.hold = how;
+      vis.holdEnd = at;
+    }
+    if (how === 'held') emitHit(this.fx, this.chart.notes[noteId]!.pitch, 'good', this.fx.meters.starActive);
+  }
+
+  /** Sparks rise from the keys of the notes that are being held. */
+  private sparkHolds(): void {
+    const holds = this.judge.holds;
+    if (holds.length === 0 || this.fx.clock < this.nextSpark) return;
+    this.nextSpark = this.fx.clock + SPARK_EVERY;
+    for (let i = 0; i < holds.length; i++) emitSpark(this.fx, this.chart.notes[holds[i]!.noteId]!.pitch, this.fx.meters.starActive);
   }
 
   /** A spoiled star phrase loses its gold: what is left of it looks like any other note. */
@@ -348,6 +383,7 @@ export class PlaySession {
     this.playEarned(now);
     this.releaseSounding(now);
     this.drainEvents(now);
+    this.sparkHolds();
     this.syncMeters();
     setCountdown(this.fx, now, this.opts.countInBeats ?? 4, this.opts.barSeconds / (this.opts.countInBeats ?? 4));
     stepFx(this.fx, dt);
@@ -359,6 +395,10 @@ export class PlaySession {
       let end = now;
       for (const s of this.sounding) end = Math.max(end, s.end);
       for (const c of this.earned) end = Math.max(end, c.time + c.duration);
+      for (const h of this.judge.holds) {
+        const n = this.chart.notes[h.noteId]!;
+        end = Math.max(end, n.time + n.duration);
+      }
       this.endAt = end + OUTRO * this.opts.rate;
     }
     if (this.judge.failed) {

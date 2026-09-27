@@ -81,20 +81,33 @@ describe('chart-note feedback', () => {
     expect(sounds()).toHaveLength(0);
   });
 
-  it('holds the note for its written length, whatever the key does', () => {
-    const { goTo, down, up, advance, synth } = harness({}, [[1, 60, 1], [4, 62]]);
+  it('holds a short note for its written length, whatever the key does', () => {
+    const { goTo, down, up, advance, synth } = harness({}, [[1, 60, 0.4], [4, 62]]);
     goTo(1);
     down(60);
     advance(0.1);
     up(60); // a quick tap
     const offs = () => synth.calls.filter((c) => c.method === 'noteOff');
     expect(offs()).toHaveLength(0);
-    goTo(1.9);
+    goTo(1.3);
     expect(offs()).toHaveLength(0);
-    goTo(1.96); // inside the scheduling lookahead
-    expect(offs()).toEqual([{ method: 'noteOff', args: [FEEDBACK_CHANNEL, 60, 2] }]);
+    goTo(1.36); // inside the scheduling lookahead
+    expect(offs()).toEqual([{ method: 'noteOff', args: [FEEDBACK_CHANNEL, 60, 1.4] }]);
     goTo(3);
     expect(offs()).toHaveLength(1);
+  });
+
+  it('a sustained note sounds for its written length too, even when it is let go early', () => {
+    const { goTo, down, up, advance, synth } = harness({}, [[1, 60, 1], [4, 62]]);
+    const offs = () => synth.calls.filter((c) => c.method === 'noteOff');
+    goTo(1);
+    down(60);
+    advance(0.3);
+    up(60); // let go after 0.3 s of a 1 s note: the hold is over, the sound is not
+    goTo(1.9);
+    expect(offs()).toHaveLength(0);
+    goTo(1.96);
+    expect(offs()).toEqual([{ method: 'noteOff', args: [FEEDBACK_CHANNEL, 60, 2] }]);
   });
 
   it('lets the last note ring out before the song finishes', () => {

@@ -233,6 +233,12 @@ export function emitHit(fx: FxState, pitch: number, kind: HitKind, star = false)
   }
 }
 
+/** A sustained note is being held: a few sparks rise from its key. */
+export function emitSpark(fx: FxState, pitch: number, star = false): void {
+  if (!fx.enabled) return;
+  burst(fx, pitch, 2, 3, 160, star ? Tint.gold : Tint.great);
+}
+
 /** A chart note went by unplayed: its key flashes red. */
 export function emitMiss(fx: FxState, pitch: number): void {
   flash(fx, pitch, Tint.wrong, 0.35);
