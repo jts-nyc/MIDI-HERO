@@ -92,6 +92,9 @@ export interface SongRow {
   title: string;
   subtitle: string;
   group: 'class' | 'builtin';
+  /** the pack it came in, and its place in the pack's setlist */
+  pack?: string;
+  packIndex?: number;
   best?: string;
   deletable: boolean;
 }
@@ -114,11 +117,17 @@ export function showSongSelect(o: SongSelectOptions): void {
     </div>`;
   const cls = o.songs.filter((s) => s.group === 'class');
   const builtin = o.songs.filter((s) => s.group === 'builtin');
+  // Songs from a pack are its setlist: under the pack's name, in pack order. Loose imports come first.
+  const loose = cls.filter((s) => !s.pack);
+  const packs = [...new Set(cls.filter((s) => s.pack).map((s) => s.pack!))];
+  const setlist = (name: string) =>
+    `<h2>${esc(name)}</h2><div class="list">${cls.filter((s) => s.pack === name).sort((a, b) => (a.packIndex ?? 0) - (b.packIndex ?? 0)).map(row).join('')}</div>`;
   const el = screen(`<div class="panel">
     <div class="row" style="justify-content:space-between"><h1>MIDI Hero</h1><div class="row"><button id="import">Import .mid / pack</button><button id="export">Export class pack</button><button id="settings">Settings</button></div></div>
     <p>${esc(o.midiStatus)} ${o.onRetryMidi ? '<button id="retry-midi">Retry</button>' : ''}</p>
     <p>Drop <b>.mid</b> files or a <b>.midihero.json</b> pack anywhere on this page to add songs. Computer keyboard: <span class="kbd">Z</span>–<span class="kbd">M</span> / <span class="kbd">Q</span>–<span class="kbd">U</span> play notes, <span class="kbd">-</span>/<span class="kbd">=</span> shift octave.</p>
-    ${cls.length ? `<h2>Class songs</h2><div class="list">${cls.map(row).join('')}</div>` : ''}
+    ${loose.length ? `<h2>Class songs</h2><div class="list">${loose.map(row).join('')}</div>` : ''}
+    ${packs.map(setlist).join('')}
     <h2>Built-in</h2><div class="list">${builtin.map(row).join('')}</div>
     <input type="file" id="file" accept=".mid,.midi,.json" multiple style="display:none" />
   </div>`);
@@ -164,18 +173,19 @@ export function installDropZone(onFiles: (files: File[]) => void): void {
 // ---------------------------------------------------------------------------
 // Export pack dialog
 // ---------------------------------------------------------------------------
-export function showExportDialog(o: { songs: { id: string; title: string }[]; defaultName: string; onExport: (name: string, ids: string[]) => void; onBack: () => void }): void {
+export function showExportDialog(o: { songs: { id: string; title: string }[]; defaultName: string; onExport: (name: string, ids: string[], unlocks: boolean) => void; onBack: () => void }): void {
   const el = screen(`<div class="panel">
     <h2>Export class pack</h2>
     <p>Choose the songs to include. Each song keeps the part, split and timing you picked for it. The pack also carries the current keyboard size, timing preset and display settings as class defaults.</p>
     <label class="field">Pack name <input id="name" value="${esc(o.defaultName)}" /></label>
     <div class="list">${o.songs.map((s) => `<label class="item"><span>${esc(s.title)}</span><input type="checkbox" data-id="${esc(s.id)}" checked /></label>`).join('')}</div>
+    <label class="field"><input type="checkbox" id="unlocks" /> Unlock levels in order: a harder level opens once the one below has 4 stars</label>
     <div class="row"><button class="primary" id="go">Download pack</button><button id="back">Back</button></div>
   </div>`);
   el.querySelector('#go')!.addEventListener('click', () => {
-    const ids = [...el.querySelectorAll<HTMLInputElement>('input[type=checkbox]')].filter((c) => c.checked).map((c) => c.dataset.id!);
+    const ids = [...el.querySelectorAll<HTMLInputElement>('input[type=checkbox][data-id]')].filter((c) => c.checked).map((c) => c.dataset.id!);
     const name = (el.querySelector<HTMLInputElement>('#name')!.value || o.defaultName).trim();
-    if (ids.length) o.onExport(name, ids);
+    if (ids.length) o.onExport(name, ids, el.querySelector<HTMLInputElement>('#unlocks')!.checked);
   });
   el.querySelector('#back')!.addEventListener('click', o.onBack);
 }
@@ -206,6 +216,10 @@ export interface PartPickerOptions {
   levels: LevelStats[];
   /** the level that will be played: the chosen one, or the nearest the selection has */
   level: Difficulty;
+  /** levels shown but not offered yet (a pack that unlocks levels in order) */
+  locked?: readonly Difficulty[];
+  /** stars on the level below that unlock a level */
+  unlockStars?: number;
   state: PartPickerState;
   kb: KeyboardSize;
   /** true when the single selected part spans more than two octaves */
@@ -250,8 +264,11 @@ export function showPartPicker(o: PartPickerOptions): void {
       <tr><th></th><th>Part</th><th>Notes</th><th>Notes/s</th><th>Chord</th><th>Range</th><th>Starts</th><th>Folded</th></tr>
       ${rows}
     </table>
-    ${o.levels.length ? `<div class="seg" id="difficulty" role="radiogroup" aria-label="Difficulty" style="grid-template-columns:repeat(${o.levels.length},1fr)">${o.levels.map((l) =>
-      `<button role="radio" aria-checked="${o.level === l.level}" class="${o.level === l.level ? 'primary' : ''}" data-level="${l.level}">
+    ${o.levels.length ? `<div class="seg" id="difficulty" role="radiogroup" aria-label="Difficulty" style="grid-template-columns:repeat(${o.levels.length},1fr)">${o.levels.map((l, i) =>
+      o.locked?.includes(l.level)
+        ? `<button role="radio" aria-checked="false" disabled title="Locked" data-level="${l.level}">
+        <b>${DIFFICULTY_LABEL[l.level]}</b><span>Locked: ${o.unlockStars ?? 4} stars on ${DIFFICULTY_LABEL[o.levels[i - 1]?.level ?? l.level]} opens it</span></button>`
+        : `<button role="radio" aria-checked="${o.level === l.level}" class="${o.level === l.level ? 'primary' : ''}" data-level="${l.level}">
         <b>${DIFFICULTY_LABEL[l.level]}</b><span>${l.noteCount} notes · ${l.notesPerSec.toFixed(1)}/s</span></button>`).join('')}</div>
       ${o.levels.length < DIFFICULTIES.length ? `<p class="levels-note">${DIFFICULTY_LABEL[o.levels[o.levels.length - 1]!.level]} is the whole part: there is nothing harder to add.</p>` : ''}` : ''}
     ${wide ? `<div class="row" style="margin-top:12px">

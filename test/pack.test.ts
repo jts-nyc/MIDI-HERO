@@ -16,9 +16,19 @@ describe('song pack', () => {
     expect(v.ok).toBe(true);
     if (!v.ok) return;
     expect(v.pack.name).toBe('Class A');
-    expect(v.pack.settings).toEqual({ kb: 25, timing: 'relaxed' });
+    expect(v.pack.settings).toEqual({ kb: 25, timing: 'relaxed', unlocks: false });
     expect(v.songs[1]!.bytes).toEqual(bytesB);
     expect(v.pack.songs[1]).toMatchObject({ split: 60, timingPreset: 'normal' });
+  });
+
+  it('carries the unlocks choice through a round trip; an old pack without it reads as false', async () => {
+    const pack = await buildPack('Setlist', { kb: 25, unlocks: true }, [{ title: 'A', bytes: bytesA, defaultParts: [] }]);
+    const v = parsePackJson(JSON.stringify(pack));
+    expect(v.ok && v.pack.settings.unlocks).toBe(true);
+    const old = validatePack({ format: 'midihero-pack', version: 1, settings: { kb: 49 }, songs: [{ title: 'A', midiBase64: encodeBase64(bytesA) }] });
+    expect(old.ok && old.pack.settings).toEqual({ kb: 49, unlocks: false });
+    const odd = validatePack({ format: 'midihero-pack', version: 1, settings: { unlocks: 'yes' }, songs: [{ title: 'A', midiBase64: encodeBase64(bytesA) }] });
+    expect(odd.ok && odd.pack.settings.unlocks).toBe(false);
   });
 
   it('base64 helpers round-trip and reject garbage', () => {

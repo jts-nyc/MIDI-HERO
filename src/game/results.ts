@@ -132,6 +132,63 @@ export function suggestNextStep(r: SuggestionInput): Suggestion {
   return { kind: 'again', text: `Play it again: ${Math.round(MOVE_UP * 100)}% unlocks the next step` };
 }
 
+// ---------------------------------------------------------------------------
+// Pack progress: stars per song and levels unlocked in order (WP10)
+// ---------------------------------------------------------------------------
+/** Stars on the level below that offer the next level up, when a pack unlocks levels in order. */
+export const UNLOCK_STARS = 4;
+/** The level of a best recorded before levels were stored and kept under the no-suffix key: the part's top level. */
+export const TOP_LEVEL = 'top';
+
+export interface LevelBest {
+  accuracy: number;
+  /** playback rate the best was set at */
+  rate: number;
+  /** level name, or TOP_LEVEL */
+  level: string;
+}
+
+/**
+ * Stars per level from a song's bests, best across parts and timing. Only full-speed plays
+ * count: a level is not earned at half speed.
+ */
+export function starsByLevel(bests: readonly LevelBest[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const b of bests) {
+    if (!(b.rate >= 1 - 1e-9)) continue;
+    const n = starCount(b.accuracy);
+    if (n > (out.get(b.level) ?? 0)) out.set(b.level, n);
+  }
+  return out;
+}
+
+/** The most stars a song has, and the level they were earned on (the higher level on a tie); null when none. */
+export function songStars(bests: readonly LevelBest[]): { stars: number; level: string } | null {
+  let best: { stars: number; level: string } | null = null;
+  const rank = (l: string) => (l === TOP_LEVEL ? DIFFICULTIES.length : DIFFICULTIES.indexOf(l as Difficulty));
+  for (const [level, stars] of starsByLevel(bests)) {
+    if (stars === 0) continue;
+    if (!best || stars > best.stars || (stars === best.stars && rank(level) > rank(best.level))) best = { stars, level };
+  }
+  return best;
+}
+
+/**
+ * The levels a player may pick, lowest first. Without unlocks, all of them. With unlocks, the
+ * lowest always, and each one above once the level below has UNLOCK_STARS stars. `stars` is
+ * keyed by level name; TOP_LEVEL counts as the last of `levels`.
+ */
+export function unlockedLevels(levels: readonly Difficulty[], stars: ReadonlyMap<string, number>, unlocks: boolean): Difficulty[] {
+  if (!unlocks) return [...levels];
+  const starsOf = (l: Difficulty, i: number) => Math.max(stars.get(l) ?? 0, i === levels.length - 1 ? stars.get(TOP_LEVEL) ?? 0 : 0);
+  const out: Difficulty[] = [];
+  for (let i = 0; i < levels.length; i++) {
+    if (i > 0 && starsOf(levels[i - 1]!, i - 1) < UNLOCK_STARS) break;
+    out.push(levels[i]!);
+  }
+  return out;
+}
+
 /** "+4.0%" / "−2.5%" against the previous best accuracy, or null when there is none. */
 export function bestDelta(accuracy: number, previousBest: number | null | undefined): string | null {
   if (previousBest === null || previousBest === undefined) return null;

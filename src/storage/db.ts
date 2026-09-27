@@ -13,6 +13,10 @@ export interface StoredSong {
   /** level name in the best-score key: 'expert' for the full part, whatever that level is called for this song */
   keyLevel?: string;
   packName?: string;
+  /** position in its pack, for the setlist order */
+  packIndex?: number;
+  /** the pack asks for levels to be unlocked in order (PackSettings.unlocks) */
+  unlocks?: boolean;
   addedAt: number;
 }
 
@@ -23,6 +27,8 @@ export interface BestScore {
   accuracy: number;
   maxCombo: number;
   at: number;
+  /** the level played, by its own name (the key names the top level 'expert'); absent in older records */
+  level?: string;
 }
 
 const DB_NAME = 'midihero';
@@ -77,6 +83,16 @@ export function bestKey(songId: string, parts: PartId[], split: number | undefin
   if (difficulty !== 'expert') key.push(difficulty);
   return key.join('|');
 }
+
+/** What a best-score key says: the song, the playback-rate bucket, and the level suffix (null for the top level). */
+export function parseBestKey(key: string): { songId: string; rate: number; level: string | null } {
+  const parts = key.split('|');
+  return { songId: parts[0] ?? '', rate: Number(parts[4]), level: parts[6] ?? null };
+}
+
+/** Every best score of a song, across parts, levels and settings. */
+export const bestsForSong = (songId: string): Promise<BestScore[]> =>
+  tx<BestScore[]>('bests', 'readonly', (s) => s.getAll()).then((all) => all.filter((b) => b.songId === songId));
 
 export const getBest = (key: string): Promise<BestScore | undefined> => tx('bests', 'readonly', (s) => s.get(key));
 

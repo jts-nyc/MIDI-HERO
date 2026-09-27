@@ -4,7 +4,7 @@ import { WebAudioSynth, type Synth } from './audio/synth.ts';
 import { DEFAULT_JUDGE_CONFIG, OVERHOLD_COST, type JudgeConfig, type TimingPreset } from './game/judge.ts';
 import { calibrationBeats } from './game/calibration.ts';
 import { loopLabel, loopOf, practiceSections, trimChart, type PracticeSectionInfo } from './game/practice.ts';
-import { RATES, suggestNextStep, type Suggestion } from './game/results.ts';
+import { RATES, songStars, starsByLevel, suggestNextStep, TOP_LEVEL, unlockedLevels, UNLOCK_STARS, type LevelBest, type Suggestion } from './game/results.ts';
 import { PlaySession } from './game/session.ts';
 import { KeyboardInput } from './input/keyboardInput.ts';
 import { MidiInput } from './input/midiInput.ts';
@@ -13,14 +13,14 @@ import {
   buildChart, chooseWindow, DIFFICULTY_LABEL, isDifficulty, offeredLevels, resolveLevel, splitNotes,
   type Chart, type ChartOptions, type Difficulty, type Hand, type PitchWindow,
 } from './midi/chart.ts';
-import { buildPack, parsePackJson, sha256Hex, type PackSettings } from './midi/pack.ts';
+import { buildPack, parsePackJson, sha256Hex, type PackSettings, type PackValidation } from './midi/pack.ts';
 import { beatLines, parseSong, ticksToSeconds } from './midi/parse.ts';
 import { buildParts, defaultPart, notesOf } from './midi/parts.ts';
 import type { FeedbackSound } from './game/session.ts';
 import { displayRange } from './render/layout.ts';
 import { Renderer, type RenderState } from './render/renderer.ts';
 import { PerspectiveRenderer } from './render/highway3d.ts';
-import { bestKey, deleteSong, getBest, listSongs, putSong, recordBest, type StoredSong } from './storage/db.ts';
+import { bestKey, bestsForSong, deleteSong, getBest, listSongs, parseBestKey, putSong, recordBest, type BestScore } from './storage/db.ts';
 import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
 import {
@@ -56,6 +56,10 @@ interface LibrarySong {
   /** level name in the best-score key (see bestKey) */
   keyLevel?: string;
   packName?: string;
+  /** position in its pack */
+  packIndex?: number;
+  /** its pack unlocks levels in order */
+  unlocks?: boolean;
 }
 
 interface PartChoice {
@@ -75,6 +79,8 @@ interface Current {
   song: SongData;
   parts: Part[];
   picker: PartPickerState;
+  /** stars per level on this machine, when the song's pack unlocks levels in order */
+  stars: Map<string, number> | null;
 }
 
 const base = import.meta.env.BASE_URL;
@@ -221,6 +227,7 @@ async function loadLibrary(): Promise<void> {
       .map((s) => ({
         id: s.id, title: s.name, source: 'imported', bytes: s.bytes, defaultParts: s.parts, parts: s.parts, split: s.split,
         timingPreset: s.timingPreset as TimingPreset | undefined, difficulty: isDifficulty(s.difficulty) ? s.difficulty : undefined, keyLevel: s.keyLevel, packName: s.packName,
+        packIndex: s.packIndex, unlocks: s.unlocks,
       }));
   } catch (e) {
     console.warn('IndexedDB unavailable', e);
@@ -242,17 +249,7 @@ async function importFiles(files: File[]): Promise<void> {
       if (/\.json$/i.test(file.name)) {
         const v = parsePackJson(await file.text());
         if (!v.ok) throw new Error(v.error);
-        for (const [i, { song, bytes }] of v.songs.entries()) {
-          const id = song.id || (await sha256Hex(bytes));
-          const stored: StoredSong = {
-            id, name: song.title, bytes, parts: song.defaultParts, addedAt: Date.now() + i, packName: v.pack.name,
-            ...(song.split !== undefined ? { split: song.split } : {}), ...(song.timingPreset ? { timingPreset: song.timingPreset } : {}),
-            ...(song.difficulty ? { difficulty: song.difficulty } : {}),
-          };
-          await putSong(stored);
-          added++;
-        }
-        applyPackSettings(v.pack.settings);
+        added += await storePack(v);
         toast(`Imported pack "${v.pack.name}" (${v.songs.length} songs)`);
       } else {
         const bytes = new Uint8Array(await file.arrayBuffer());
@@ -269,6 +266,21 @@ async function importFiles(files: File[]): Promise<void> {
     await loadLibrary();
     songSelect();
   }
+}
+
+/** Store a validated pack's songs in pack order, then apply its class settings. Returns the song count. */
+async function storePack(v: Extract<PackValidation, { ok: true }>): Promise<number> {
+  const now = Date.now();
+  for (const [i, { song, bytes }] of v.songs.entries()) {
+    const id = song.id || (await sha256Hex(bytes));
+    await putSong({
+      id, name: song.title, bytes, parts: song.defaultParts, addedAt: now + i, packName: v.pack.name, packIndex: i, unlocks: v.pack.settings.unlocks === true,
+      ...(song.split !== undefined ? { split: song.split } : {}), ...(song.timingPreset ? { timingPreset: song.timingPreset } : {}),
+      ...(song.difficulty ? { difficulty: song.difficulty } : {}),
+    });
+  }
+  applyPackSettings(v.pack.settings);
+  return v.songs.length;
 }
 
 function applyPackSettings(ps: PackSettings): void {
@@ -292,26 +304,18 @@ async function loadPackFromUrl(path: string): Promise<void> {
   if (!res.ok) throw new Error(`Pack not found: ${path}`);
   const v = parsePackJson(await res.text());
   if (!v.ok) throw new Error(v.error);
-  for (const [i, { song, bytes }] of v.songs.entries()) {
-    const id = song.id || (await sha256Hex(bytes));
-    await putSong({
-      id, name: song.title, bytes, parts: song.defaultParts, addedAt: Date.now() + i, packName: v.pack.name,
-      ...(song.split !== undefined ? { split: song.split } : {}), ...(song.timingPreset ? { timingPreset: song.timingPreset } : {}),
-      ...(song.difficulty ? { difficulty: song.difficulty } : {}),
-    });
-  }
-  applyPackSettings(v.pack.settings);
+  await storePack(v);
   toast(`Loaded pack "${v.pack.name}"`);
 }
 
-async function exportPack(name: string, ids: string[]): Promise<void> {
+async function exportPack(name: string, ids: string[], unlocks: boolean): Promise<void> {
   const songs = [];
   for (const id of ids) {
     const lib = library.find((l) => l.id === id);
     if (!lib) continue;
     songs.push({ title: lib.title, bytes: await songBytes(lib), defaultParts: lib.parts, split: lib.split, timingPreset: lib.timingPreset, difficulty: lib.difficulty });
   }
-  const pack = await buildPack(name, { kb: settings.kb, timing: settings.timing, names: settings.names, synth: settings.synth }, songs);
+  const pack = await buildPack(name, { kb: settings.kb, timing: settings.timing, names: settings.names, synth: settings.synth, unlocks }, songs);
   const blob = new Blob([JSON.stringify(pack)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -335,6 +339,7 @@ function songSelect(): void {
     title: l.title,
     subtitle: l.source === 'bundled' ? 'built-in' : l.packName ? `pack: ${l.packName}` : 'imported',
     group: l.source === 'imported' ? 'class' : 'builtin',
+    ...(l.packName ? { pack: l.packName, packIndex: l.packIndex ?? 0 } : {}),
     deletable: l.source === 'imported',
   }));
   showSongSelect({
@@ -347,7 +352,7 @@ function songSelect(): void {
       showExportDialog({
         songs: library.map((l) => ({ id: l.id, title: l.title })),
         defaultName: 'Class pack',
-        onExport: (name, ids) => void exportPack(name, ids),
+        onExport: (name, ids, unlocks) => void exportPack(name, ids, unlocks),
         onBack: songSelect,
       }),
     onSettings: () => settingsScreen(songSelect),
@@ -364,6 +369,35 @@ function songSelect(): void {
       })
       .catch(() => undefined);
   }
+  // A pack is a setlist: each of its songs shows the stars it has earned and on which level.
+  for (const l of library) {
+    if (!l.packName) continue;
+    void levelBests(l.id)
+      .then((bests) => {
+        const got = songStars(bests);
+        if (!got) return;
+        const item = document.querySelector<HTMLElement>(`.item[data-id="${CSS.escape(l.id)}"] .meta`);
+        const on = got.level === TOP_LEVEL ? 'the full part' : DIFFICULTY_LABEL[got.level as Difficulty] ?? got.level;
+        if (item) item.textContent += ` · ${'★'.repeat(got.stars)}${'☆'.repeat(5 - got.stars)} on ${on}`;
+      })
+      .catch(() => undefined);
+  }
+}
+
+/** A song's best scores as levels and rates, for its stars. */
+async function levelBests(songId: string): Promise<LevelBest[]> {
+  const bests: BestScore[] = await bestsForSong(songId);
+  return bests.map((b) => {
+    const k = parseBestKey(b.key);
+    return { accuracy: b.accuracy, rate: k.rate, level: b.level ?? k.level ?? TOP_LEVEL };
+  });
+}
+
+/** Stars per level of the current song, when its pack unlocks levels in order. */
+async function loadStars(): Promise<void> {
+  if (!current) return;
+  const c = current;
+  c.stars = c.lib.unlocks ? starsByLevel(await levelBests(c.lib.id).catch(() => [])) : null;
 }
 
 function settingsScreen(onClose: () => void): void {
@@ -465,7 +499,9 @@ async function openSong(id: string): Promise<void> {
         selected: new Set(selected), split: lib.split ?? 60, hands: lib.hands ?? ['L', 'R'], timing: lib.timingPreset ?? settings.timing, guideTrack: false,
         difficulty: urlDifficulty ?? lib.difficulty ?? DEFAULT_DIFFICULTY,
       },
+      stars: null,
     };
+    await loadStars();
     partPicker();
   } catch (e) {
     showError('Could not load song', e instanceof Error ? e.message : String(e), songSelect);
@@ -504,12 +540,14 @@ function selectionOptions(): (Pick<ChartOptions, 'parts' | 'split' | 'hands'> & 
  * The levels the selection has, the one that will be played (the chosen level, or the nearest
  * one below it that this part has), and its name in the best-score key.
  */
-function levelsOfSelection(): { offered: ReturnType<typeof offeredLevels>; level: Difficulty; keyLevel: Difficulty } {
+function levelsOfSelection(): { offered: ReturnType<typeof offeredLevels>; level: Difficulty; keyLevel: Difficulty; locked: Difficulty[] } {
   const sel = selectionOptions();
   const offered = sel && current ? offeredLevels(splitNotes(current.song, sel).player, current.song) : [];
   const names = offered.map((l) => l.level);
-  const level = resolveLevel(current?.picker.difficulty ?? DEFAULT_DIFFICULTY, names);
-  return { offered, level, keyLevel: names.length > 1 && level === names[names.length - 1] ? 'expert' : level };
+  // A pack that unlocks levels in order offers the next one once the one below has its stars.
+  const open = unlockedLevels(names, current?.stars ?? new Map(), !!current?.lib.unlocks);
+  const level = resolveLevel(current?.picker.difficulty ?? DEFAULT_DIFFICULTY, open);
+  return { offered, level, keyLevel: names.length > 1 && level === names[names.length - 1] ? 'expert' : level, locked: names.filter((n) => !open.includes(n)) };
 }
 
 /** Chart notes removed by the difficulty level sound on a hit; without chart feedback the band plays them. */
@@ -538,6 +576,8 @@ function partPicker(): void {
     rows,
     levels: levels.offered,
     level: levels.level,
+    locked: levels.locked,
+    unlockStars: UNLOCK_STARS,
     state: picker,
     kb: settings.kb,
     onChange: () => partPicker(),
@@ -754,8 +794,8 @@ function play(): void {
       getBest(key)
         .catch(() => undefined)
         .then((before) =>
-          recordBest({ key, songId: lib.id, score: result.score, accuracy: result.accuracy, maxCombo: result.maxCombo, at: Date.now() })
-            .then(({ isNew }) => show(isNew ? ['New best!'] : [], before?.accuracy ?? null)))
+          recordBest({ key, songId: lib.id, score: result.score, accuracy: result.accuracy, maxCombo: result.maxCombo, at: Date.now(), level: difficulty })
+            .then(({ isNew }) => loadStars().then(() => show(isNew ? ['New best!'] : [], before?.accuracy ?? null))))
         .catch(() => show([], null));
     }
   };

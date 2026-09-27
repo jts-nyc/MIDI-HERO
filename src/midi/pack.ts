@@ -12,6 +12,11 @@ export interface PackSettings {
   timing?: TimingPreset;
   names?: boolean;
   synth?: boolean;
+  /**
+   * The teacher's choice: a level above a song's lowest is offered only once the level below
+   * has 4 stars on this machine. A validated pack always has it; old packs read as false.
+   */
+  unlocks?: boolean;
 }
 
 export interface PackSong {
@@ -106,6 +111,7 @@ export function validatePack(raw: unknown, jsonBytes = 0, maxBytes = PACK_MAX_BY
   if (rs.timing === 'strict' || rs.timing === 'normal' || rs.timing === 'relaxed') settings.timing = rs.timing;
   if (typeof rs.names === 'boolean') settings.names = rs.names;
   if (typeof rs.synth === 'boolean') settings.synth = rs.synth;
+  settings.unlocks = rs.unlocks === true;
 
   const songs: ValidatedSong[] = [];
   for (let i = 0; i < r.songs.length; i++) {
