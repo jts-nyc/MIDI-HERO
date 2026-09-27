@@ -1,7 +1,7 @@
 import type { PlayResult } from '../game/session.ts';
 import type { TimingPreset } from '../game/judge.ts';
 import type { MidiPort } from '../input/midiInput.ts';
-import type { Hand } from '../midi/chart.ts';
+import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Hand, type LevelStats } from '../midi/chart.ts';
 import type { Part } from '../types.ts';
 import { noteName } from '../render/layout.ts';
 import { effectiveFeedback, type KeyboardSize, type Settings } from './settings.ts';
@@ -193,11 +193,14 @@ export interface PartPickerState {
   timing: TimingPreset;
   /** keep a duplicate of the player's part audible in the backing */
   guideTrack: boolean;
+  difficulty: Difficulty;
 }
 
 export interface PartPickerOptions {
   title: string;
   rows: PartRow[];
+  /** note count and density of the selection at each difficulty; empty when nothing is selected */
+  levels: LevelStats[];
   state: PartPickerState;
   kb: KeyboardSize;
   /** true when the single selected part spans more than two octaves */
@@ -240,6 +243,11 @@ export function showPartPicker(o: PartPickerOptions): void {
       <tr><th></th><th>Part</th><th>Notes</th><th>Notes/s</th><th>Chord</th><th>Range</th><th>Starts</th><th>Folded</th></tr>
       ${rows}
     </table>
+    ${o.levels.length ? `<div class="seg" id="difficulty" role="radiogroup" aria-label="Difficulty">${DIFFICULTIES.map((d) => {
+      const l = o.levels.find((x) => x.level === d)!;
+      return `<button role="radio" aria-checked="${st.difficulty === d}" class="${st.difficulty === d ? 'primary' : ''}" data-level="${d}">
+        <b>${DIFFICULTY_LABEL[d]}</b><span>${l.noteCount} notes · ${l.notesPerSec.toFixed(1)}/s</span></button>`;
+    }).join('')}</div>` : ''}
     ${wide ? `<div class="row" style="margin-top:12px">
       <label class="field">Hand split at <select id="split">${splitOptions}</select></label>
       <label class="field">Play <select id="hands">
@@ -263,6 +271,12 @@ export function showPartPicker(o: PartPickerOptions): void {
       const key = tr.dataset.key!;
       if (st.selected.has(key)) st.selected.delete(key);
       else st.selected.add(key);
+      o.onChange(st);
+    }),
+  );
+  el.querySelectorAll<HTMLButtonElement>('#difficulty button').forEach((b) =>
+    b.addEventListener('click', () => {
+      st.difficulty = b.dataset.level as Difficulty;
       o.onChange(st);
     }),
   );

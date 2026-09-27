@@ -1,7 +1,20 @@
 import type { PartId, SongData, SongNote } from '../types.ts';
 import { partKey } from '../types.ts';
+import { simplify, type Difficulty } from './difficulty.ts';
+
+export { DIFFICULTIES, DIFFICULTY_LABEL, isDifficulty, levelStats, simplify, type Difficulty, type LevelStats } from './difficulty.ts';
 
 export type Hand = 'L' | 'R';
+
+/** A note of the player's part that the difficulty level removed; it sounds when its carrier is hit. */
+export interface CarriedNote {
+  time: number;
+  duration: number;
+  /** pitch in the file */
+  pitch: number;
+  velocity: number;
+  partKey: string;
+}
 
 export interface ChartNote {
   /** index in Chart.notes */
@@ -17,6 +30,8 @@ export interface ChartNote {
   hand: Hand;
   partKey: string;
   velocity: number;
+  /** removed notes between this note and the next one; the player earns them by hitting this note */
+  carry?: CarriedNote[];
 }
 
 export interface PitchWindow {
@@ -35,6 +50,14 @@ export interface ChartOptions {
   /** Physical or virtual window notes must land in. null = no folding. */
   window?: PitchWindow | null;
   foldMode?: FoldMode;
+  /** Default 'expert': the full part. */
+  difficulty?: Difficulty;
+  /**
+   * Where the notes removed by the difficulty level go. 'carry' (default) attaches them to the
+   * chart notes so they sound when the player hits; 'backing' lets the band play them always
+   * (for feedback modes that do not sound chart notes).
+   */
+  removed?: 'carry' | 'backing';
 }
 
 export type BackingEventType = 'on' | 'off' | 'cc' | 'bend' | 'program';
@@ -101,22 +124,31 @@ export function foldPitch(pitch: number, w: PitchWindow): number | null {
   return p >= w.low ? p : null;
 }
 
-export function buildChart(song: SongData, opts: ChartOptions): Chart {
+const handOf = (n: SongNote, split: number | undefined): Hand => (split === undefined ? 'R' : n.pitch >= split ? 'R' : 'L');
+
+/** The notes the player is asked to play, before difficulty and folding, and everything else. */
+export function splitNotes(song: SongData, opts: Pick<ChartOptions, 'parts' | 'split' | 'hands'>): { player: SongNote[]; backing: SongNote[] } {
   const selected = new Set(opts.parts.map(partKey));
   const hands = new Set<Hand>(opts.hands ?? ['L', 'R']);
+  const player: SongNote[] = [];
+  const backing: SongNote[] = [];
+  for (const n of song.notes) {
+    const key = `${n.track}:${n.channel}`;
+    if (selected.has(key) && hands.has(handOf(n, opts.split))) player.push(n);
+    else backing.push(n);
+  }
+  return { player, backing };
+}
+
+export function buildChart(song: SongData, opts: ChartOptions): Chart {
   const split = opts.split;
   const window = opts.window ?? null;
   const foldMode = opts.foldMode ?? 'fold';
 
-  const handOf = (n: SongNote): Hand => (split === undefined ? 'R' : n.pitch >= split ? 'R' : 'L');
-
-  const playerNotes: SongNote[] = [];
-  const backingNotes: SongNote[] = [];
-  for (const n of song.notes) {
-    const key = `${n.track}:${n.channel}`;
-    if (selected.has(key) && hands.has(handOf(n))) playerNotes.push(n);
-    else backingNotes.push(n);
-  }
+  const { player: fullPart, backing: backingNotes } = splitNotes(song, opts);
+  const playerNotes = simplify(fullPart, opts.difficulty ?? 'expert', song);
+  const kept = new Set(playerNotes);
+  const removed = playerNotes.length === fullPart.length ? [] : fullPart.filter((n) => !kept.has(n));
 
   // Fold / drop
   let dropped = 0;
@@ -137,7 +169,7 @@ export function buildChart(song: SongData, opts: ChartOptions): Chart {
     }
     raw.push({
       id: 0, time: n.time, duration: n.duration, tick: n.tick, pitch, origPitch: n.pitch, folded,
-      hand: handOf(n), partKey: `${n.track}:${n.channel}`, velocity: n.velocity,
+      hand: handOf(n, split), partKey: `${n.track}:${n.channel}`, velocity: n.velocity,
     });
   }
   raw.sort((a, b) => a.time - b.time || a.pitch - b.pitch);
@@ -157,6 +189,23 @@ export function buildChart(song: SongData, opts: ChartOptions): Chart {
     lastByPitch.set(n.pitch, n);
   }
   notes.forEach((n, i) => (n.id = i));
+
+  // Removed notes ride on the chart note before them (chord mates on the one they belong to).
+  if (removed.length) {
+    if (opts.removed === 'backing' || notes.length === 0) backingNotes.push(...removed);
+    else {
+      let carrier = -1;
+      for (const r of removed) {
+        while (carrier + 1 < notes.length && notes[carrier + 1]!.time <= r.time + COLLISION_WINDOW) carrier++;
+        if (carrier < 0) {
+          backingNotes.push(r); // before the player's first note: the band plays it
+          continue;
+        }
+        const c = notes[carrier]!;
+        (c.carry ??= []).push({ time: r.time, duration: r.duration, pitch: r.pitch, velocity: r.velocity, partKey: `${r.track}:${r.channel}` });
+      }
+    }
+  }
 
   let minPitch = 127;
   let maxPitch = 0;

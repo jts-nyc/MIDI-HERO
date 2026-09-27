@@ -6,10 +6,14 @@ import { PlaySession } from './game/session.ts';
 import { KeyboardInput } from './input/keyboardInput.ts';
 import { MidiInput } from './input/midiInput.ts';
 import type { InputEvent } from './input/normalize.ts';
-import { buildChart, chooseWindow, type Chart, type Hand, type PitchWindow } from './midi/chart.ts';
+import {
+  buildChart, chooseWindow, DIFFICULTY_LABEL, isDifficulty, levelStats, splitNotes,
+  type Chart, type ChartOptions, type Difficulty, type Hand, type PitchWindow,
+} from './midi/chart.ts';
 import { buildPack, parsePackJson, sha256Hex, type PackSettings } from './midi/pack.ts';
 import { beatLines, parseSong, ticksToSeconds } from './midi/parse.ts';
 import { buildParts, defaultPart, notesOf } from './midi/parts.ts';
+import type { FeedbackSound } from './game/session.ts';
 import { displayRange } from './render/layout.ts';
 import { Renderer, type RenderState } from './render/renderer.ts';
 import { bestKey, deleteSong, getBest, listSongs, putSong, recordBest, type StoredSong } from './storage/db.ts';
@@ -43,8 +47,20 @@ interface LibrarySong {
   split?: number;
   hands?: Hand[];
   timingPreset?: TimingPreset;
+  difficulty?: Difficulty;
   packName?: string;
 }
+
+interface PartChoice {
+  parts: PartId[];
+  split?: number;
+  hands?: Hand[];
+  timing?: TimingPreset;
+  difficulty?: Difficulty;
+}
+
+/** Students start on Easy; a teacher's pack or the player's own choice overrides it. */
+const DEFAULT_DIFFICULTY: Difficulty = 'easy';
 
 interface Current {
   lib: LibrarySong;
@@ -155,7 +171,7 @@ function latencyMs(): number | null {
 // ---------------------------------------------------------------------------
 // Library
 // ---------------------------------------------------------------------------
-function storedPartChoices(): Record<string, { parts: PartId[]; split?: number; hands?: Hand[]; timing?: TimingPreset }> {
+function storedPartChoices(): Record<string, PartChoice> {
   try {
     return JSON.parse(localStorage.getItem(PARTS_KEY) ?? '{}');
   } catch {
@@ -163,7 +179,7 @@ function storedPartChoices(): Record<string, { parts: PartId[]; split?: number; 
   }
 }
 
-function rememberChoice(id: string, choice: { parts: PartId[]; split?: number; hands?: Hand[]; timing?: TimingPreset }): void {
+function rememberChoice(id: string, choice: PartChoice): void {
   try {
     const all = storedPartChoices();
     all[id] = choice;
@@ -179,6 +195,7 @@ async function loadLibrary(): Promise<void> {
   const bundled: LibrarySong[] = manifest.map((m) => ({
     id: m.id, title: m.title, source: 'bundled', file: m.file, defaultParts: m.defaultParts,
     parts: choices[m.id]?.parts ?? m.defaultParts, split: choices[m.id]?.split ?? m.split, hands: choices[m.id]?.hands, timingPreset: choices[m.id]?.timing,
+    difficulty: isDifficulty(choices[m.id]?.difficulty) ? choices[m.id]!.difficulty : undefined,
   }));
   let imported: LibrarySong[] = [];
   try {
@@ -187,7 +204,7 @@ async function loadLibrary(): Promise<void> {
       .sort((a, b) => a.addedAt - b.addedAt)
       .map((s) => ({
         id: s.id, title: s.name, source: 'imported', bytes: s.bytes, defaultParts: s.parts, parts: s.parts, split: s.split,
-        timingPreset: s.timingPreset as TimingPreset | undefined, packName: s.packName,
+        timingPreset: s.timingPreset as TimingPreset | undefined, difficulty: isDifficulty(s.difficulty) ? s.difficulty : undefined, packName: s.packName,
       }));
   } catch (e) {
     console.warn('IndexedDB unavailable', e);
@@ -214,6 +231,7 @@ async function importFiles(files: File[]): Promise<void> {
           const stored: StoredSong = {
             id, name: song.title, bytes, parts: song.defaultParts, addedAt: Date.now() + i, packName: v.pack.name,
             ...(song.split !== undefined ? { split: song.split } : {}), ...(song.timingPreset ? { timingPreset: song.timingPreset } : {}),
+            ...(song.difficulty ? { difficulty: song.difficulty } : {}),
           };
           await putSong(stored);
           added++;
@@ -263,6 +281,7 @@ async function loadPackFromUrl(path: string): Promise<void> {
     await putSong({
       id, name: song.title, bytes, parts: song.defaultParts, addedAt: Date.now() + i, packName: v.pack.name,
       ...(song.split !== undefined ? { split: song.split } : {}), ...(song.timingPreset ? { timingPreset: song.timingPreset } : {}),
+      ...(song.difficulty ? { difficulty: song.difficulty } : {}),
     });
   }
   applyPackSettings(v.pack.settings);
@@ -274,7 +293,7 @@ async function exportPack(name: string, ids: string[]): Promise<void> {
   for (const id of ids) {
     const lib = library.find((l) => l.id === id);
     if (!lib) continue;
-    songs.push({ title: lib.title, bytes: await songBytes(lib), defaultParts: lib.parts, split: lib.split, timingPreset: lib.timingPreset });
+    songs.push({ title: lib.title, bytes: await songBytes(lib), defaultParts: lib.parts, split: lib.split, timingPreset: lib.timingPreset, difficulty: lib.difficulty });
   }
   const pack = await buildPack(name, { kb: settings.kb, timing: settings.timing, names: settings.names, synth: settings.synth }, songs);
   const blob = new Blob([JSON.stringify(pack)], { type: 'application/json' });
@@ -321,7 +340,7 @@ function songSelect(): void {
   // Best scores load asynchronously and are added to the rows when known.
   for (const l of library) {
     if (!l.parts.length) continue;
-    void getBest(bestKey(l.id, l.parts, l.split, l.timingPreset ?? settings.timing, settings.rate, settings.easy))
+    void getBest(bestKey(l.id, l.parts, l.split, l.timingPreset ?? settings.timing, settings.rate, settings.easy, l.difficulty ?? DEFAULT_DIFFICULTY))
       .then((b) => {
         if (!b) return;
         const item = document.querySelector<HTMLElement>(`.item[data-id="${CSS.escape(l.id)}"] .meta`);
@@ -379,13 +398,39 @@ async function openSong(id: string): Promise<void> {
     }
     current = {
       lib, song, parts,
-      picker: { selected: new Set(selected), split: lib.split ?? 60, hands: lib.hands ?? ['L', 'R'], timing: lib.timingPreset ?? settings.timing, guideTrack: false },
+      picker: {
+        selected: new Set(selected), split: lib.split ?? 60, hands: lib.hands ?? ['L', 'R'], timing: lib.timingPreset ?? settings.timing, guideTrack: false,
+        difficulty: urlDifficulty ?? lib.difficulty ?? DEFAULT_DIFFICULTY,
+      },
     };
     partPicker();
   } catch (e) {
     showError('Could not load song', e instanceof Error ? e.message : String(e), songSelect);
   }
 }
+
+const urlDifficulty: Difficulty | null = isDifficulty(params.get('difficulty')) ? (params.get('difficulty') as Difficulty) : null;
+
+function selectedPartIds(): PartId[] {
+  if (!current) return [];
+  return [...current.picker.selected].map((k) => {
+    const [track, channel] = k.split(':').map(Number) as [number, number];
+    return { track, channel };
+  });
+}
+
+/** Parts, hand split and hands as the picker has them. The split only applies to a single wide part. */
+function selectionOptions(): (Pick<ChartOptions, 'parts' | 'split' | 'hands'> & { wide: boolean }) | null {
+  if (!current) return null;
+  const parts = selectedPartIds();
+  if (parts.length === 0) return null;
+  const p0 = current.parts.find((x) => x.key === partKey(parts[0]!));
+  const wide = parts.length === 1 && !!p0 && p0.maxPitch - p0.minPitch > 24;
+  return { parts, split: wide ? current.picker.split : undefined, hands: wide ? current.picker.hands : undefined, wide };
+}
+
+/** Chart notes removed by the difficulty level sound on a hit; without chart feedback the band plays them. */
+const removedFor = (feedback: FeedbackSound): 'carry' | 'backing' => (feedback === 'chart' ? 'carry' : 'backing');
 
 /** Physical range for absolute judging, or a virtual C-aligned window for relative judging. */
 function windowFor(kb: Settings['kb'], pitches: number[]): { window: PitchWindow; relative: boolean } {
@@ -404,9 +449,11 @@ function partPicker(): void {
     const dup = p.duplicateOf ? parts.find((q) => q.key === p.duplicateOf) : undefined;
     return { part: p, foldedRatio: pitches.length ? outside / pitches.length : 0, duplicateOfName: dup?.name ?? null };
   });
+  const sel = selectionOptions();
   showPartPicker({
     title: lib.title,
     rows,
+    levels: sel ? levelStats(splitNotes(song, sel).player, song) : [],
     state: picker,
     kb: settings.kb,
     onChange: () => partPicker(),
@@ -418,28 +465,21 @@ function partPicker(): void {
 async function startPlay(autoplay: { jitterMs: number } | null): Promise<void> {
   if (!current) return;
   const { lib, song, picker } = current;
-  const partIds: PartId[] = [...picker.selected].map((k) => {
-    const [track, channel] = k.split(':').map(Number) as [number, number];
-    return { track, channel };
-  });
-  if (partIds.length === 0) return;
-  const choice = { parts: partIds, split: picker.split, hands: picker.hands, timing: picker.timing };
+  const sel = selectionOptions();
+  if (!sel) return;
+  const partIds = sel.parts;
+  const choice: PartChoice = { parts: partIds, split: picker.split, hands: picker.hands, timing: picker.timing, difficulty: picker.difficulty };
   lib.parts = partIds;
   lib.split = picker.split;
   lib.hands = picker.hands;
   lib.timingPreset = picker.timing;
+  lib.difficulty = picker.difficulty;
   if (lib.source === 'bundled') rememberChoice(lib.id, choice);
-  else await putSong({ id: lib.id, name: lib.title, bytes: lib.bytes!, parts: partIds, split: picker.split, timingPreset: picker.timing, packName: lib.packName, addedAt: Date.now() }).catch(() => undefined);
+  else await putSong({ id: lib.id, name: lib.title, bytes: lib.bytes!, parts: partIds, split: picker.split, timingPreset: picker.timing, difficulty: picker.difficulty, packName: lib.packName, addedAt: Date.now() }).catch(() => undefined);
 
   ensureAudio();
-  const single = partIds.length === 1;
-  const split = single ? picker.split : undefined;
-  const wide = single && (() => {
-    const p = current!.parts.find((x) => x.key === partKey(partIds[0]!))!;
-    return p.maxPitch - p.minPitch > 24;
-  })();
-  const chartOpts = { parts: partIds, split: wide ? split : undefined, hands: wide ? picker.hands : undefined };
-  const unfolded = buildChart(song, chartOpts);
+  // The window is chosen for the notes this level actually asks for.
+  const unfolded = buildChart(song, { parts: sel.parts, split: sel.split, hands: sel.hands, difficulty: picker.difficulty });
   const { window, relative } = windowFor(settings.kb, unfolded.notes.map((n) => n.origPitch));
   lastPlay = { window, relative, autoplay };
   play();
@@ -449,14 +489,15 @@ function play(): void {
   if (!current || !lastPlay) return;
   const { lib, song, picker } = current;
   const { window, relative, autoplay } = lastPlay;
-  const partIds: PartId[] = [...picker.selected].map((k) => {
-    const [track, channel] = k.split(':').map(Number) as [number, number];
-    return { track, channel };
+  const sel = selectionOptions();
+  if (!sel) return;
+  const partIds = sel.parts;
+  const wide = sel.wide;
+  const difficulty = picker.difficulty;
+  const feedback = effectiveFeedback(settings);
+  const chart: Chart = buildChart(song, {
+    parts: sel.parts, split: sel.split, hands: sel.hands, window, foldMode: settings.foldMode, difficulty, removed: removedFor(feedback),
   });
-  const single = partIds.length === 1;
-  const p0 = current.parts.find((x) => x.key === partKey(partIds[0]!))!;
-  const wide = single && p0.maxPitch - p0.minPitch > 24;
-  const chart: Chart = buildChart(song, { parts: partIds, split: wide ? picker.split : undefined, hands: wide ? picker.hands : undefined, window, foldMode: settings.foldMode });
   if (chart.notes.length === 0) {
     showError('Nothing to play', 'The selected part has no notes in range.', partPicker);
     return;
@@ -491,7 +532,7 @@ function play(): void {
   }
   session = new PlaySession({
     chart, clock, judgeConfig, rate: settings.rate, inputOffsetMs: settings.inputOffsetMs,
-    synth: settings.synth ? synth : null, feedbackSound: effectiveFeedback(settings),
+    synth: settings.synth ? synth : null, feedbackSound: feedback,
     feedbackPrograms: Object.fromEntries(current.parts.map((p) => [p.key, p.program])),
     relative, visibleSeconds, barSeconds, autoplay,
     hint: relative ? PlaySession.keysHint(window) : partName,
@@ -511,12 +552,12 @@ function play(): void {
   s.onFinished = (result) => {
     stopBacking();
     const badges = [...(settings.easy ? ['Easy mode'] : []), ...(settings.rate < 1 ? [`${Math.round(settings.rate * 100)}% speed`] : []), ...(autoplay ? ['Autoplay'] : [])];
-    const detail = `${partName} · ${timing} timing · ${Math.round(settings.rate * 100)}% speed`;
+    const detail = `${partName} · ${DIFFICULTY_LABEL[difficulty]} · ${timing} timing · ${Math.round(settings.rate * 100)}% speed`;
     const show = (extra: string[]) =>
       showResults({ title: lib.title, detail, result, badges: [...badges, ...extra], onRetry: play, onQuit: songSelect });
     if (autoplay) show([]);
     else {
-      const key = bestKey(lib.id, partIds, wide ? picker.split : undefined, timing, settings.rate, settings.easy);
+      const key = bestKey(lib.id, partIds, wide ? picker.split : undefined, timing, settings.rate, settings.easy, difficulty);
       recordBest({ key, songId: lib.id, score: result.score, accuracy: result.accuracy, maxCombo: result.maxCombo, at: Date.now() })
         .then(({ isNew }) => show(isNew ? ['New best!'] : []))
         .catch(() => show([]));

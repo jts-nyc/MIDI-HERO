@@ -1,7 +1,7 @@
 import type { GameClock } from '../audio/clock.ts';
 import { FEEDBACK_CHANNEL, FEEDBACK_CHANNELS, type Synth } from '../audio/synth.ts';
 import { ChannelFilter, OctaveTracker, type InputEvent, type OctaveEvent } from '../input/normalize.ts';
-import type { Chart } from '../midi/chart.ts';
+import type { CarriedNote, Chart } from '../midi/chart.ts';
 import { noteName } from '../render/layout.ts';
 import type { Hud, KeyVisual, NoteVisual, Popup } from '../render/renderer.ts';
 import { theme } from '../render/renderer.ts';
@@ -93,6 +93,8 @@ export class PlaySession {
   private readonly feedback: FeedbackSound;
   private readonly feedbackChannels = new Map<string, number>();
   private readonly sounding: Sounding[] = [];
+  /** notes earned by the last hit that are still to come, in time order */
+  private readonly earned: CarriedNote[] = [];
   /** song time at which a fully judged song ends */
   private endAt = Infinity;
 
@@ -158,7 +160,10 @@ export class PlaySession {
     // Chart feedback depends on the verdict, so it sounds right after it, still inside this handler.
     if (chartSound) {
       if (result.kind === 'hit') this.soundChartNote(chartSound, result.noteId, t);
-      else chartSound.clunk(ev.velocity, 0);
+      else {
+        chartSound.clunk(ev.velocity, 0);
+        this.earned.length = 0; // a wrong key takes the rest of the phrase out of the mix
+      }
     }
     if (result.kind === 'hit') {
       if (ev.source === 'midi' && this.filter.locked === null) this.filter.lock(ev.channel);
@@ -186,6 +191,27 @@ export class PlaySession {
     const channel = this.feedbackChannels.get(n.partKey) ?? FEEDBACK_CHANNEL;
     synth.noteOn(channel, n.origPitch, n.velocity, 0);
     this.sounding.push({ channel, pitch: n.origPitch, end: Math.max(n.time + n.duration, t + MIN_SOUND * this.opts.rate) });
+    this.earned.length = 0;
+    if (n.carry) {
+      for (const c of n.carry) this.earned.push(c);
+      this.playEarned(this.now());
+    }
+  }
+
+  /** Sound the earned notes that fall due, each at its own time on the audio clock. */
+  private playEarned(now: number): void {
+    const synth = this.opts.synth;
+    if (!synth || this.earned.length === 0) return;
+    const horizon = now + SOUND_LOOKAHEAD * this.opts.rate;
+    let due = 0;
+    while (due < this.earned.length && this.earned[due]!.time <= horizon) {
+      const c = this.earned[due++]!;
+      if (c.time + c.duration <= now) continue; // already over
+      const channel = this.feedbackChannels.get(c.partKey) ?? FEEDBACK_CHANNEL;
+      synth.noteOn(channel, c.pitch, c.velocity, c.time <= now ? 0 : this.opts.clock.songTimeToContextTime(c.time));
+      this.sounding.push({ channel, pitch: c.pitch, end: c.time + c.duration });
+    }
+    if (due) this.earned.splice(0, due);
   }
 
   /** Schedule the note-offs that fall due, at their exact time on the audio clock. */
@@ -237,6 +263,7 @@ export class PlaySession {
     this.lastNow = now;
     if (this.opts.autoplay) this.runAutoplay(now);
     this.judge.advance(now);
+    this.playEarned(now);
     this.releaseSounding(now);
     for (const e of this.judge.takeEvents()) {
       if (e.type === 'miss') {
@@ -251,12 +278,14 @@ export class PlaySession {
     if (this.judge.finished && this.endAt === Infinity) {
       let end = now;
       for (const s of this.sounding) end = Math.max(end, s.end);
+      for (const c of this.earned) end = Math.max(end, c.time + c.duration);
       this.endAt = end + OUTRO * this.opts.rate;
     }
     if (now >= this.endAt || now > this.chart.duration) {
       this.judge.finish();
       this.status = 'finished';
       this.sounding.length = 0;
+      this.earned.length = 0;
       this.opts.synth?.allNotesOff(0);
       this.onFinished(this.result());
     }
@@ -287,6 +316,7 @@ export class PlaySession {
     this.opts.clock.pause();
     this.status = 'paused';
     this.sounding.length = 0;
+    this.earned.length = 0;
     this.opts.synth?.allNotesOff(0);
   }
 
