@@ -4,7 +4,7 @@ import { WebAudioSynth, type Synth } from './audio/synth.ts';
 import { DEFAULT_JUDGE_CONFIG, OVERHOLD_COST, type JudgeConfig, type TimingPreset } from './game/judge.ts';
 import { calibrationBeats } from './game/calibration.ts';
 import { loopLabel, loopOf, practiceSections, trimChart, type PracticeSectionInfo } from './game/practice.ts';
-import { RATES, songStars, starsByLevel, suggestNextStep, TOP_LEVEL, unlockedLevels, UNLOCK_STARS, type LevelBest, type Suggestion } from './game/results.ts';
+import { keyLevelOf, listKeyLevel, RATES, songStars, starsByLevel, suggestNextStep, TOP_LEVEL, unlockedLevels, UNLOCK_STARS, type LevelBest, type Suggestion } from './game/results.ts';
 import { PlaySession } from './game/session.ts';
 import { KeyboardInput } from './input/keyboardInput.ts';
 import { MidiInput } from './input/midiInput.ts';
@@ -361,7 +361,8 @@ function songSelect(): void {
   // Best scores load asynchronously and are added to the rows when known.
   for (const l of library) {
     if (!l.parts.length) continue;
-    void getBest(bestKey(l.id, l.parts, l.split, l.timingPreset ?? settings.timing, settings.rate, settings.easy, l.keyLevel ?? l.difficulty ?? DEFAULT_DIFFICULTY))
+    void listBestKey(l)
+      .then((key) => getBest(key))
       .then((b) => {
         if (!b) return;
         const item = document.querySelector<HTMLElement>(`.item[data-id="${CSS.escape(l.id)}"] .meta`);
@@ -382,6 +383,22 @@ function songSelect(): void {
       })
       .catch(() => undefined);
   }
+}
+
+/**
+ * The best-score key the song list shows for a song: the one the play path records under, with
+ * the level resolved the same way (the top level is the no-suffix key) and the hand split only
+ * for a single wide part.
+ */
+async function listBestKey(l: LibrarySong): Promise<string> {
+  const song = parseSong(await songBytes(l));
+  const parts = buildParts(song);
+  const p0 = l.parts.length === 1 ? parts.find((x) => x.key === partKey(l.parts[0]!)) : undefined;
+  const wide = !!p0 && p0.maxPitch - p0.minPitch > 24;
+  const split = wide ? l.split ?? 60 : undefined;
+  const keyLevel = listKeyLevel(l, () =>
+    offeredLevels(splitNotes(song, { parts: l.parts, split, hands: wide ? l.hands ?? ['L', 'R'] : undefined }).player, song).map((x) => x.level));
+  return bestKey(l.id, l.parts, split, l.timingPreset ?? settings.timing, settings.rate, settings.easy, keyLevel);
 }
 
 /** A song's best scores as levels and rates, for its stars. */
@@ -547,7 +564,7 @@ function levelsOfSelection(): { offered: ReturnType<typeof offeredLevels>; level
   // A pack that unlocks levels in order offers the next one once the one below has its stars.
   const open = unlockedLevels(names, current?.stars ?? new Map(), !!current?.lib.unlocks);
   const level = resolveLevel(current?.picker.difficulty ?? DEFAULT_DIFFICULTY, open);
-  return { offered, level, keyLevel: names.length > 1 && level === names[names.length - 1] ? 'expert' : level, locked: names.filter((n) => !open.includes(n)) };
+  return { offered, level, keyLevel: keyLevelOf(level, names).keyLevel, locked: names.filter((n) => !open.includes(n)) };
 }
 
 /** Chart notes removed by the difficulty level sound on a hit; without chart feedback the band plays them. */

@@ -1,7 +1,7 @@
 /** What the results screen says beyond the raw counts: sections, stars, and what to do next. Pure. */
 
 import type { Difficulty } from '../midi/difficulty.ts';
-import { DIFFICULTIES, DIFFICULTY_LABEL } from '../midi/difficulty.ts';
+import { DIFFICULTIES, DIFFICULTY_LABEL, resolveLevel } from '../midi/difficulty.ts';
 import { WEIGHTS, type Judgment } from './judge.ts';
 
 export interface Section {
@@ -130,6 +130,32 @@ export function suggestNextStep(r: SuggestionInput): Suggestion {
     }
   }
   return { kind: 'again', text: `Play it again: ${Math.round(MOVE_UP * 100)}% unlocks the next step` };
+}
+
+// ---------------------------------------------------------------------------
+// Which best-score key a level is kept under
+// ---------------------------------------------------------------------------
+/**
+ * The level that is played for a wanted one (the nearest the part has at or below it), and its
+ * name in the best-score key: the part's top level keeps the key it had before levels existed
+ * ('expert', no suffix), whatever it is called for this song.
+ */
+export function keyLevelOf(wanted: Difficulty, offered: readonly Difficulty[]): { level: Difficulty; keyLevel: Difficulty } {
+  const level = resolveLevel(wanted, offered);
+  return { level, keyLevel: offered.length > 1 && level === offered[offered.length - 1] ? 'expert' : level };
+}
+
+/**
+ * The key level a song's best is looked up under on the song list, the way the play path
+ * stores it. A stored `keyLevel` is that already. A level alone (a pack's choice) is resolved
+ * against the levels the part has; `offered` is asked for only then. With neither (a choice
+ * saved before levels existed) the best is where v0.1 kept it: the no-suffix key.
+ */
+export function listKeyLevel(choice: { keyLevel?: string; difficulty?: Difficulty }, offered: () => readonly Difficulty[]): string {
+  if (choice.keyLevel) return choice.keyLevel;
+  if (!choice.difficulty) return 'expert';
+  const levels = offered();
+  return levels.length ? keyLevelOf(choice.difficulty, levels).keyLevel : 'expert';
 }
 
 // ---------------------------------------------------------------------------

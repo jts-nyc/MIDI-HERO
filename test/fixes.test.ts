@@ -4,6 +4,7 @@ import { GameClock } from '../src/audio/clock.ts';
 import { FEEDBACK_CHANNEL, RecordingSynth, WebAudioSynth } from '../src/audio/synth.ts';
 import { FakeAudioContext } from './helpers/fakeAudio.ts';
 import { DEFAULT_JUDGE_CONFIG, OVERHOLD_COST } from '../src/game/judge.ts';
+import { keyLevelOf, listKeyLevel } from '../src/game/results.ts';
 import { PlaySession, type SessionOptions } from '../src/game/session.ts';
 import { buildChart } from '../src/midi/chart.ts';
 import { parseSong } from '../src/midi/parse.ts';
@@ -122,5 +123,27 @@ describe('fix 3: a key released after an octave re-offset releases the pitch it 
     expect(session.noteVisuals[0]!.hold).toBe('released'); // let go early: the hold is not paid in full
     expect(session.judge.counts.overheld).toBe(0);
     expect((session as unknown as { heldKeys: Set<number> }).heldKeys.size).toBe(0);
+  });
+});
+
+describe('fix 4: the song list looks a best up under the key the play path records it under', () => {
+  const three = ['easy', 'medium', 'hard'] as const;
+  it('a choice saved before levels existed finds its best under the no-suffix key', () => {
+    let asked = false;
+    expect(listKeyLevel({}, () => ((asked = true), three))).toBe('expert');
+    expect(asked).toBe(false);
+  });
+
+  it('a pack level alone is resolved against the part: its top level is the no-suffix key', () => {
+    expect(listKeyLevel({ difficulty: 'hard' }, () => three)).toBe('expert');
+    expect(listKeyLevel({ difficulty: 'expert' }, () => three)).toBe('expert');
+    expect(listKeyLevel({ difficulty: 'medium' }, () => three)).toBe('medium');
+    expect(listKeyLevel({ difficulty: 'medium' }, () => ['easy', 'medium'])).toBe('expert');
+  });
+
+  it('a stored key level wins, and it is what the play path computes', () => {
+    expect(listKeyLevel({ keyLevel: 'easy', difficulty: 'hard' }, () => three)).toBe('easy');
+    expect(keyLevelOf('hard', three)).toEqual({ level: 'hard', keyLevel: 'expert' });
+    expect(keyLevelOf('expert', ['easy'])).toEqual({ level: 'easy', keyLevel: 'easy' });
   });
 });
