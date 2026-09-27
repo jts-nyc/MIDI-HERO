@@ -199,13 +199,47 @@ export interface LevelStats {
   notesPerSec: number;
 }
 
-/** Note count and density of a part at every level. Density is over the span of the full part. */
-export function levelStats(notes: readonly GridNote[], song: Timing): LevelStats[] {
+function spanOf(notes: readonly GridNote[]): number {
   let end = 0;
   for (const n of notes) end = Math.max(end, n.time + n.duration);
-  const span = Math.max(1, end - (notes[0]?.time ?? 0));
+  return Math.max(1, end - (notes[0]?.time ?? 0));
+}
+
+/** Note count and density of a part at every level. Density is over the span of the full part. */
+export function levelStats(notes: readonly GridNote[], song: Timing): LevelStats[] {
+  const span = spanOf(notes);
   return DIFFICULTIES.map((level) => {
     const noteCount = simplify(notes, level, song).length;
     return { level, noteCount, notesPerSec: noteCount / span };
   });
+}
+
+const sameNotes = (a: readonly unknown[], b: readonly unknown[]): boolean => a.length === b.length && a.every((n, i) => n === b[i]);
+
+/**
+ * The levels a part has. Levels are relative to the song: Easy is always its lowest rung,
+ * whatever that takes, and a level above exists only if it asks for something the one below
+ * does not. Medium always does (from Medium on, keys have to be let go in time); Hard and
+ * Expert only when they add notes. A five-finger exercise stops at Medium, and so does a
+ * melody in quarters and eighths; the top level of any part is its full part.
+ */
+export function offeredLevels(notes: readonly GridNote[], song: Timing): LevelStats[] {
+  const span = spanOf(notes);
+  const out: LevelStats[] = [];
+  let below: GridNote[] | null = null;
+  for (const level of DIFFICULTIES) {
+    const kept = simplify(notes, level, song);
+    if (below && level !== 'medium' && sameNotes(kept, below)) continue;
+    out.push({ level, noteCount: kept.length, notesPerSec: kept.length / span });
+    below = kept;
+  }
+  return out;
+}
+
+/** The level to play when `wanted` is asked for: the highest offered level that is not above it. */
+export function resolveLevel(wanted: Difficulty, offered: readonly Difficulty[]): Difficulty {
+  const rank = DIFFICULTIES.indexOf(wanted);
+  let best: Difficulty | undefined;
+  for (const level of offered) if (DIFFICULTIES.indexOf(level) <= rank) best = level;
+  return best ?? offered[0] ?? wanted;
 }

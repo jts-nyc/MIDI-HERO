@@ -201,8 +201,10 @@ export interface PartPickerState {
 export interface PartPickerOptions {
   title: string;
   rows: PartRow[];
-  /** note count and density of the selection at each difficulty; empty when nothing is selected */
+  /** the levels the selection has, with note count and density; empty when nothing is selected */
   levels: LevelStats[];
+  /** the level that will be played: the chosen one, or the nearest the selection has */
+  level: Difficulty;
   state: PartPickerState;
   kb: KeyboardSize;
   /** true when the single selected part spans more than two octaves */
@@ -245,11 +247,10 @@ export function showPartPicker(o: PartPickerOptions): void {
       <tr><th></th><th>Part</th><th>Notes</th><th>Notes/s</th><th>Chord</th><th>Range</th><th>Starts</th><th>Folded</th></tr>
       ${rows}
     </table>
-    ${o.levels.length ? `<div class="seg" id="difficulty" role="radiogroup" aria-label="Difficulty">${DIFFICULTIES.map((d) => {
-      const l = o.levels.find((x) => x.level === d)!;
-      return `<button role="radio" aria-checked="${st.difficulty === d}" class="${st.difficulty === d ? 'primary' : ''}" data-level="${d}">
-        <b>${DIFFICULTY_LABEL[d]}</b><span>${l.noteCount} notes · ${l.notesPerSec.toFixed(1)}/s</span></button>`;
-    }).join('')}</div>` : ''}
+    ${o.levels.length ? `<div class="seg" id="difficulty" role="radiogroup" aria-label="Difficulty" style="grid-template-columns:repeat(${o.levels.length},1fr)">${o.levels.map((l) =>
+      `<button role="radio" aria-checked="${o.level === l.level}" class="${o.level === l.level ? 'primary' : ''}" data-level="${l.level}">
+        <b>${DIFFICULTY_LABEL[l.level]}</b><span>${l.noteCount} notes · ${l.notesPerSec.toFixed(1)}/s</span></button>`).join('')}</div>
+      ${o.levels.length < DIFFICULTIES.length ? `<p class="levels-note">${DIFFICULTY_LABEL[o.levels[o.levels.length - 1]!.level]} is the whole part: there is nothing harder to add.</p>` : ''}` : ''}
     ${wide ? `<div class="row" style="margin-top:12px">
       <label class="field">Hand split at <select id="split">${splitOptions}</select></label>
       <label class="field">Play <select id="hands">
