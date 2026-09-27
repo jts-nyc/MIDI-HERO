@@ -11,6 +11,17 @@
     ]
   },
   {
+    "id": "first-lights",
+    "title": "First Lights — Anchors",
+    "file": "first-lights.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ]
+  },
+  {
     "id": "ode-to-joy",
     "title": "Ode to Joy",
     "file": "ode-to-joy.mid",

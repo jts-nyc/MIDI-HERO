@@ -1,7 +1,8 @@
 // Generates the bundled demo songs as Standard MIDI Files, the song manifest,
 // and the beginner song pack. Run with: npm run gen-songs
 //
-// Every melody here is public domain (Beethoven, traditional, Petzold).
+// Existing melodies are public domain (Beethoven, traditional, Petzold).
+// First Lights is an original four-bar student-trial arrangement.
 // five-finger.mid is the repo owner's own exercise and is included as-is.
 
 import { writeMidi, type MidiData, type MidiEvent } from 'midi-file';
@@ -20,13 +21,14 @@ const PPQ = 480;
 
 // [pitch, beats]; pitch 0 = rest
 type N = [number, number];
-type Voice = { name: string; channel: number; program: number; notes: N[] };
+type Voice = { name: string; channel: number; program: number; velocity?: number; notes: N[] };
 type Song = {
   id: string;
   title: string;
   bpm: number;
   timeSig: [number, number];
   voices: Voice[]; // voices[0] is the intended player part
+  trialOnly?: boolean;
 };
 
 // Pitch helpers: C4 = 60
@@ -112,6 +114,23 @@ const minuetBass: N[] = [
 
 const songs: Song[] = [
   {
+    // Authored anchors from docs/research/guitar-hero/arrangements-evidence.md.
+    // The backing owns bass, low harmony and pulse, never a hidden full lead.
+    id: 'first-lights', title: 'First Lights — Anchors', bpm: 100, timeSig: [4, 4], trialOnly: true,
+    voices: [
+      { name: 'Anchors (right hand)', channel: 0, program: 0, velocity: 80,
+        notes: [C,G,C,E,C,G,E,C].map((note): N => [p(note,4),2]) },
+      { name: 'Bass', channel: 1, program: 32, velocity: 40,
+        notes: [[p(C,2),4],[p(A,2),4],[p(F,2),4],[p(G,2),2],[p(C,2),2]] },
+      { name: 'Harmony (lower)', channel: 2, program: 0, velocity: 40,
+        notes: [[p(E,3),4],[p(E,3),4],[p(F,3),4],[p(D,3),2],[p(E,3),2]] },
+      { name: 'Harmony (upper)', channel: 2, program: 0, velocity: 40,
+        notes: [[p(G,3),4],[p(A,3),4],[p(A,3),4],[p(B,3),2],[p(G,3),2]] },
+      { name: 'Quiet pulse', channel: 9, program: 0, velocity: 30,
+        notes: Array.from({ length: 16 }, (): N[] => [[42,0.125],[0,0.875]]).flat() },
+    ],
+  },
+  {
     id: 'ode-to-joy', title: 'Ode to Joy', bpm: 100, timeSig: [4, 4],
     voices: [
       { name: 'Melody (right hand)', channel: 0, program: 0, notes: odeMelody },
@@ -159,7 +178,7 @@ function voiceTrack(v: Voice): MidiEvent[] {
     const len = Math.round(beats * PPQ);
     if (pitch > 0) {
       // noteOff (order 2) sorts before a noteOn (order 3) at the same tick
-      evs.push({ tick, order: 3, ev: { deltaTime: 0, type: 'noteOn', channel: v.channel, noteNumber: pitch, velocity: 80 } });
+      evs.push({ tick, order: 3, ev: { deltaTime: 0, type: 'noteOn', channel: v.channel, noteNumber: pitch, velocity: v.velocity ?? 80 } });
       evs.push({ tick: tick + len, order: 2, ev: { deltaTime: 0, type: 'noteOff', channel: v.channel, noteNumber: pitch, velocity: 64 } });
     }
     tick += len;
@@ -205,7 +224,7 @@ for (const s of songs) {
   writeFileSync(join(songsDir, file), bytes);
   const defaultParts = [{ track: 1, channel: s.voices[0]!.channel }];
   manifest.push({ id: s.id, title: s.title, file, defaultParts });
-  packSongs.push({ id: sha256(bytes), title: s.title, midiBase64: Buffer.from(bytes).toString('base64'), defaultParts, timingPreset: 'normal' });
+  if (!s.trialOnly) packSongs.push({ id: sha256(bytes), title: s.title, midiBase64: Buffer.from(bytes).toString('base64'), defaultParts, timingPreset: 'normal' });
   console.log(`wrote ${file} (${bytes.length} bytes, ${s.voices[0]!.notes.length} melody notes)`);
 }
 

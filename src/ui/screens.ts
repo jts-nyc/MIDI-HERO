@@ -2,6 +2,7 @@ import { CALIBRATION_BEATS, TapCalibrator, visualOffset, type CalibrationResult 
 import { bestDelta, starCount, type Suggestion } from '../game/results.ts';
 import type { PracticeSectionInfo } from '../game/practice.ts';
 import type { PlayResult, PracticeResult } from '../game/session.ts';
+import type { TrialRate, TrialSound } from '../game/studentTrial.ts';
 import type { TimingPreset } from '../game/judge.ts';
 import type { MidiPort } from '../input/midiInput.ts';
 import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Hand, type LevelStats } from '../midi/chart.ts';
@@ -65,6 +66,62 @@ export function showFirstRun(o: { onDone: (kb: KeyboardSize, soundSelf: boolean)
   pick('kb', 'kb', (v) => (kb = Number(v) as KeyboardSize));
   pick('sound', 'sound', (v) => (soundSelf = v === '1'));
   el.querySelector('#done')!.addEventListener('click', () => o.onDone(kb, soundSelf));
+}
+
+/** A deliberately small, fixed musical task; regular song settings remain separate. */
+export function showStudentTrial(o: {
+  sound: TrialSound; rate: TrialRate;
+  onEnableSound: () => void;
+  onChange: (sound: TrialSound, rate: TrialRate) => void;
+  onPlay: () => void; onBack: () => void;
+}): HTMLElement {
+  const el = screen(`<div class="panel">
+    <h1>First Lights · student trial</h1>
+    <p>Four bars, eight notes: C4–G4 · C4–E4 · C4–G4 · E4–C4. Hold each for two beats.</p>
+    <p>You play the melody. The backing keeps going through mistakes. Every key sounds the pitch you play.</p>
+    <label class="field">Your instrument sound <select id="trial-sound">
+      <option value="press"${o.sound === 'press' ? ' selected' : ''}>Computer sound</option>
+      <option value="off"${o.sound === 'off' ? ' selected' : ''}>My keyboard's own sound</option>
+    </select></label>
+    <p>Use one sound source for your keys. With computer sound, turn off the keyboard's own sound. With keyboard sound, enable its speakers or headphones and Local Control.</p>
+    <label class="field">Tempo <select id="trial-rate">
+      <option value="1"${o.rate === 1 ? ' selected' : ''}>100 BPM</option>
+      <option value="0.75"${o.rate === 0.75 ? ' selected' : ''}>75 BPM</option>
+      <option value="0.5"${o.rate === 0.5 ? ' selected' : ''}>50 BPM</option>
+    </select></label>
+    <h2>Try your keys first</h2>
+    <p><button id="trial-enable">Enable audio</button></p>
+    <p>Press C4, E4 and G4. Use your keyboard's octave buttons until these pitches appear below. Computer keys: Q = C4, E = E4, T = G4.</p>
+    <p id="trial-key" aria-live="polite">Waiting for a key…</p>
+    <p>Keep the same tempo and sound for comparison attempts. This is an early trial of audibility and recovery.</p>
+    <div class="row"><button class="primary big" id="trial-play">Start with count-in</button><button id="trial-back">Song select</button></div>
+  </div>`);
+  const sound = el.querySelector<HTMLSelectElement>('#trial-sound')!;
+  const rate = el.querySelector<HTMLSelectElement>('#trial-rate')!;
+  const change = () => o.onChange(sound.value as TrialSound, Number(rate.value) as TrialRate);
+  el.querySelector('#trial-enable')!.addEventListener('click', o.onEnableSound);
+  sound.addEventListener('change', change);
+  rate.addEventListener('change', change);
+  el.querySelector('#trial-play')!.addEventListener('click', o.onPlay);
+  el.querySelector('#trial-back')!.addEventListener('click', o.onBack);
+  return el;
+}
+
+export function showStudentTrialResults(o: {
+  result: PlayResult; sound: TrialSound; rate: TrialRate; autoplay: boolean;
+  onRetry: () => void; onSetup: () => void; onQuit: () => void;
+}): void {
+  const c = o.result.counts;
+  const el = screen(`<div class="panel" style="text-align:center">
+    <h1>First Lights · attempt complete</h1>
+    <p>${o.rate * 100} BPM · ${o.sound === 'press' ? 'computer sound' : 'keyboard sound'}${o.autoplay ? ' · autoplay demonstration' : ''}</p>
+    <p>${c.perfect + c.great + c.good} of ${o.result.total} notes on time · ${c.late} early/late · ${c.miss} missed · ${c.wrong} extra or wrong presses</p>
+    <p>Could you hear your part? After a mistake, could you find the next entrance?</p>
+    <div class="row" style="justify-content:center"><button class="primary big" id="trial-retry">Try again — same settings</button><button id="trial-setup">Change tempo or sound</button><button id="trial-quit">Song select</button></div>
+  </div>`);
+  el.querySelector('#trial-retry')!.addEventListener('click', o.onRetry);
+  el.querySelector('#trial-setup')!.addEventListener('click', o.onSetup);
+  el.querySelector('#trial-quit')!.addEventListener('click', o.onQuit);
 }
 
 // ---------------------------------------------------------------------------
