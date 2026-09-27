@@ -109,11 +109,20 @@ interface ChannelState {
 
 const MAX_VOICES = 32;
 
+/** A drum hit that may still be scheduled or ringing: its gains, so an all-notes-off can mute it. */
+interface DrumHit {
+  channel: number;
+  gains: GainNode[];
+  end: number;
+}
+
 export class WebAudioSynth implements Synth {
   private master: GainNode;
   private channels: ChannelState[] = [];
   private voices: Voice[] = [];
   private nextVoiceId = 1;
+  /** drum hits scheduled or still ringing; they have no voice, but all-notes-off must stop them too */
+  private drums: DrumHit[] = [];
   private drumChannels = new Set<number>([9]);
   private groupGains: Record<ChannelGroup, number> = { drums: 1, pads: 1 };
   private noiseBuffer: AudioBuffer;
@@ -317,11 +326,30 @@ export class WebAudioSynth implements Synth {
   private allNotesOffChannel(channel: number, when: number): void {
     const t = Math.max(when, this.ctx.currentTime);
     for (const v of [...this.voices]) if (v.channel === channel && !v.released) this.release(v, t);
+    this.muteDrums(t, channel);
   }
 
   allNotesOff(when: number): void {
     const t = Math.max(when, this.ctx.currentTime);
     for (const v of [...this.voices]) this.kill(v, t);
+    this.muteDrums(t, null);
+  }
+
+  /** Silence drum hits from `t`, including ones scheduled for later (a cancelled calibration's clicks). */
+  private muteDrums(t: number, channel: number | null): void {
+    const kept: DrumHit[] = [];
+    for (const d of this.drums) {
+      if (channel !== null && d.channel !== channel) {
+        kept.push(d);
+        continue;
+      }
+      if (d.end <= t) continue;
+      for (const g of d.gains) {
+        g.gain.cancelScheduledValues(t);
+        g.gain.setValueAtTime(0, t);
+      }
+    }
+    this.drums = kept;
   }
 
   bonk(pitch: number, velocity: number, when: number): void {
@@ -397,6 +425,10 @@ export class WebAudioSynth implements Synth {
   private drumHit(channel: number, pitch: number, velocity: number, t: number): void {
     const ctx = this.ctx;
     const ch = this.channels[channel]!;
+    const now = ctx.currentTime;
+    if (this.drums.length > 64 || (this.drums.length && this.drums[0]!.end < now)) this.drums = this.drums.filter((d) => d.end >= now);
+    const hit: DrumHit = { channel, gains: [], end: t + 0.35 };
+    this.drums.push(hit);
     const vel = Math.max(0.05, velocity / 127);
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuffer;
@@ -416,6 +448,7 @@ export class WebAudioSynth implements Synth {
       const og = ctx.createGain();
       og.gain.setValueAtTime(vel * 0.9, t);
       og.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+      hit.gains.push(og);
       osc.connect(og).connect(ch.gain);
       osc.start(t);
       osc.stop(t + 0.3);
@@ -444,6 +477,8 @@ export class WebAudioSynth implements Synth {
     }
     env.gain.setValueAtTime(gain * vel, t);
     env.gain.exponentialRampToValueAtTime(0.001, t + decay);
+    hit.gains.push(env);
+    hit.end = Math.max(hit.end, t + decay + 0.05);
     src.connect(filter).connect(env).connect(ch.gain);
     src.start(t);
     src.stop(t + decay + 0.02);

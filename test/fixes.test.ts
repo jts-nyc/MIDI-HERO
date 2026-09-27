@@ -167,3 +167,30 @@ describe('fix 5: an early hit keeps the notes the previous hit earned', () => {
     expect(played).toEqual([60, 48, 67, 64, 69, 52]);
   });
 });
+
+describe('fix 6: all-notes-off stops drum clicks already scheduled (a cancelled calibration)', () => {
+  it('mutes every scheduled click from the moment of the call', () => {
+    const ctx = new FakeAudioContext();
+    const synth = new WebAudioSynth(ctx as unknown as AudioContext);
+    const before = ctx.gains.length;
+    // Calibration schedules 4 lead-in and 8 scored clicks on channel 9 up front.
+    for (let i = 0; i < 12; i++) synth.noteOn(9, i < 4 ? 37 : 76, 100, ctx.currentTime + 0.5 * (i + 1));
+    const clicks = ctx.gains.slice(before);
+    expect(clicks).toHaveLength(12);
+    expect(clicks.every((g) => g.gain.value > 0)).toBe(true);
+    synth.allNotesOff(0); // Cancel
+    expect(clicks.every((g) => g.gain.value === 0)).toBe(true);
+  });
+
+  it('a kick keeps its body muted too, and hits after the call still sound', () => {
+    const ctx = new FakeAudioContext();
+    const synth = new WebAudioSynth(ctx as unknown as AudioContext);
+    const before = ctx.gains.length;
+    synth.noteOn(9, 36, 100, ctx.currentTime + 1);
+    synth.allNotesOff(0);
+    expect(ctx.gains.slice(before).every((g) => g.gain.value === 0)).toBe(true);
+    const later = ctx.gains.length;
+    synth.noteOn(9, 38, 100, ctx.currentTime + 1);
+    expect(ctx.gains.slice(later).every((g) => g.gain.value > 0)).toBe(true);
+  });
+});
