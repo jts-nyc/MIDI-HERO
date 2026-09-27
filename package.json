@@ -12,13 +12,15 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "gen-songs": "node scripts/gen-songs.ts"
+    "gen-songs": "node scripts/gen-songs.ts",
+    "bench": "node scripts/bench.mjs"
   },
   "dependencies": {
     "midi-file": "^1.2.4"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
+    "playwright-core": "^1.63.0",
     "typescript": "^5.9.0",
     "vite": "^8.3.0",
     "vitest": "^4.1.0"

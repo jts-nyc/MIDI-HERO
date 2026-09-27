@@ -1,6 +1,6 @@
 import type { Chart, ChartNote } from '../midi/chart.ts';
 import type { BeatLine } from '../midi/parse.ts';
-import { fitCanvas } from './canvas.ts';
+import { fitCanvas, MAX_DPR } from './canvas.ts';
 import { Tint, type FxState } from './fx.ts';
 import { isBlackKey, layoutKeys, noteName, type KeyboardLayout } from './layout.ts';
 import type { PracticeView } from './practice.ts';
@@ -133,10 +133,123 @@ class CachedText {
   }
 }
 
+/** Shared practice/venue drawing. Projection uses the same linear row scale as the highway. */
+export class PracticeVenueVisuals {
+  private waitingKeys = new Uint8Array(128);
+  private waitingAlpha = 0;
+  private passes = new CachedText((v) => `${v} ${v === 1 ? 'pass' : 'passes'} completed`);
+
+  update(s: RenderState, reduceMotion: boolean): void {
+    this.waitingKeys.fill(0);
+    const practice = s.practice;
+    if (!practice?.waiting) return;
+    for (let i = 0; i < practice.waitingFor.length; i++) {
+      const pitch = practice.waitingFor[i]!;
+      if (Number.isInteger(pitch) && pitch >= 0 && pitch < 128) this.waitingKeys[pitch] = 1;
+    }
+    // Song time stops at the wait gate; the effects clock keeps running.
+    this.waitingAlpha = reduceMotion ? 0.65 : 0.55 + 0.25 * Math.sin(s.fx.clock * 5);
+  }
+
+  drawKey(ctx: CanvasRenderingContext2D, pitch: number, x: number, y: number, w: number, h: number): void {
+    if (!this.waitingKeys[pitch]) return;
+    ctx.fillStyle = PRACTICE_COLOR;
+    ctx.globalAlpha = this.waitingAlpha;
+    ctx.fillRect(x, y, w, h);
+    ctx.globalAlpha = 1;
+  }
+
+  drawVenue(ctx: CanvasRenderingContext2D, fx: FxState, width: number, hitY: number, topScale: number, reduceMotion: boolean): void {
+    const m = fx.meters;
+    let flare = 0;
+    if (!reduceMotion) {
+      for (let i = 0; i < fx.callouts.length; i++) {
+        const c = fx.callouts[i]!;
+        if (c.active && c.kind === 'milestone' && c.life > 0) {
+          flare = Math.max(flare, Math.max(0, 1 - c.age / Math.min(0.6, c.life)));
+        }
+      }
+    }
+    ctx.fillStyle = m.starActive ? theme.star : m.zone === 'green' ? '#8ab6d6' : m.zone === 'yellow' ? '#ffa95c' : '#ff665b';
+    const depth = Math.min(110, hitY * 0.24);
+    // Fixed translucent bands avoid gradients/paths being allocated during a flare.
+    for (let i = 0; i < 12; i++) {
+      const top = i * depth / 12;
+      const bottom = (i + 1) * depth / 12;
+      const leftTop = width * (1 - (topScale + (1 - topScale) * top / hitY)) / 2;
+      const leftBottom = width * (1 - (topScale + (1 - topScale) * bottom / hitY)) / 2;
+      ctx.globalAlpha = (0.2 + flare * 0.28) * (1 - i / 12) ** 2;
+      ctx.beginPath();
+      ctx.moveTo(leftTop, top);
+      ctx.lineTo(width - leftTop, top);
+      ctx.lineTo(width - leftBottom, bottom);
+      ctx.lineTo(leftBottom, bottom);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 0.55 + flare * 0.35;
+    ctx.fillRect(width * (0.5 - topScale * 0.3), 4, width * topScale * 0.6, 3);
+    ctx.globalAlpha = 1;
+  }
+
+  drawLoop(ctx: CanvasRenderingContext2D, s: RenderState, width: number, hitY: number, topScale: number): void {
+    const loop = s.practice?.loop;
+    if (!loop) return;
+    for (let end = 0; end < 2; end++) {
+      const y = hitY - ((end === 0 ? loop.start : loop.end) - s.time) * s.pixelsPerSecond;
+      if (y < 0 || y > hitY) continue;
+      const left = width * (1 - (topScale + (1 - topScale) * y / hitY)) / 2;
+      ctx.strokeStyle = PRACTICE_COLOR;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(width - left, y);
+      ctx.stroke();
+      const labelY = y + 23 <= hitY ? y + 3 : y - 23;
+      ctx.fillStyle = '#10262e';
+      ctx.fillRect(left + 6, labelY, 26, 20);
+      ctx.fillStyle = PRACTICE_COLOR;
+      ctx.font = 'bold 13px system-ui';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(end === 0 ? 'A' : 'B', left + 19, labelY + 10);
+    }
+    ctx.lineWidth = 1;
+  }
+
+  drawHud(ctx: CanvasRenderingContext2D, s: RenderState, width: number): void {
+    const p = s.practice;
+    if (!p) return;
+    const section = p.sections[p.current];
+    if (!section && !p.loop && !p.waiting) return;
+    const w = Math.min(280, width * 0.34);
+    ctx.fillStyle = 'rgba(15,17,23,0.9)';
+    ctx.fillRect(12, 110, w, 53);
+    ctx.fillStyle = PRACTICE_COLOR;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.font = 'bold 14px system-ui';
+    ctx.fillText(section?.label ?? 'Practice', 22, 117, w - 20);
+    ctx.fillStyle = theme.text;
+    ctx.font = '12px system-ui';
+    ctx.fillText(this.passes.get(p.passes), 22, 140, w - 20);
+  }
+}
+
+const PRACTICE_COLOR = '#54e4e8';
+
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
+  private practiceVenue = new PracticeVenueVisuals();
+  private motion: MediaQueryList;
+  private reduceMotion = false;
   private layout: KeyboardLayout | null = null;
-  private layoutKey = '';
+  private columns: { pitch: number; x: number; w: number; isBlack: boolean; label: string; shortName: string }[] = [];
+  private labels: string[] = [];
+  private dpr = 0;
+  private chart: Chart | null = null;
+  private beats: BeatLine[] | null = null;
+  private beatCursor = 0;
+  private beatTime = -Infinity;
   private width = 0;
   private height = 0;
   private cursor = 0;
@@ -147,7 +260,6 @@ export class Renderer {
   /** red flash per key, 0..1, rebuilt every frame from the effects state */
   private keyFlash = new Float32Array(128);
   private gradients = new Map<number, CanvasGradient>();
-  private gradientKey = '';
   private bigFont = '';
   private scoreText = new CachedText((v) => String(v));
   private accuracyText = new CachedText((v) => `${(v / 10).toFixed(1)}%`);
@@ -158,55 +270,74 @@ export class Renderer {
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
+    this.motion = window.matchMedia('(prefers-reduced-motion: reduce)');
   }
 
+  /** Only size/range changes allocate geometry, labels and gradients. */
   private ensureLayout(low: number, high: number): KeyboardLayout {
-    const key = `${low}:${high}:${this.width}`;
-    if (!this.layout || key !== this.layoutKey) {
-      this.layout = layoutKeys(low, high, this.width);
-      this.layoutKey = key;
+    const width = Math.max(1, Math.floor(this.canvas.clientWidth));
+    const height = Math.max(1, Math.floor(this.canvas.clientHeight));
+    const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+    if (this.layout && low === this.layout.low && high === this.layout.high &&
+        width === this.width && height === this.height && dpr === this.dpr &&
+        this.canvas.width === Math.round(width * dpr) && this.canvas.height === Math.round(height * dpr)) return this.layout;
+    fitCanvas(this.canvas);
+    this.width = width;
+    this.height = height;
+    this.dpr = dpr;
+    this.layout = layoutKeys(low, high, width);
+    this.columns = [];
+    for (const col of this.layout.columns.values()) {
+      const label = noteName(col.pitch);
+      const shortName = label.replace(/-?\d+$/, '');
+      this.columns.push({ ...col, label, shortName });
+      this.labels[col.pitch] = shortName;
+    }
+    const hitY = height - Math.round(height * KEYBOARD_FRACTION);
+    this.bigFont = `bold ${Math.round(Math.min(150, hitY * 0.3))}px system-ui`;
+    this.gradients.clear();
+    const ctx = this.ctx;
+    const star = ctx.createLinearGradient(0, 0, 0, hitY);
+    star.addColorStop(0, 'rgba(255,210,63,0.05)');
+    star.addColorStop(1, 'rgba(255,210,63,0.24)');
+    this.gradients.set(100, star);
+    const w = Math.min(120, width * 0.14);
+    for (let tint = 0; tint < TINT_RGB.length; tint++) {
+      for (let side = 0; side < 2; side++) {
+        const edge = side === 0 ? 0 : width;
+        const g = ctx.createLinearGradient(edge, 0, edge + (side === 0 ? w : -w), 0);
+        g.addColorStop(0, `rgba(${TINT_RGB[tint]},0.55)`);
+        g.addColorStop(1, `rgba(${TINT_RGB[tint]},0)`);
+        this.gradients.set(tint * 2 + side, g);
+      }
     }
     return this.layout;
   }
 
-  /** Gradients are built once per canvas size. */
-  private gradient(id: number, make: () => CanvasGradient): CanvasGradient {
-    let g = this.gradients.get(id);
-    if (!g) this.gradients.set(id, (g = make()));
-    return g;
-  }
-
   draw(s: RenderState): void {
-    const { width, height } = fitCanvas(this.canvas);
-    if (width !== this.width || height !== this.height) {
-      this.gradients.clear();
-      this.gradientKey = `${width}:${height}`;
-    }
-    this.width = width;
-    this.height = height;
+    const layout = this.ensureLayout(s.low, s.high);
+    this.reduceMotion = this.motion.matches;
+    this.practiceVenue.update(s, this.reduceMotion);
+    const width = this.width;
+    const height = this.height;
     const ctx = this.ctx;
     const fx = s.fx;
-    const layout = this.ensureLayout(s.low, s.high);
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     const keyboardH = Math.round(height * KEYBOARD_FRACTION);
     const hitY = height - keyboardH;
     const pps = s.pixelsPerSecond;
     const star = fx.meters.starActive;
-    this.bigFont = `bold ${Math.round(Math.min(150, hitY * 0.3))}px system-ui`;
 
     ctx.fillStyle = theme.highway;
     ctx.fillRect(0, 0, width, hitY);
     if (star) {
-      ctx.fillStyle = this.gradient(100, () => {
-        const g = ctx.createLinearGradient(0, 0, 0, hitY);
-        g.addColorStop(0, 'rgba(255,210,63,0.05)');
-        g.addColorStop(1, 'rgba(255,210,63,0.24)');
-        return g;
-      });
+      ctx.fillStyle = this.gradients.get(100)!;
       ctx.fillRect(0, 0, width, hitY);
     }
 
     // Octave stripes: tint every C..B alternately for orientation
-    for (const col of layout.columns.values()) {
+    for (let c = 0; c < this.columns.length; c++) {
+      const col = this.columns[c]!;
       if (col.isBlack) continue;
       const octave = Math.floor(col.pitch / 12);
       if (octave % 2 === 0) {
@@ -224,16 +355,24 @@ export class Renderer {
     }
     // Low health: the lane goes dark and red; the notes on top stay bright.
     if (fx.meters.low) {
-      const pulse = 0.5 + 0.5 * Math.sin(fx.clock * 5);
-      ctx.fillStyle = `rgba(40,0,0,${(0.4 + 0.12 * pulse).toFixed(3)})`;
+      const pulse = this.reduceMotion ? 0.5 : 0.5 + 0.5 * Math.sin(fx.clock * 5);
+      ctx.fillStyle = '#280000';
+      ctx.globalAlpha = 0.4 + 0.12 * pulse;
       ctx.fillRect(0, 0, width, hitY);
+      ctx.globalAlpha = 1;
     }
+
+    this.practiceVenue.drawVenue(ctx, fx, width, hitY, 1, this.reduceMotion);
 
     // Beat and bar lines
     const visibleSec = hitY / pps;
     ctx.lineWidth = 1;
     const lines = s.beatLines;
-    for (let i = 0; i < lines.length; i++) {
+    if (this.beats !== lines || s.time < this.beatTime) this.beatCursor = 0;
+    this.beats = lines;
+    this.beatTime = s.time;
+    while (this.beatCursor < lines.length && lines[this.beatCursor]!.time < s.time - 0.1) this.beatCursor++;
+    for (let i = this.beatCursor; i < lines.length; i++) {
       const b = lines[i]!;
       if (b.time < s.time - 0.1) continue;
       if (b.time > s.time + visibleSec) break;
@@ -250,7 +389,8 @@ export class Renderer {
     // Notes (forward-only cursor)
     const notes = s.chart.notes;
     const earliest = s.time - s.chart.maxDuration - 1;
-    if (earliest < this.cursorTime) this.cursor = 0;
+    if (this.chart !== s.chart || earliest < this.cursorTime) this.cursor = 0;
+    this.chart = s.chart;
     while (this.cursor < notes.length && notes[this.cursor]!.time < earliest) this.cursor++;
     this.cursorTime = earliest;
     const until = s.time + visibleSec + 0.5;
@@ -269,13 +409,15 @@ export class Renderer {
       this.drawNote(n, col, vis, s, hitY, star);
     }
 
-    this.drawHitLine(fx, layout, width, hitY, star);
+    this.practiceVenue.drawLoop(ctx, s, width, hitY, 1);
+    this.drawHitLine(fx, layout, width, hitY, star, s.practice?.waiting === true);
     this.drawKeyboard(s, layout, hitY, keyboardH);
     this.drawPassing(s, layout, hitY);
     this.drawEffects(fx, layout, hitY);
     this.drawPopups(s, layout, hitY);
     this.drawGlow(fx, width, height);
     this.drawHud(s, width, hitY);
+    this.practiceVenue.drawHud(ctx, s, width);
     this.drawCallouts(fx, width, hitY);
     this.drawCountdown(fx, width, hitY);
   }
@@ -313,7 +455,7 @@ export class Renderer {
       // gem pop: the note swells around its head and fades
       const t = Math.max(0, Math.min(1, (s.time - (vis!.holdEnd ?? vis!.hitTime)) / HIT_FADE));
       alpha = 0.75 * (1 - t);
-      const grow = 1 + POP_SCALE * t;
+      const grow = this.reduceMotion ? 1 : 1 + POP_SCALE * t;
       const head = Math.min(h, w * 1.2);
       const cx = x + w / 2;
       w *= grow;
@@ -353,7 +495,7 @@ export class Renderer {
     if (s.showNoteNames && w >= 14 && h >= 14 && !hit) {
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
       ctx.font = w >= 16 ? '11px system-ui' : '9px system-ui';
-      ctx.fillText(noteName(n.pitch).replace(/-?\d+$/, ''), x + w / 2, yBottom - 8);
+      ctx.fillText(this.labels[n.pitch]!, x + w / 2, yBottom - 8);
     }
     ctx.globalAlpha = 1;
   }
@@ -387,7 +529,7 @@ export class Renderer {
       return;
     }
     const gold = star || n.star === true;
-    const pulse = 0.5 + 0.5 * Math.sin(s.fx.clock * 14);
+    const pulse = this.reduceMotion ? 0.5 : 0.5 + 0.5 * Math.sin(s.fx.clock * 14);
     ctx.fillStyle = gold ? 'rgba(255,210,63,0.3)' : 'rgba(255,255,255,0.22)';
     ctx.globalAlpha = 0.6 + 0.4 * pulse;
     ctx.beginPath();
@@ -408,11 +550,12 @@ export class Renderer {
     ctx.fillRect(col.x, hitY - 7, col.w * progress, 6);
   }
 
-  private drawHitLine(fx: FxState, layout: KeyboardLayout, width: number, hitY: number, star: boolean): void {
+  private drawHitLine(fx: FxState, layout: KeyboardLayout, width: number, hitY: number, star: boolean, waiting: boolean): void {
     const ctx = this.ctx;
-    ctx.fillStyle = star ? theme.star : theme.hitLine;
+    ctx.fillStyle = waiting ? PRACTICE_COLOR : star ? theme.star : theme.hitLine;
     ctx.globalAlpha = 0.9;
     ctx.fillRect(0, hitY - 2, width, 3);
+    if (this.reduceMotion) { ctx.globalAlpha = 1; return; }
     // Shockwaves run along the line from the key that was hit
     const shocks = fx.shocks;
     for (let i = 0; i < shocks.length; i++) {
@@ -446,7 +589,8 @@ export class Renderer {
     }
     const blackH = keyboardH * 0.62;
     for (let pass = 0; pass < 2; pass++) {
-      for (const col of layout.columns.values()) {
+      for (let c = 0; c < this.columns.length; c++) {
+        const col = this.columns[c]!;
         if (col.isBlack !== (pass === 1)) continue;
         const kv = s.keyVisuals.get(col.pitch);
         const h = col.isBlack ? blackH : keyboardH;
@@ -461,6 +605,7 @@ export class Renderer {
           ctx.fillRect(col.x + 0.5, hitY, col.w - 1, h);
           ctx.globalAlpha = 1;
         }
+        this.practiceVenue.drawKey(ctx, col.pitch, col.x + 0.5, hitY, col.w - 1, h);
         ctx.strokeStyle = theme.keyBorder;
         ctx.strokeRect(col.x + 0.5, hitY + 0.5, col.w - 1, h - 1);
         const isC = col.pitch % 12 === 0;
@@ -469,7 +614,7 @@ export class Renderer {
           ctx.font = isC ? (col.w >= 20 ? 'bold 12px system-ui' : 'bold 9px system-ui') : col.w >= 20 ? '12px system-ui' : '9px system-ui';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'alphabetic';
-          ctx.fillText(isC ? noteName(col.pitch) : noteName(col.pitch).replace(/-?\d+$/, ''), col.x + col.w / 2, hitY + keyboardH - 6);
+          ctx.fillText(isC ? col.label : col.shortName, col.x + col.w / 2, hitY + keyboardH - 6);
         }
       }
     }
@@ -504,6 +649,7 @@ export class Renderer {
   }
 
   private drawEffects(fx: FxState, layout: KeyboardLayout, hitY: number): void {
+    if (this.reduceMotion) return;
     const ctx = this.ctx;
     const rings = fx.rings;
     for (let i = 0; i < rings.length; i++) {
@@ -553,7 +699,7 @@ export class Renderer {
       const t = age / POPUP_LIFE;
       ctx.globalAlpha = 1 - t;
       ctx.fillStyle = p.color;
-      ctx.fillText(p.text, col.x + col.w / 2, hitY - 40 - t * 30);
+      ctx.fillText(p.text, col.x + col.w / 2, hitY - 40 - (this.reduceMotion ? 0 : t * 30));
     }
     ctx.globalAlpha = 1;
   }
@@ -567,7 +713,7 @@ export class Renderer {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     if (st.value >= STREAK_MIN) {
-      const scale = 1 + 0.22 * st.pulse;
+      const scale = this.reduceMotion ? 1 : 1 + 0.22 * st.pulse;
       ctx.save();
       ctx.translate(cx, cy);
       ctx.scale(scale, scale);
@@ -585,11 +731,11 @@ export class Renderer {
       const t = st.shatterAge / st.shatterLife;
       const text = this.shatterText.get(st.shatterValue);
       const half = width / 2;
-      const drop = t * t * hitY * 0.35;
+      const drop = this.reduceMotion ? 0 : t * t * hitY * 0.35;
       for (let side = -1; side <= 1; side += 2) {
         ctx.save();
-        ctx.translate(cx + side * t * 50, cy + drop);
-        ctx.rotate(side * t * 0.5);
+        ctx.translate(cx + (this.reduceMotion ? 0 : side * t * 50), cy + drop);
+        ctx.rotate(this.reduceMotion ? 0 : side * t * 0.5);
         ctx.beginPath();
         if (side < 0) ctx.rect(-half, -hitY, half, hitY * 2);
         else ctx.rect(0, -hitY, half, hitY * 2);
@@ -610,21 +756,10 @@ export class Renderer {
     if (g.life <= 0) return;
     const ctx = this.ctx;
     const w = Math.min(120, width * 0.14);
-    const rgb = TINT_RGB[g.tint]!;
     ctx.globalAlpha = 1 - g.age / g.life;
-    ctx.fillStyle = this.gradient(g.tint * 2, () => {
-      const gr = ctx.createLinearGradient(0, 0, w, 0);
-      gr.addColorStop(0, `rgba(${rgb},0.55)`);
-      gr.addColorStop(1, `rgba(${rgb},0)`);
-      return gr;
-    });
+    ctx.fillStyle = this.gradients.get(g.tint * 2)!;
     ctx.fillRect(0, 0, w, height);
-    ctx.fillStyle = this.gradient(g.tint * 2 + 1, () => {
-      const gr = ctx.createLinearGradient(width, 0, width - w, 0);
-      gr.addColorStop(0, `rgba(${rgb},0.55)`);
-      gr.addColorStop(1, `rgba(${rgb},0)`);
-      return gr;
-    });
+    ctx.fillStyle = this.gradients.get(g.tint * 2 + 1)!;
     ctx.fillRect(width - w, 0, w, height);
     ctx.globalAlpha = 1;
   }
@@ -655,7 +790,7 @@ export class Renderer {
     const color = m.starActive ? theme.star : theme.multiplier[Math.min(3, m.multiplier - 1)]!;
     const cx = 42;
     const cy = 78;
-    const r = 22 * (1 + 0.25 * m.multiplierPulse);
+    const r = 22 * (1 + (this.reduceMotion ? 0 : 0.25 * m.multiplierPulse));
     ctx.lineWidth = 5;
     ctx.strokeStyle = 'rgba(255,255,255,0.12)';
     ctx.beginPath();
@@ -682,7 +817,7 @@ export class Renderer {
       ctx.fillStyle = 'rgba(255,255,255,0.12)';
       ctx.fillRect(gx, gy, gw, 10);
       ctx.fillStyle = theme.star;
-      ctx.globalAlpha = m.starActive || m.starReady ? 0.75 + 0.25 * Math.sin(s.fx.clock * 8) : 0.6;
+      ctx.globalAlpha = !this.reduceMotion && (m.starActive || m.starReady) ? 0.75 + 0.25 * Math.sin(s.fx.clock * 8) : 0.6;
       ctx.fillRect(gx, gy, gw * Math.min(1, m.starGauge), 10);
       ctx.globalAlpha = 1;
       ctx.fillStyle = theme.text;
@@ -704,7 +839,7 @@ export class Renderer {
     ctx.fillRect(hx, top, 8, hh);
     const fillH = hh * Math.max(0, Math.min(1, m.health));
     ctx.fillStyle = m.zone === 'green' ? theme.healthGreen : m.zone === 'yellow' ? theme.healthYellow : theme.healthRed;
-    if (m.low) ctx.globalAlpha = 0.6 + 0.4 * Math.sin(s.fx.clock * 10);
+    if (m.low && !this.reduceMotion) ctx.globalAlpha = 0.6 + 0.4 * Math.sin(s.fx.clock * 10);
     ctx.fillRect(hx, top + hh - fillH, 8, fillH);
     ctx.globalAlpha = 1;
     ctx.fillStyle = theme.text;
@@ -721,7 +856,7 @@ export class Renderer {
       if (!c.active) continue;
       const t = c.age / c.life;
       const intro = Math.min(1, c.age / 0.18);
-      const scale = 0.6 + 0.4 * intro + 0.15 * Math.sin(intro * Math.PI);
+      const scale = this.reduceMotion ? 1 : 0.6 + 0.4 * intro + 0.15 * Math.sin(intro * Math.PI);
       ctx.save();
       ctx.translate(width / 2, hitY * 0.14 + row * 44);
       ctx.scale(scale, scale);
@@ -743,7 +878,7 @@ export class Renderer {
     const c = fx.countdown;
     if (c.value <= 0) return;
     const ctx = this.ctx;
-    const scale = 1.35 - 0.35 * Math.min(1, c.phase * 3);
+    const scale = this.reduceMotion ? 1 : 1.35 - 0.35 * Math.min(1, c.phase * 3);
     ctx.save();
     ctx.translate(width / 2, hitY * 0.5);
     ctx.scale(scale, scale);
