@@ -1,0 +1,52 @@
+# Student audio trial: implementation review
+
+September 27, 2026. App baseline: `8a65624` (merged main). This is an implementation review against the independent student protocol in [research follow-up PR #7](https://github.com/jts-nyc/MIDI-HERO/pull/7). It does not revise the Guitar Hero research or supply auditory findings.
+
+## Review before changes
+
+| Requirement | Baseline evidence from code | Decision |
+| --- | --- | --- |
+| Eight authored First Lights notes | Bundled manifest contains four other songs; no First Lights | Add the original four-bar anchor arrangement and complementary backing. |
+| Hear the performed pitch, including mistakes | Default `chart` mode substitutes the chart pitch and clunks on wrong input. `press` mode sounds each key but relative input mapping can transpose it. | Explicit trial uses press or keyboard-owned sound, absolute MIDI pitch and a C3–C5 display. |
+| No automatic foreground | Press/off routes normally put difficulty-removed notes in backing | Fix the trial to its complete eight-note authored part; verify no player notes in backing or carry. |
+| Steady pulse through errors | Main applies the performance meter's mix level each frame | Give the trial a steady backing policy. |
+| Same phrase length after mistakes | Session end depends on final judgment, sounded notes and active holds, not the full backing | Use a fixed chart end for the trial, independent of correctness. |
+| Count-in and retry | Scheduler count-in, pause/restart and result retry already exist | Reuse these, with a short trial setup and same-settings retry. |
+| Stable conditions | Saved settings can enable chart sound, overhold penalties, arcade failure or practice speed changes | Apply explicit trial conditions without replacing saved settings for other songs. |
+
+These are code-derived findings. An independent subagent also reproduced the premature ending in a synthetic clock test: an omitted last half note could finish before its written end. This was software execution, not a listening or hardware measurement.
+
+## Scope of the fix
+
+Provide one explicit First Lights student trial. The trial offers computer sound or the keyboard's own sound, a fixed selected tempo and a preflight pitch check. It uses normal timing, exact pitches, no overhold bonks, no fail-out, no performance-dependent backing reduction and no automatic tempo change. Other songs retain their existing behavior. No student names or session recordings are collected by this change.
+
+The research protocol remains provisional. First Lights is original content and a testable starting arrangement, not a validated curriculum. Browser and unit checks cannot certify musical quality, perceived latency, physical keyboard setup or student comprehension.
+
+## Remaining gates before a student session
+
+- On the actual keyboard and browser, confirm C4, E4 and G4 are reachable and match the setup pitch display. The trial deliberately does not correct octaves automatically; use the keyboard's octave controls if needed.
+- Confirm one audible player route: computer sound with keyboard local sound off, or keyboard sound with computer player sound off. Verify the backing is audible in both cases.
+- Listen to correct, wrong, omitted and early-released notes; check the backing remains useful and the assigned line is audible. No investigator listening has been performed here.
+- Check response delay and readability on the intended student device. Synthetic tests and a desktop browser do not establish Chromebook or USB MIDI performance.
+- Run the short protocol and record student observations separately from software results. Immediate improvement or preference does not establish delayed retention.
+
+## Launch and run
+
+1. Run `npm run dev` and open the displayed local address with `?song=first-lights`, or select **First Lights — Anchors** from the song list. A deployed build must include this implementation PR before a shared site has the trial.
+2. Choose computer sound or keyboard sound. Click **Enable audio**, then check C4/E4/G4 using the actual instrument. On a computer keyboard these are Q/E/T. The selected sound route does not affect the backing.
+3. Choose 100, 75 or 50 BPM. Keep the chosen tempo for comparison attempts; the app does not automatically change it. Trial timing remains the normal preset, with existing device calibration retained.
+4. Start with the count-in, play the four-bar phrase, and use **Try again — same settings** for the next attempt. Results distinguish on-time notes, early/late notes, omissions and extra/wrong presses; they do not claim musical learning or store a best score.
+5. Use the [student protocol in PR #7](https://github.com/jts-nyc/MIDI-HERO/blob/codex/audio-pilot-handoff/docs/research/guitar-hero/student-audio-trial.md) for the short session and observation record. Hide the screen and instructor's hands for its audio-only omission probe. That instructor-led probe is not automatically generated by this app change.
+
+For comparable attempts, use Restart after a pause: the existing scheduler does not reconstruct held backing notes that were interrupted. Its pulse resumes on the next beat, but resumed accompaniment can differ until the next chord. Fixing that general scheduler behavior is outside this short trial change.
+
+Use the bundled First Lights entry for this protocol. Exporting it as an ordinary song pack does not carry the trial's special settings or setup screen. The generic beginner pack remains unchanged.
+
+## Validation record
+
+- Unit tests inspect the generated MIDI's exact notes, timing, four-bar length, separated backing roles and unchanged generic pack.
+- Session tests cover wrong played pitch, omission, recovery, early release, sustain, external sound, steady backing at zero health, and equal completion boundaries for correct/omitted/wrong/released final notes.
+- Settings tests verify explicit trial conditions and preserved device calibration without changing saved preferences.
+- Browser checks verify setup Q/E/T pitch labels, an eight-omission run with mix level 1, results, same-settings retry with fresh targets/count-in, and the scoped tempo/sound controls. These are UI/runtime checks, not verified listening.
+- Full suite: 383 tests passed, one skipped without the optional fixture set; production TypeScript/Vite build passed. Targeted tests with the available local fixture directory: 13 passed, one skipped. No commercial MIDI is included in the changes.
+- USB MIDI, acoustic latency, actual musical balance and student results remain unverified. Passing software checks is not a completed classroom hardware check.

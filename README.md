@@ -38,6 +38,19 @@ npm run build
 
 Node 22.12 or newer. Vite 8, Vitest 4, TypeScript, `midi-file`; no other runtime dependencies.
 
+### First Lights student trial
+
+Choose **First Lights — Anchors** in the song list, or open `?song=first-lights` on your running
+build. This separate four-bar trial uses eight authored C4/E4/G4 melody notes, actual played
+pitches, steady accompaniment and the same phrase ending after mistakes. Choose computer sound
+or the keyboard's own sound, check the received pitches, then start with a count-in. Results
+offer a same-settings retry or a tempo/sound change. Ordinary song preferences remain separate.
+
+The trial uses absolute pitches: adjust the keyboard's octave controls until C4, E4 and G4
+appear in the setup check. Computer keys Q/E/T play those notes. It does not write best scores.
+See the [implementation review and preflight checklist](docs/STUDENT-TRIAL-READINESS.md).
+Real-device listening and student validation remain outstanding.
+
 Useful URL parameters (session only, they do not change saved settings):
 `?kb=25&timing=relaxed&names=1&synth=1` set class defaults for a bookmark;
 `?pack=packs/beginner.midihero.json` loads a pack from this site;

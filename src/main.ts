@@ -6,6 +6,7 @@ import { calibrationBeats } from './game/calibration.ts';
 import { loopLabel, loopOf, practiceSections, trimChart, type PracticeSectionInfo } from './game/practice.ts';
 import { keyLevelOf, listKeyLevel, RATES, songStars, starsByLevel, suggestNextStep, TOP_LEVEL, unlockedLevels, UNLOCK_STARS, type LevelBest, type Suggestion } from './game/results.ts';
 import { PlaySession } from './game/session.ts';
+import { STUDENT_TRIAL_ID, studentTrialSettings, type TrialRate, type TrialSound } from './game/studentTrial.ts';
 import { KeyboardInput } from './input/keyboardInput.ts';
 import { MidiInput } from './input/midiInput.ts';
 import type { InputEvent } from './input/normalize.ts';
@@ -17,7 +18,7 @@ import { buildPack, parsePackJson, sha256Hex, type PackSettings, type PackValida
 import { beatLines, parseSong, ticksToSeconds } from './midi/parse.ts';
 import { buildParts, defaultPart, notesOf } from './midi/parts.ts';
 import type { FeedbackSound } from './game/session.ts';
-import { displayRange } from './render/layout.ts';
+import { noteName, displayRange } from './render/layout.ts';
 import { Renderer, type RenderState } from './render/renderer.ts';
 import { PerspectiveRenderer } from './render/highway3d.ts';
 import { bestKey, bestsForSong, deleteSong, getBest, listSongs, parseBestKey, putSong, recordBest, saveChoice, type BestScore } from './storage/db.ts';
@@ -25,7 +26,7 @@ import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
 import {
   gateMessage, installDropZone, setPracticeRate, showCalibration, showError, showExportDialog, showFirstRun, showGate, showPartPicker, showPause, showPlayHud,
-  showPracticePicker, showPracticeResults, showResults, showSettings, showSongSelect, showUnsupported, toast,
+  showPracticePicker, showPracticeResults, showResults, showSettings, showSongSelect, showStudentTrial, showStudentTrialResults, showUnsupported, toast,
   type PartPickerState, type PartRow, type PracticeChoice, type SongRow,
 } from './ui/screens.ts';
 import { effectiveFeedback, loadSettings, resetToClassDefaults, saveClassDefaults, saveSettings, type Settings } from './ui/settings.ts';
@@ -91,6 +92,9 @@ const perspectiveRenderer = new PerspectiveRenderer(canvas);
 const PARTS_KEY = 'midihero.parts.v1';
 
 let settings: Settings = loadSettings();
+let sessionSettings: Settings | null = null;
+let trialSound: TrialSound = effectiveFeedback(settings) === 'off' ? 'off' : 'press';
+let trialRate: TrialRate = 1;
 const clock = new GameClock();
 let audioCtx: AudioContext | null = null;
 let synth: Synth | null = null;
@@ -114,8 +118,10 @@ const midi = new MidiInput();
 const keyboard = new KeyboardInput();
 keyboard.base = settings.keyboardBase;
 keyboard.onOctaveChange = (b) => {
-  settings.keyboardBase = b;
-  saveSettings(settings);
+  if (current?.lib.id !== STUDENT_TRIAL_ID || (!gateHandler && !session)) {
+    settings.keyboardBase = b;
+    saveSettings(settings);
+  }
   toast(`Computer keyboard: lower row now starts at ${b}`);
 };
 
@@ -331,13 +337,16 @@ async function exportPack(name: string, ids: string[], unlocks: boolean): Promis
 // ---------------------------------------------------------------------------
 function songSelect(): void {
   stopBacking();
+  synth?.allNotesOff(0);
   session = null;
+  sessionSettings = null;
+  keyboard.base = settings.keyboardBase;
   renderState = null;
   gateHandler = null;
   const rows: SongRow[] = library.map((l) => ({
     id: l.id,
     title: l.title,
-    subtitle: l.source === 'bundled' ? 'built-in' : l.packName ? `pack: ${l.packName}` : 'imported',
+    subtitle: l.id === STUDENT_TRIAL_ID ? 'Student trial · eight melody notes with steady backing' : l.source === 'bundled' ? 'built-in' : l.packName ? `pack: ${l.packName}` : 'imported',
     group: l.source === 'imported' ? 'class' : 'builtin',
     ...(l.packName ? { pack: l.packName, packIndex: l.packIndex ?? 0 } : {}),
     deletable: l.source === 'imported',
@@ -518,6 +527,9 @@ async function openSong(id: string): Promise<void> {
       },
       stars: null,
     };
+    if (lib.id === STUDENT_TRIAL_ID) {
+      current.picker = { selected: new Set(['1:0']), split: 60, hands: ['L', 'R'], timing: 'normal', guideTrack: false, difficulty: 'easy' };
+    }
     await loadStars();
     partPicker();
   } catch (e) {
@@ -579,6 +591,7 @@ function windowFor(kb: Settings['kb'], pitches: number[]): { window: PitchWindow
 
 function partPicker(): void {
   if (!current) return;
+  if (current.lib.id === STUDENT_TRIAL_ID) { trialSetup(); return; }
   const { lib, song, parts, picker } = current;
   const rows: PartRow[] = parts.map((p) => {
     const pitches = notesOf(song, p).map((n) => n.pitch);
@@ -602,6 +615,37 @@ function partPicker(): void {
     onPractise: () => practicePicker(),
     onBack: songSelect,
   });
+}
+
+/** Trial setup previews actual MIDI pitches; it does not adjust the hardware octave. */
+function trialSetup(): void {
+  stopBacking();
+  session?.pause();
+  session = null;
+  renderState = null;
+  synth?.allNotesOff(0);
+  synth?.control(0, 64, 0, 0);
+  keyboard.base = 48;
+  const el = showStudentTrial({
+    sound: trialSound, rate: trialRate,
+    onEnableSound: ensureAudio,
+    onChange: (sound, rate) => {
+      synth?.allNotesOff(0);
+      synth?.control(0, 64, 0, 0);
+      trialSound = sound;
+      trialRate = rate;
+    },
+    onPlay: () => void startPlay(null), onBack: songSelect,
+  });
+  gateHandler = (ev) => {
+    ensureAudio();
+    if (ev.type === 'on') {
+      el.querySelector('#trial-key')!.textContent = `Received ${noteName(ev.pitch)} (MIDI ${ev.pitch})`;
+      if (trialSound === 'press') synth?.noteOn(0, ev.pitch, ev.velocity, 0);
+    } else if (ev.type === 'off') {
+      if (trialSound === 'press') synth?.noteOff(0, ev.pitch, 0);
+    } else if (trialSound === 'press') synth?.control(0, 64, ev.velocity, 0);
+  };
 }
 
 /** Bar-line times of the current song, and its sections with the notes of the selected level. */
@@ -664,13 +708,17 @@ async function startPlay(autoplay: { jitterMs: number } | null, practice: Practi
   lib.timingPreset = picker.timing;
   lib.difficulty = level;
   lib.keyLevel = keyLevel;
-  if (lib.source === 'bundled') rememberChoice(lib.id, choice);
-  else await saveChoice(lib.id, { parts: partIds, split: picker.split, timingPreset: picker.timing, difficulty: level, keyLevel }).catch(() => undefined);
+  if (lib.id !== STUDENT_TRIAL_ID) {
+    if (lib.source === 'bundled') rememberChoice(lib.id, choice);
+    else await saveChoice(lib.id, { parts: partIds, split: picker.split, timingPreset: picker.timing, difficulty: level, keyLevel }).catch(() => undefined);
+  }
 
   ensureAudio();
   // The window is chosen for the notes this level actually asks for.
   const unfolded = buildChart(song, { parts: sel.parts, split: sel.split, hands: sel.hands, difficulty: level });
-  const { window, relative } = windowFor(settings.kb, unfolded.notes.map((n) => n.origPitch));
+  const { window, relative } = lib.id === STUDENT_TRIAL_ID
+    ? { window: { low: 48, high: 72 }, relative: false }
+    : windowFor(settings.kb, unfolded.notes.map((n) => n.origPitch));
   lastPlay = { window, relative, autoplay, practice };
   play();
 }
@@ -678,15 +726,18 @@ async function startPlay(autoplay: { jitterMs: number } | null, practice: Practi
 function play(): void {
   if (!current || !lastPlay) return;
   const { lib, song, picker } = current;
+  const trial = lib.id === STUDENT_TRIAL_ID;
+  const runSettings = trial ? studentTrialSettings(settings, trialSound, trialRate) : settings;
+  sessionSettings = trial ? runSettings : null;
   const { window, relative, autoplay, practice: choice } = lastPlay;
   const sel = selectionOptions();
   if (!sel) return;
   const partIds = sel.parts;
   const wide = sel.wide;
   const { offered, level: difficulty, keyLevel } = levelsOfSelection();
-  const feedback = effectiveFeedback(settings);
+  const feedback = effectiveFeedback(runSettings);
   const fullChart: Chart = buildChart(song, {
-    parts: sel.parts, split: sel.split, hands: sel.hands, window, foldMode: settings.foldMode, difficulty, removed: removedFor(feedback),
+    parts: sel.parts, split: sel.split, hands: sel.hands, window, foldMode: runSettings.foldMode, difficulty, removed: removedFor(feedback),
   });
   if (fullChart.notes.length === 0) {
     showError('Nothing to play', 'The selected part has no notes in range.', partPicker);
@@ -705,23 +756,26 @@ function play(): void {
     showError('Nothing to practise', 'These bars have no notes to play.', partPicker);
     return;
   }
-  const rate = choice ? choice.rate : settings.rate;
+  const rate = choice ? choice.rate : runSettings.rate;
   const timing = picker.timing;
   const judgeConfig: JudgeConfig = {
-    ...DEFAULT_JUDGE_CONFIG, preset: timing, easy: settings.easy, wrongNotePenalty: settings.wrongNotePenalty,
-    failAt: settings.arcade && !autoplay && !loop ? 0 : null,
-    overhold: settings.letGo ? OVERHOLD_COST[difficulty] : null,
+    ...DEFAULT_JUDGE_CONFIG, preset: timing, easy: runSettings.easy, wrongNotePenalty: runSettings.wrongNotePenalty,
+    failAt: runSettings.arcade && !autoplay && !loop ? 0 : null,
+    overhold: runSettings.letGo ? OVERHOLD_COST[difficulty] : null,
   };
   const sig = song.timeSigs[0]!;
   const barSeconds = ticksToSeconds(song.tempoMap, song.ppq, (song.ppq * 4 * sig.numerator) / sig.denominator);
-  const visibleSeconds = (canvas.clientHeight * 0.82) / settings.speed;
+  const visibleSeconds = (canvas.clientHeight * 0.82) / runSettings.speed;
   if (relative) keyboard.base = window.low;
+  else if (trial) keyboard.base = 48;
   const partName = partIds.map((id) => current!.parts.find((x) => x.key === partKey(id))?.name ?? '').join(' + ');
 
   gateHandler = null;
+  synth?.allNotesOff(0);
+  synth?.control(0, 64, 0, 0);
   stopBacking();
   if (backingSynth) {
-    backingSynth.setMasterGain(settings.backingVolume);
+    backingSynth.setMasterGain(runSettings.backingVolume);
     backingSynth.setDrumChannels(song.drumChannels);
     setMix(1);
     // Duplicates of the player's part are muted unless the guide track is on.
@@ -739,15 +793,16 @@ function play(): void {
     });
   }
   session = new PlaySession({
-    chart, clock, judgeConfig, rate, inputOffsetMs: settings.inputOffsetMs,
-    synth: settings.synth ? synth : null, feedbackSound: feedback,
+    chart, clock, judgeConfig, rate, inputOffsetMs: runSettings.inputOffsetMs,
+    synth: runSettings.synth ? synth : null, feedbackSound: feedback,
     feedbackPrograms: Object.fromEntries(current.parts.map((p) => [p.key, p.program])),
     relative, visibleSeconds, barSeconds, autoplay, countInBeats: sig.numerator,
+    steadyBacking: trial, finishAtSongEnd: trial, disableStarPower: trial,
     barTimes,
     // The system's reduced-motion preference turns the particles off, unless the URL asks for them.
-    effects: settings.effects && (params.has('effects') || !matchMedia('(prefers-reduced-motion: reduce)').matches),
-    tierText: settings.tierText,
-    hint: relative ? PlaySession.keysHint(window) : partName,
+    effects: runSettings.effects && (params.has('effects') || !matchMedia('(prefers-reduced-motion: reduce)').matches),
+    tierText: runSettings.tierText,
+    hint: trial ? `First Lights · ${trialRate * 100} BPM · C4, E4, G4` : relative ? PlaySession.keysHint(window) : partName,
     ...(loop && choice ? {
       practice: { loop, sections, current: from, label: loopLabel(sections, from, to), wait: choice.wait, ladder: choice.ladder },
       // the count-in clicks of the scheduler's, on the band's drum channel
@@ -782,6 +837,10 @@ function play(): void {
   };
   s.onFinished = (result) => {
     stopBacking();
+    if (trial) {
+      showStudentTrialResults({ result, sound: trialSound, rate: trialRate, autoplay: !!autoplay, onRetry: play, onSetup: trialSetup, onQuit: songSelect });
+      return;
+    }
     if (result.practice) {
       // Practice never writes bests or stars.
       showPracticeResults({
@@ -795,10 +854,10 @@ function play(): void {
       });
       return;
     }
-    const badges = [...(result.failed ? ['Song failed'] : []), ...(settings.easy ? ['Easy mode'] : []), ...(settings.rate < 1 ? [`${Math.round(settings.rate * 100)}% speed`] : []), ...(autoplay ? ['Autoplay'] : [])];
-    const detail = `${partName} · ${DIFFICULTY_LABEL[difficulty]} · ${timing} timing · ${Math.round(settings.rate * 100)}% speed`;
+    const badges = [...(result.failed ? ['Song failed'] : []), ...(runSettings.easy ? ['Easy mode'] : []), ...(runSettings.rate < 1 ? [`${Math.round(runSettings.rate * 100)}% speed`] : []), ...(autoplay ? ['Autoplay'] : [])];
+    const detail = `${partName} · ${DIFFICULTY_LABEL[difficulty]} · ${timing} timing · ${Math.round(runSettings.rate * 100)}% speed`;
     const suggestion = suggestNextStep({
-      accuracy: result.accuracy, difficulty, rate: settings.rate, failed: result.failed, sections: result.sections, levels: offered.map((l) => l.level),
+      accuracy: result.accuracy, difficulty, rate: runSettings.rate, failed: result.failed, sections: result.sections, levels: offered.map((l) => l.level),
     });
     const show = (extra: string[], previousBest: number | null) =>
       showResults({
@@ -807,7 +866,7 @@ function play(): void {
       });
     if (autoplay || result.failed) show([], null);
     else {
-      const key = bestKey(lib.id, partIds, wide ? picker.split : undefined, timing, settings.rate, settings.easy, keyLevel);
+      const key = bestKey(lib.id, partIds, wide ? picker.split : undefined, timing, runSettings.rate, runSettings.easy, keyLevel);
       getBest(key)
         .catch(() => undefined)
         .then((before) =>
@@ -817,9 +876,9 @@ function play(): void {
     }
   };
   renderState = {
-    chart, low: range.low, high: range.high, time: 0, pixelsPerSecond: settings.speed, beatLines: lines,
+    chart, low: range.low, high: range.high, time: 0, pixelsPerSecond: runSettings.speed, beatLines: lines,
     noteVisuals: s.noteVisuals, keyVisuals: s.keyVisuals, popups: s.popups,
-    hud: s.hud(), showNames: settings.names, showNoteNames: settings.noteNames,
+    hud: s.hud(), showNames: runSettings.names, showNoteNames: runSettings.noteNames,
     physical: relative ? window : null,
     fx: s.fx,
     ...(s.practice ? { practice: s.practice } : {}),
@@ -912,7 +971,7 @@ function pause(): void {
   showPause({
     onResume: resume,
     onRestart: () => { session = null; play(); },
-    onSettings: () => settingsScreen(() => showPause({ onResume: resume, onRestart: () => { session = null; play(); }, onSettings: () => settingsScreen(resume), onQuit: songSelect, ...stop })),
+    onSettings: () => current?.lib.id === STUDENT_TRIAL_ID ? trialSetup() : settingsScreen(() => showPause({ onResume: resume, onRestart: () => { session = null; play(); }, onSettings: () => settingsScreen(resume), onQuit: songSelect, ...stop })),
     onQuit: songSelect,
     ...stop,
   });
@@ -955,9 +1014,10 @@ function step(s: PlaySession, state: RenderState): number {
   const w0 = performance.now();
   s.update();
   setMix(s.mixLevel);
-  state.time = s.now() + (settings.audioOffsetMs / 1000) * s.rate;
+  const liveSettings = sessionSettings ?? settings;
+  state.time = s.now() + (liveSettings.audioOffsetMs / 1000) * s.rate;
   state.hud = s.hud();
-  (settings.highway === 'perspective' ? perspectiveRenderer : renderer).draw(state);
+  (liveSettings.highway === 'perspective' ? perspectiveRenderer : renderer).draw(state);
   return performance.now() - w0;
 }
 
@@ -1033,11 +1093,11 @@ async function boot(): Promise<void> {
       if (params.get('autoplay')) await startPlay({ jitterMs: Number(params.get('jitter') ?? 0) });
       return;
     }
-    if (quick && params.get('autoplay')) {
+    if (quick) {
       const lib = library.find((l) => l.id === quick);
       if (lib) {
         await openSong(quick);
-        await startPlay({ jitterMs: Number(params.get('jitter') ?? 0) }, urlPractice());
+        if (params.get('autoplay')) await startPlay({ jitterMs: Number(params.get('jitter') ?? 0) }, quick === STUDENT_TRIAL_ID ? null : urlPractice());
         return;
       }
     }
@@ -1050,6 +1110,7 @@ async function boot(): Promise<void> {
     showFirstRun({
       onDone: (kb, soundSelf) => {
         settings = { ...settings, kb, synth: !soundSelf, feedbackSound: soundSelf ? 'off' : 'chart', firstRunDone: true };
+        trialSound = soundSelf ? 'off' : 'press';
         saveSettings(settings);
         void start();
       },

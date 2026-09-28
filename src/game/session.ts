@@ -82,6 +82,12 @@ export interface SessionOptions {
   synth: Synth | null;
   /** default 'press' */
   feedbackSound?: FeedbackSound;
+  /** Keep accompaniment at full level after errors, for a controlled student trial. */
+  steadyBacking?: boolean;
+  /** Play through the chart's full duration even when the final target is missed or released early. */
+  finishAtSongEnd?: boolean;
+  /** Keep pedal sustain available without activating the scoring multiplier. */
+  disableStarPower?: boolean;
   /** GM program per selected part key, for chart-note feedback */
   feedbackPrograms?: Record<string, number>;
   /** relative judging: hardware octave shift is unknown and may change */
@@ -258,7 +264,7 @@ export class PlaySession {
 
   /** 0..1: how much of the band's drums and pads the player has earned; falls when health is low. */
   get mixLevel(): number {
-    return this.judge.meter.mixLevel;
+    return this.opts.steadyBacking ? 1 : this.judge.meter.mixLevel;
   }
 
   /** Song time an input event happened at, after the input offset. */
@@ -349,7 +355,7 @@ export class PlaySession {
 
   /** Switch star power on, if the gauge allows: the sustain pedal, or Space. */
   activateStar(): boolean {
-    if (this.status !== 'playing') return false;
+    if (this.status !== 'playing' || this.opts.disableStarPower) return false;
     return this.judge.activateStar(this.judgeTimeAt(this.now()));
   }
 
@@ -531,7 +537,7 @@ export class PlaySession {
       this.checkPassEnd(now);
       return;
     }
-    if (this.judge.finished && this.endAt === Infinity) {
+    if (!this.opts.finishAtSongEnd && this.judge.finished && this.endAt === Infinity) {
       let end = now;
       for (const s of this.sounding) end = Math.max(end, s.end);
       for (const c of this.earned) end = Math.max(end, c.time + c.duration);
@@ -545,7 +551,10 @@ export class PlaySession {
       this.finish();
       return;
     }
-    if (now >= this.endAt || now > this.chart.duration) {
+    const ended = this.opts.finishAtSongEnd
+      ? now >= this.chart.duration
+      : now >= this.endAt || now > this.chart.duration;
+    if (ended) {
       this.judge.finish();
       this.finish();
     }
@@ -662,6 +671,7 @@ export class PlaySession {
     this.sounding.length = 0;
     this.earned.length = 0;
     this.opts.synth?.allNotesOff(0);
+    if (this.feedback === 'press') this.opts.synth?.control(0, 64, 0, 0);
     this.onFinished(this.result());
   }
 
@@ -697,6 +707,8 @@ export class PlaySession {
     this.sounding.length = 0;
     this.earned.length = 0;
     this.opts.synth?.allNotesOff(0);
+    // A pedal release while paused is ignored; clear sustain now so resume cannot latch it.
+    if (this.feedback === 'press') this.opts.synth?.control(0, 64, 0, 0);
   }
 
   resume(): void {
