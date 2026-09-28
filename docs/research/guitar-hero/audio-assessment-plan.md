@@ -2,6 +2,8 @@
 
 September 27, 2026. Proposed investigation, not completed auditory findings. Independent of the current MIDI-HERO build.
 
+**Execution status:** the [feasibility attempt](audio-pilot-findings.md) did not pass the source/listening/sequence/measurement gates. The [handoff](audio-pilot-handoff.md) is ready for a supplied recording and later annotation. No new behavior has been heard or measured. The user can potentially record sooner than they can listen; file inspection may proceed when a source arrives, while auditory conclusions remain open. A separate [student trial](student-audio-trial.md) tests keyboard hypotheses without relying on completed Guitar Hero findings.
+
 **Aim:** Reconstruct how player actions change what is heard, establish how those changes communicate success, failure and recovery, and identify which mechanisms support real keyboard playing within an initially reduced, two-octave arrangement.
 
 The existing report has source-backed audio hypotheses but no verified listening study. Screenshots, captions and descriptions cannot close that gap. This investigation is a prerequisite to treating its audio recommendations as established.
@@ -12,7 +14,7 @@ Run a small feasibility pilot before gathering a large video library. Obtain one
 
 Preserve the original recording. Check for commentary, replacement soundtrack, edits, volume normalization, clipping, automatic gain control and unknown audio/video offsets. Record what is unknown; exclude replacement soundtracks from reactive-audio evidence.
 
-**Available now:** FFmpeg and FFprobe for file inspection/extraction; Python and NumPy for waveforms, spectra and energy measurements. These support analysis of supplied or otherwise permitted local recordings. They do not provide perception or prove which game component generated a sound.
+**Availability checked in the pilot:** FFmpeg and FFprobe 8.1 run; bundled Python 3.12.14 imports NumPy 2.3.5. The default `python3` lacks NumPy; resolve the bundled interpreter through the workspace dependency tool. These support analysis of supplied or otherwise permitted local recordings. They do not provide perception or prove which game component generated a sound.
 
 **Still required:** a verified way to listen. Browser screenshots do not convey audio to this research session, and speech transcription cannot characterize musical feedback. Use a human listener with an annotation sheet, optionally assisted by an audio-understanding system only after its actual music-input capability is verified. Before relying on such a system, test it blind on known clips containing a removed instrument, a brief error sound and an unchanged control. Merely accepting an audio file is insufficient.
 
