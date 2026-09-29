@@ -227,6 +227,20 @@ describe('perspective gameplay contract', () => {
     expect(ctx.roundRect).not.toHaveBeenCalled();
   });
 
+  it('never passes the canvas a negative size when laid out almost zero wide (hidden or tiny window)', () => {
+    const { renderer, state, ctx, canvas } = fixture();
+    canvas.clientWidth = 20; // 25 keys in 20px: every column is under 2px
+    state.noteVisuals[0] = { state: 'hit', hitTime: 0, judgment: 'perfect' };
+    state.time = 0.05;
+    renderer.draw(state);
+    expect(ctx.roundRect).toHaveBeenCalled();
+    for (const [, , w, h, r] of ctx.roundRect.mock.calls) {
+      expect(w).toBeGreaterThan(0);
+      expect(h).toBeGreaterThan(0);
+      expect(r).toBeGreaterThanOrEqual(0);
+    }
+  });
+
   it('draws missed notes over the keyboard and fades them out, with red key flashes', () => {
     const { renderer, state, rects } = fixture();
     state.noteVisuals[0]!.state = 'missed';
