@@ -254,7 +254,6 @@ const entertainerChords = ['-', 'C','C','G7','C', 'C','D','G','G', 'C','C','G7',
 
 const songs: Song[] = [
   {
-    // Authored anchors from docs/research/guitar-hero/arrangements-evidence.md.
     // The backing owns bass, low harmony and pulse, never a hidden full lead.
     id: 'first-lights', title: 'First Lights — Anchors', bpm: 100, timeSig: [4, 4], trialOnly: true,
     voices: [

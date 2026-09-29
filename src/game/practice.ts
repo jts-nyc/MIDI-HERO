@@ -1,5 +1,5 @@
 /**
- * Practice mode, the pure part (docs/HANDOFF-next.md, WP9): sections to pick from, the chart
+ * Practice mode, the pure part: sections to pick from, the chart
  * trimmed to an A–B loop, the pass counter with its speed ladder, and the wait-mode gate.
  * The session drives it; nothing here touches the DOM or the clock.
  */
