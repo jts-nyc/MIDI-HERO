@@ -37,6 +37,7 @@ import { effectiveFeedback, loadSettings, resetToClassDefaults, saveClassDefault
 interface ManifestEntry {
   id: string;
   title: string;
+  tag?: string;
   file: string;
   defaultParts: PartId[];
   split?: number;
@@ -47,6 +48,8 @@ interface LibrarySong {
   title: string;
   source: 'bundled' | 'imported';
   file?: string;
+  /** difficulty and flavour from the manifest, shown in song select */
+  tag?: string;
   /** full URL for a song outside public/songs (the dev server's local-songs folder) */
   url?: string;
   bytes?: Uint8Array;
@@ -223,7 +226,7 @@ async function loadLibrary(): Promise<void> {
   const manifest = (await (await fetch(`${base}songs/manifest.json`)).json()) as ManifestEntry[];
   const choices = storedPartChoices();
   const bundled: LibrarySong[] = manifest.map((m) => ({
-    id: m.id, title: m.title, source: 'bundled', file: m.file, defaultParts: m.defaultParts,
+    id: m.id, title: m.title, tag: m.tag, source: 'bundled', file: m.file, defaultParts: m.defaultParts,
     parts: choices[m.id]?.parts ?? m.defaultParts, split: choices[m.id]?.split ?? m.split, hands: choices[m.id]?.hands, timingPreset: choices[m.id]?.timing,
     difficulty: isDifficulty(choices[m.id]?.difficulty) ? choices[m.id]!.difficulty : undefined, keyLevel: choices[m.id]?.keyLevel,
   }));
@@ -365,7 +368,7 @@ function songSelect(): void {
   const rows: SongRow[] = library.map((l) => ({
     id: l.id,
     title: l.title,
-    subtitle: l.id === STUDENT_TRIAL_ID ? 'Student trial · eight melody notes with steady backing' : l.url ? 'your local song' : l.source === 'bundled' ? 'built-in' : l.packName ? `pack: ${l.packName}` : 'imported',
+    subtitle: l.id === STUDENT_TRIAL_ID ? 'Student trial · eight melody notes with steady backing' : l.url ? 'your local song' : l.source === 'bundled' ? l.tag ?? 'built-in' : l.packName ? `pack: ${l.packName}` : 'imported',
     group: l.source === 'imported' ? 'class' : 'builtin',
     ...(l.packName ? { pack: l.packName, packIndex: l.packIndex ?? 0 } : {}),
     deletable: l.source === 'imported',
@@ -398,9 +401,8 @@ function songSelect(): void {
       })
       .catch(() => undefined);
   }
-  // A pack is a setlist: each of its songs shows the stars it has earned and on which level.
+  // Every song shows the stars it has earned and on which level (a pack's setlist most of all).
   for (const l of library) {
-    if (!l.packName) continue;
     void levelBests(l.id)
       .then((bests) => {
         const got = songStars(bests);

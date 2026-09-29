@@ -30,6 +30,8 @@ type Song = {
   timeSig: [number, number];
   voices: Voice[]; // voices[0] is the intended player part
   trialOnly?: boolean;
+  /** difficulty and flavour, shown under the title in song select */
+  tag?: string;
   /** tempo changes as [bar, bpm]; bar 0 overrides bpm */
   tempos?: [number, number][];
 };
@@ -217,6 +219,39 @@ const jingleMelody: N[] = [
 ];
 const jingleChords = ['C','C','C','C','F','C','D','G', 'C','C','C','C','F','C','G7','C'];
 
+// ---------------------------------------------------------------------------
+// Für Elise (Beethoven, WoO 59) — the A section, A minor, 3/8
+// ---------------------------------------------------------------------------
+const q = 0.25; // a sixteenth, in quarter-note beats
+const feTurn: N[] = [[p(E,5),q],[S(p(D,5)),q],[p(E,5),q],[S(p(D,5)),q],[p(E,5),q],[p(B,4),q],[p(D,5),q],[p(C,5),q]];
+const feA: N[] = [
+  ...feTurn, [p(A,4),.5],[0,q],[p(C,4),q],[p(E,4),q],[p(A,4),q], [p(B,4),.5],[0,q],[p(E,4),q],[S(p(G,4)),q],[p(B,4),q],
+  [p(C,5),.5],[0,q],[p(E,4),q],
+  ...feTurn, [p(A,4),.5],[0,q],[p(C,4),q],[p(E,4),q],[p(A,4),q], [p(B,4),.5],[0,q],[p(E,4),q],[p(C,5),q],[p(B,4),q],
+  [p(A,4),1],
+];
+// A section = pickup (2 sixteenths of turn) + 8 bars; the first bar holds the pickup after a rest.
+const eliseMelody: N[] = [[0,1], ...feA, ...feA, ...feA];
+const feArp = (a: number, b: number, c: number): N[] => [[a,q],[b,q],[c,q],[0,.75]];
+const feLHA: N[] = [
+  [0,1.5], [0,1.5], ...feArp(p(A,2),p(E,3),p(A,3)), ...feArp(p(E,2),p(E,3),S(p(G,3))), ...feArp(p(A,2),p(E,3),p(A,3)),
+  [0,1.5], ...feArp(p(A,2),p(E,3),p(A,3)), ...feArp(p(E,2),p(E,3),S(p(G,3))), ...feArp(p(A,2),p(E,3),p(A,3)),
+];
+// each A pass is 8 bars ending on a held A that makes room for the next pickup; the LH rests while the RH turns
+const eliseLH: N[] = [[0,1.5], ...feLHA.slice(1), ...feLHA.slice(1), ...feLHA.slice(1)];
+
+// ---------------------------------------------------------------------------
+// The Entertainer (Scott Joplin, 1902) — the opening strain, C major, 2/4
+// ---------------------------------------------------------------------------
+const entPick: N[] = [[p(D,4),q],[S(p(D,4)),q]];
+const entHead: N[] = [[p(E,4),q],[p(C,5),.5],[p(E,4),q],[p(C,5),.5],[p(E,4),q],[p(C,5),1.25]];
+const entA: N[] = [...entPick, ...entHead, [p(C,5),q],[p(D,5),q],[S(p(D,5)),q],[p(E,5),q],
+  [p(C,5),q],[p(D,5),q],[p(E,5),.5],[p(B,4),q],[p(D,5),.5],[p(C,5),1.25]];
+const entB: N[] = [...entPick, ...entHead, [p(A,4),q],[p(G,4),q],[S(p(F,4)),q],[p(A,4),q],
+  [p(C,5),q],[p(E,5),.5],[p(D,5),q],[p(C,5),q],[p(A,4),q],[p(D,5),1.5]];
+const entertainerMelody: N[] = [[0,1.5], ...entA, [0,.5], ...entB, [0,.5], ...entA];
+const entertainerChords = ['-', 'C','C','G7','C', 'C','D','G','G', 'C','C','G7','C'];
+
 const songs: Song[] = [
   {
     // Authored anchors from docs/research/guitar-hero/arrangements-evidence.md.
@@ -236,7 +271,7 @@ const songs: Song[] = [
     ],
   },
   {
-    id: 'ode-to-joy', title: 'Ode to Joy', bpm: 100, timeSig: [4, 4],
+    id: 'ode-to-joy', title: 'Ode to Joy', bpm: 100, tag: 'Beginner · steady quarter notes', timeSig: [4, 4],
     voices: [
       { name: 'Melody (right hand)', channel: 0, program: 0, notes: odeMelody },
       { name: 'Bass (left hand)', channel: 1, program: 0, notes: odeBass },
@@ -244,7 +279,7 @@ const songs: Song[] = [
     ],
   },
   {
-    id: 'twinkle', title: 'Twinkle Twinkle Little Star', bpm: 90, timeSig: [4, 4],
+    id: 'twinkle', title: 'Twinkle Twinkle Little Star', bpm: 90, tag: 'Beginner · the first song', timeSig: [4, 4],
     voices: [
       { name: 'Melody (right hand)', channel: 0, program: 0, notes: twinkleMelody },
       { name: 'Bass (left hand)', channel: 1, program: 0, notes: twinkleBass },
@@ -252,7 +287,7 @@ const songs: Song[] = [
     ],
   },
   {
-    id: 'minuet-in-g', title: 'Minuet in G', bpm: 112, timeSig: [3, 4],
+    id: 'minuet-in-g', title: 'Minuet in G', bpm: 112, tag: 'Intermediate · 3/4 time, quick eighth notes', timeSig: [3, 4],
     voices: [
       { name: 'Melody (right hand)', channel: 0, program: 6, notes: minuetMelody },
       { name: 'Bass (left hand)', channel: 1, program: 6, notes: minuetBass },
@@ -261,27 +296,45 @@ const songs: Song[] = [
     ],
   },
   {
-    id: 'saints', title: 'When the Saints Go Marching In', bpm: 116, timeSig: [4, 4],
+    id: 'saints', title: 'When the Saints Go Marching In', bpm: 116, tag: 'Beginner · marching band', timeSig: [4, 4],
     voices: [
       { name: 'Melody (right hand)', channel: 0, program: 56, notes: saintsMelody },
       ...band(saintsChords, 4, 'march'),
     ],
   },
   {
-    id: 'jingle-bells', title: 'Jingle Bells', bpm: 126, timeSig: [4, 4],
+    id: 'jingle-bells', title: 'Jingle Bells', bpm: 126, tag: 'Intermediate · brisk and bouncy', timeSig: [4, 4],
     voices: [
       { name: 'Melody (right hand)', channel: 0, program: 0, notes: jingleMelody },
       ...band(jingleChords, 4, 'gallop'),
     ],
   },
   {
-    id: 'mountain-king', title: 'Hall of the Mountain King (speeds up!)', bpm: 96, timeSig: [4, 4], tempos: mkTempos,
+    id: 'mountain-king', title: 'Hall of the Mountain King (speeds up!)', bpm: 96, tag: 'Challenge · speeds up from 96 to 184 bpm', timeSig: [4, 4], tempos: mkTempos,
     voices: [
       { name: 'Melody (right hand)', channel: 0, program: 0, notes: mkMelody },
       ...band(mkChords, 4, 'rock'),
     ],
   },
+  {
+    id: 'fur-elise', title: 'Für Elise', bpm: 66, timeSig: [3, 8], tag: 'Intermediate · the famous opening, fast sixteenths',
+    voices: [
+      { name: 'Melody (right hand)', channel: 0, program: 0, notes: eliseMelody },
+      { name: 'Left hand', channel: 1, program: 0, velocity: 60, notes: eliseLH },
+    ],
+  },
+  {
+    id: 'entertainer', title: 'The Entertainer', bpm: 72, timeSig: [2, 4], tag: 'Challenge · ragtime syncopation',
+    voices: [
+      { name: 'Melody (right hand)', channel: 0, program: 0, notes: entertainerMelody },
+      ...band(entertainerChords, 2, 'march'),
+    ],
+  },
 ];
+// Song select lists them easiest first.
+const TIER = ['Beginner', 'Intermediate', 'Challenge'];
+const tierOf = (x: Song) => (x.trialOnly ? -1 : TIER.findIndex((t) => x.tag?.startsWith(t)));
+songs.sort((a, b) => tierOf(a) - tierOf(b) || a.bpm - b.bpm);
 
 // ---------------------------------------------------------------------------
 // SMF writer
@@ -347,7 +400,7 @@ function songToBytes(s: Song): Uint8Array {
 const sha256 = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 
 type ManifestEntry = {
-  id: string; title: string; file: string;
+  id: string; title: string; file: string; tag?: string;
   defaultParts: { track: number; channel: number }[];
   split?: number;
 };
@@ -359,7 +412,7 @@ for (const s of songs) {
   const file = `${s.id}.mid`;
   writeFileSync(join(songsDir, file), bytes);
   const defaultParts = [{ track: 1, channel: s.voices[0]!.channel }];
-  manifest.push({ id: s.id, title: s.title, file, defaultParts });
+  manifest.push({ id: s.id, title: s.title, file, defaultParts, ...(s.tag ? { tag: s.tag } : {}) });
   if (!s.trialOnly) packSongs.push({ id: sha256(bytes), title: s.title, midiBase64: Buffer.from(bytes).toString('base64'), defaultParts, timingPreset: 'normal' });
   console.log(`wrote ${file} (${bytes.length} bytes, ${s.voices[0]!.notes.length} melody notes)`);
 }
@@ -368,7 +421,7 @@ for (const s of songs) {
 {
   const bytes = new Uint8Array(readFileSync(join(songsDir, 'five-finger.mid')));
   const defaultParts = [{ track: 0, channel: 0 }];
-  manifest.unshift({ id: 'five-finger', title: 'C Five-Finger Exercise (70 bpm)', file: 'five-finger.mid', defaultParts });
+  manifest.unshift({ id: 'five-finger', title: 'C Five-Finger Exercise (70 bpm)', file: 'five-finger.mid', defaultParts, tag: 'Warm-up · five notes, one hand' });
   packSongs.unshift({ id: sha256(bytes), title: 'C Five-Finger Exercise (70 bpm)', midiBase64: Buffer.from(bytes).toString('base64'), defaultParts, timingPreset: 'relaxed' });
 }
 

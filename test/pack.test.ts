@@ -60,6 +60,6 @@ describe('song pack', () => {
     const { readFileSync } = await import('node:fs');
     const v = parsePackJson(readFileSync('public/packs/beginner.midihero.json', 'utf8'));
     expect(v.ok).toBe(true);
-    if (v.ok) expect(v.pack.songs.length).toBe(7);
+    if (v.ok) expect(v.pack.songs.length).toBe(9);
   });
 });

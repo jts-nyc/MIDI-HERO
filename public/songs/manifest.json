@@ -8,23 +8,13 @@
         "track": 0,
         "channel": 0
       }
-    ]
+    ],
+    "tag": "Warm-up · five notes, one hand"
   },
   {
     "id": "first-lights",
     "title": "First Lights — Anchors",
     "file": "first-lights.mid",
-    "defaultParts": [
-      {
-        "track": 1,
-        "channel": 0
-      }
-    ]
-  },
-  {
-    "id": "ode-to-joy",
-    "title": "Ode to Joy",
-    "file": "ode-to-joy.mid",
     "defaultParts": [
       {
         "track": 1,
@@ -41,18 +31,20 @@
         "track": 1,
         "channel": 0
       }
-    ]
+    ],
+    "tag": "Beginner · the first song"
   },
   {
-    "id": "minuet-in-g",
-    "title": "Minuet in G",
-    "file": "minuet-in-g.mid",
+    "id": "ode-to-joy",
+    "title": "Ode to Joy",
+    "file": "ode-to-joy.mid",
     "defaultParts": [
       {
         "track": 1,
         "channel": 0
       }
-    ]
+    ],
+    "tag": "Beginner · steady quarter notes"
   },
   {
     "id": "saints",
@@ -63,7 +55,32 @@
         "track": 1,
         "channel": 0
       }
-    ]
+    ],
+    "tag": "Beginner · marching band"
+  },
+  {
+    "id": "fur-elise",
+    "title": "Für Elise",
+    "file": "fur-elise.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Intermediate · the famous opening, fast sixteenths"
+  },
+  {
+    "id": "minuet-in-g",
+    "title": "Minuet in G",
+    "file": "minuet-in-g.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Intermediate · 3/4 time, quick eighth notes"
   },
   {
     "id": "jingle-bells",
@@ -74,7 +91,20 @@
         "track": 1,
         "channel": 0
       }
-    ]
+    ],
+    "tag": "Intermediate · brisk and bouncy"
+  },
+  {
+    "id": "entertainer",
+    "title": "The Entertainer",
+    "file": "entertainer.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Challenge · ragtime syncopation"
   },
   {
     "id": "mountain-king",
@@ -85,6 +115,7 @@
         "track": 1,
         "channel": 0
       }
-    ]
+    ],
+    "tag": "Challenge · speeds up from 96 to 184 bpm"
   }
 ]
