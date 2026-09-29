@@ -1,6 +1,6 @@
 /**
- * What a renderer draws for practice mode (docs/HANDOFF-next.md, WP9 and WP13).
- * The session fills it (Fable, WP9); both renderers draw it (Codex, WP13). Pure types.
+ * What a renderer draws for practice mode. The session fills it; both renderers draw it.
+ * Pure types.
  */
 
 export interface PracticeSection {

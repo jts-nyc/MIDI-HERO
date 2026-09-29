@@ -61,5 +61,4 @@ In a dev build: `await window.midihero.bench(5)`.
 ## Practice mode
 
 `RenderState.practice?: PracticeView` (`src/render/practice.ts`) carries sections, the A–B loop,
-passes and the wait-mode state. Absent outside practice mode. What to draw: `docs/HANDOFF-next.md`,
-WP13.
+passes and the wait-mode state. Absent outside practice mode.

@@ -14,3 +14,10 @@ local-songs/*
 # Local-only files served by the dev server for manual checks
 public/fixtures/
 Guitar\ Hero\ Gameplay\ vids/
+
+# Private working notes: research, agent handoffs, assessments. Kept locally, never published.
+docs/research/
+docs/HANDOFF-*.md
+docs/GAMEPLAY-ASSESSMENT.md
+docs/private/
+*.private.md

@@ -16,7 +16,7 @@ import { buildSections, sectionResults, type SectionResult } from './results.ts'
 
 export type SessionStatus = 'playing' | 'paused' | 'finished';
 
-/** Practice mode: loop one stretch of the song (docs/HANDOFF-next.md, WP9). */
+/** Practice mode: loop one stretch of the song. */
 export interface PracticeOptions {
   /** A–B loop in song seconds; the chart must already be trimmed to it (practice.ts trimChart) */
   loop: Loop;
