@@ -336,14 +336,16 @@ export class PerspectiveRenderer {
       // A completed hold starts its pop at holdEnd, even when the onset is far below the keys.
       const t = Math.max(0, Math.min(1, (s.time - (vis.holdEnd ?? vis.hitTime)) / HIT_FADE));
       const grow = this.reduceMotion ? 1 : 1 + 0.6 * t;
-      const head = Math.min(h, (col.w - 2) * 1.2);
-      const w = (col.w - 2) * grow;
+      // A column narrower than 2px (a canvas laid out tiny or hidden) must not give a negative size.
+      const colW = Math.max(2, col.w - 2);
+      const head = Math.min(h, colW * 1.2);
+      const w = colW * grow;
       const popH = head * grow;
       const y = Math.min(bottom, this.hitY) - popH / 2 - head / 2;
       ctx.globalAlpha = 0.75 * (1 - t);
       ctx.fillStyle = gold ? theme.star : '#ffffff';
       ctx.beginPath();
-      ctx.roundRect(col.x + col.w / 2 - w / 2, y, w, popH, Math.min(4, w / 2, popH / 2));
+      ctx.roundRect(col.x + col.w / 2 - w / 2, y, w, popH, Math.max(0, Math.min(4, w / 2, popH / 2)));
       ctx.fill();
       ctx.globalAlpha = 1;
       return;

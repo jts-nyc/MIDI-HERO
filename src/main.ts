@@ -1065,6 +1065,8 @@ if (import.meta.env.DEV) {
 }
 
 function frame(): void {
+  // Ask for the next frame first: a frame that throws must not stop the game drawing for good.
+  requestAnimationFrame(frame);
   frameCount++;
   const nowMs = performance.now();
   if (nowMs - fpsWindowStart >= 1000) {
@@ -1083,7 +1085,6 @@ function frame(): void {
       canvas.dataset.state = JSON.stringify({ status: session.status, now: +session.now().toFixed(2), score: j.score, combo: j.combo, multiplier: j.scoreMultiplier, star: +j.starGauge.toFixed(2), starOn: j.starActive, health: +j.meter.health.toFixed(2), mix: +mix.toFixed(2), counts: j.counts, ...(session.practice ? { practice: { passes: session.practice.passes, waiting: session.practice.waiting, waitingFor: session.practice.waitingFor, rate: session.rate } } : {}), offset: session.octaveOffset, locked: session.filter.locked, backing: scheduler?.running ?? false, audio: audioCtx?.state ?? 'none', notes: session.chart.notes.length, fps: +fps.toFixed(1), frameMs: +frameMs.toFixed(2) });
     }
   }
-  requestAnimationFrame(frame);
 }
 
 // ---------------------------------------------------------------------------
