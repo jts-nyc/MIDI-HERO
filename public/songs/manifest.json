@@ -53,5 +53,38 @@
         "channel": 0
       }
     ]
+  },
+  {
+    "id": "saints",
+    "title": "When the Saints Go Marching In",
+    "file": "saints.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ]
+  },
+  {
+    "id": "jingle-bells",
+    "title": "Jingle Bells",
+    "file": "jingle-bells.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ]
+  },
+  {
+    "id": "mountain-king",
+    "title": "Hall of the Mountain King (speeds up!)",
+    "file": "mountain-king.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ]
   }
 ]

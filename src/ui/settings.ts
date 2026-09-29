@@ -43,11 +43,13 @@ export interface Settings {
   /** computer-keyboard fallback base pitch */
   keyboardBase: number;
   firstRunDone: boolean;
+  /** the player chose a highway in Settings; before perspective became the default, 'flat' was saved for everyone */
+  highwayPicked: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   kb: 25,
-  highway: 'flat',
+  highway: 'perspective',
   timing: 'normal',
   names: true,
   noteNames: false,
@@ -71,6 +73,7 @@ export const DEFAULT_SETTINGS: Settings = {
   midiPortId: null,
   keyboardBase: 48,
   firstRunDone: false,
+  highwayPicked: false,
 };
 
 const KEY = 'midihero.settings.v1';
@@ -130,9 +133,10 @@ export function sanitize(raw: unknown, base: Settings = DEFAULT_SETTINGS): Setti
     if (Number.isFinite(v)) (s as unknown as Record<string, number>)[k] = Math.min(max, Math.max(min, v));
   };
   if ([25, 49, 61, 88].includes(Number(r.kb))) s.kb = Number(r.kb) as KeyboardSize;
-  if (r.highway === 'flat' || r.highway === 'perspective') s.highway = r.highway;
+  // A saved 'flat' only counts if the player picked it; older saves stored the old default.
+  if (r.highway === 'perspective' || (r.highway === 'flat' && r.highwayPicked === true)) s.highway = r.highway;
   if (r.timing === 'strict' || r.timing === 'normal' || r.timing === 'relaxed') s.timing = r.timing;
-  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'letGo', 'firstRunDone', 'practiceWait', 'practiceLadder'] as const) {
+  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'letGo', 'firstRunDone', 'highwayPicked', 'practiceWait', 'practiceLadder'] as const) {
     if (typeof r[k] === 'boolean') s[k] = r[k] as boolean;
   }
   num('speed', 100, 800);

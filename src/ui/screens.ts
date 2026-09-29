@@ -693,6 +693,7 @@ export function showSettings(o: SettingsScreenOptions): void {
       rate: Number(get<HTMLSelectElement>('rate').value),
       speed: Number(get<HTMLInputElement>('speed').value),
       highway: get<HTMLSelectElement>('highway').value as Settings['highway'],
+      highwayPicked: s.highwayPicked || get<HTMLSelectElement>('highway').value !== s.highway,
       names: get<HTMLInputElement>('names').checked,
       noteNames: get<HTMLInputElement>('noteNames').checked,
       synth: get<HTMLSelectElement>('feedbackSound').value !== 'off',
