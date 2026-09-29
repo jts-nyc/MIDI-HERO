@@ -134,6 +134,23 @@ class CachedText {
 }
 
 /** Shared practice/venue drawing. Projection uses the same linear row scale as the highway. */
+/**
+ * A judgment label gives way to a newer one landing within `gap` pixels: in a fast run the
+ * labels would otherwise print over each other and become unreadable.
+ */
+export function supersededPopup(popups: readonly Popup[], i: number, xOf: (pitch: number) => number | undefined, now: number, gap = 70): boolean {
+  const p = popups[i]!;
+  const x = xOf(p.pitch);
+  if (x === undefined) return true;
+  for (let j = 0; j < popups.length; j++) {
+    const q = popups[j]!;
+    if (q.time <= p.time || q.time > now) continue;
+    const qx = xOf(q.pitch);
+    if (qx !== undefined && Math.abs(qx - x) < gap) return true;
+  }
+  return false;
+}
+
 export class PracticeVenueVisuals {
   private waitingKeys = new Uint8Array(128);
   private waitingAlpha = 0;
@@ -687,6 +704,7 @@ export class Renderer {
 
   private drawPopups(s: RenderState, layout: KeyboardLayout, hitY: number): void {
     const ctx = this.ctx;
+    const xOf = (pitch: number) => { const c = layout.columns.get(pitch); return c ? c.x + c.w / 2 : undefined; };
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = 'bold 14px system-ui';
@@ -695,7 +713,7 @@ export class Renderer {
       const age = s.time - p.time;
       if (age < 0 || age > POPUP_LIFE) continue;
       const col = layout.columns.get(p.pitch);
-      if (!col) continue;
+      if (!col || supersededPopup(s.popups, i, xOf, s.time)) continue;
       const t = age / POPUP_LIFE;
       ctx.globalAlpha = 1 - t;
       ctx.fillStyle = p.color;

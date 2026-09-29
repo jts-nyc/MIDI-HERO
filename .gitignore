@@ -7,5 +7,10 @@ dist/
 fixtures/*
 !fixtures/README.md
 
+# Your own MIDI files, listed in the song picker by the dev server. Never commit.
+local-songs/*
+!local-songs/README.md
+
 # Local-only files served by the dev server for manual checks
 public/fixtures/
+Guitar\ Hero\ Gameplay\ vids/

@@ -37,6 +37,7 @@ import { effectiveFeedback, loadSettings, resetToClassDefaults, saveClassDefault
 interface ManifestEntry {
   id: string;
   title: string;
+  tag?: string;
   file: string;
   defaultParts: PartId[];
   split?: number;
@@ -47,6 +48,10 @@ interface LibrarySong {
   title: string;
   source: 'bundled' | 'imported';
   file?: string;
+  /** difficulty and flavour from the manifest, shown in song select */
+  tag?: string;
+  /** full URL for a song outside public/songs (the dev server's local-songs folder) */
+  url?: string;
   bytes?: Uint8Array;
   defaultParts: PartId[];
   parts: PartId[];
@@ -221,10 +226,27 @@ async function loadLibrary(): Promise<void> {
   const manifest = (await (await fetch(`${base}songs/manifest.json`)).json()) as ManifestEntry[];
   const choices = storedPartChoices();
   const bundled: LibrarySong[] = manifest.map((m) => ({
-    id: m.id, title: m.title, source: 'bundled', file: m.file, defaultParts: m.defaultParts,
+    id: m.id, title: m.title, tag: m.tag, source: 'bundled', file: m.file, defaultParts: m.defaultParts,
     parts: choices[m.id]?.parts ?? m.defaultParts, split: choices[m.id]?.split ?? m.split, hands: choices[m.id]?.hands, timingPreset: choices[m.id]?.timing,
     difficulty: isDifficulty(choices[m.id]?.difficulty) ? choices[m.id]!.difficulty : undefined, keyLevel: choices[m.id]?.keyLevel,
   }));
+  let local: LibrarySong[] = [];
+  if (import.meta.env.DEV) {
+    // Your own .mid files in the gitignored local-songs/ folder (served by the dev server only).
+    try {
+      const files = (await (await fetch('/local-songs/index.json')).json()) as { file: string; title: string }[];
+      local = files.map((f) => {
+        const id = `local:${f.file}`;
+        return {
+          id, title: f.title, source: 'bundled', url: `/local-songs/${encodeURIComponent(f.file)}`, defaultParts: [],
+          parts: choices[id]?.parts ?? [], split: choices[id]?.split, hands: choices[id]?.hands, timingPreset: choices[id]?.timing,
+          difficulty: isDifficulty(choices[id]?.difficulty) ? choices[id]!.difficulty : undefined, keyLevel: choices[id]?.keyLevel,
+        };
+      });
+    } catch {
+      /* no local songs */
+    }
+  }
   let imported: LibrarySong[] = [];
   try {
     const stored = await listSongs();
@@ -238,13 +260,13 @@ async function loadLibrary(): Promise<void> {
   } catch (e) {
     console.warn('IndexedDB unavailable', e);
   }
-  library = [...imported, ...bundled];
+  library = [...imported, ...local, ...bundled];
 }
 
 async function songBytes(lib: LibrarySong): Promise<Uint8Array> {
   if (lib.bytes) return lib.bytes;
-  const res = await fetch(`${base}songs/${lib.file}`);
-  if (!res.ok) throw new Error(`Could not fetch ${lib.file}`);
+  const res = await fetch(lib.url ?? `${base}songs/${lib.file}`);
+  if (!res.ok) throw new Error(`Could not fetch ${lib.url ?? lib.file}`);
   return new Uint8Array(await res.arrayBuffer());
 }
 
@@ -346,7 +368,7 @@ function songSelect(): void {
   const rows: SongRow[] = library.map((l) => ({
     id: l.id,
     title: l.title,
-    subtitle: l.id === STUDENT_TRIAL_ID ? 'Student trial · eight melody notes with steady backing' : l.source === 'bundled' ? 'built-in' : l.packName ? `pack: ${l.packName}` : 'imported',
+    subtitle: l.id === STUDENT_TRIAL_ID ? 'Student trial · eight melody notes with steady backing' : l.url ? 'your local song' : l.source === 'bundled' ? l.tag ?? 'built-in' : l.packName ? `pack: ${l.packName}` : 'imported',
     group: l.source === 'imported' ? 'class' : 'builtin',
     ...(l.packName ? { pack: l.packName, packIndex: l.packIndex ?? 0 } : {}),
     deletable: l.source === 'imported',
@@ -379,9 +401,8 @@ function songSelect(): void {
       })
       .catch(() => undefined);
   }
-  // A pack is a setlist: each of its songs shows the stars it has earned and on which level.
+  // Every song shows the stars it has earned and on which level (a pack's setlist most of all).
   for (const l of library) {
-    if (!l.packName) continue;
     void levelBests(l.id)
       .then((bests) => {
         const got = songStars(bests);

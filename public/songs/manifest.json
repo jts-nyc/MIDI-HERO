@@ -8,23 +8,13 @@
         "track": 0,
         "channel": 0
       }
-    ]
+    ],
+    "tag": "Warm-up · five notes, one hand"
   },
   {
     "id": "first-lights",
     "title": "First Lights — Anchors",
     "file": "first-lights.mid",
-    "defaultParts": [
-      {
-        "track": 1,
-        "channel": 0
-      }
-    ]
-  },
-  {
-    "id": "ode-to-joy",
-    "title": "Ode to Joy",
-    "file": "ode-to-joy.mid",
     "defaultParts": [
       {
         "track": 1,
@@ -41,7 +31,44 @@
         "track": 1,
         "channel": 0
       }
-    ]
+    ],
+    "tag": "Beginner · the first song"
+  },
+  {
+    "id": "ode-to-joy",
+    "title": "Ode to Joy",
+    "file": "ode-to-joy.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Beginner · steady quarter notes"
+  },
+  {
+    "id": "saints",
+    "title": "When the Saints Go Marching In",
+    "file": "saints.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Beginner · marching band"
+  },
+  {
+    "id": "fur-elise",
+    "title": "Für Elise",
+    "file": "fur-elise.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Intermediate · the famous opening, fast sixteenths"
   },
   {
     "id": "minuet-in-g",
@@ -52,6 +79,43 @@
         "track": 1,
         "channel": 0
       }
-    ]
+    ],
+    "tag": "Intermediate · 3/4 time, quick eighth notes"
+  },
+  {
+    "id": "jingle-bells",
+    "title": "Jingle Bells",
+    "file": "jingle-bells.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Intermediate · brisk and bouncy"
+  },
+  {
+    "id": "entertainer",
+    "title": "The Entertainer",
+    "file": "entertainer.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Challenge · ragtime syncopation"
+  },
+  {
+    "id": "mountain-king",
+    "title": "Hall of the Mountain King (speeds up!)",
+    "file": "mountain-king.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Challenge · speeds up from 96 to 184 bpm"
   }
 ]

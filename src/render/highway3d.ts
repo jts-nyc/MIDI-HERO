@@ -3,7 +3,7 @@ import type { BeatLine } from '../midi/parse.ts';
 import type { FxState } from './fx.ts';
 import { fitCanvas, MAX_DPR } from './canvas.ts';
 import { layoutKeys, noteName, type KeyColumn, type KeyboardLayout } from './layout.ts';
-import { PracticeVenueVisuals, theme, type NoteVisual, type RenderState } from './renderer.ts';
+import { PracticeVenueVisuals, supersededPopup, theme, type NoteVisual, type RenderState } from './renderer.ts';
 
 const TOP_SCALE = 0.35;
 const HIT_FADE = 0.15;
@@ -483,11 +483,12 @@ export class PerspectiveRenderer {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = 'bold 14px system-ui';
+    const xOf = (pitch: number) => { const c = this.byPitch[pitch]; return c ? c.x + c.w / 2 : undefined; };
     for (let i = 0; i < s.popups.length; i++) {
       const p = s.popups[i]!;
       const age = s.time - p.time;
       const col = this.byPitch[p.pitch];
-      if (age < 0 || age > POPUP_LIFE || !col) continue;
+      if (age < 0 || age > POPUP_LIFE || !col || supersededPopup(s.popups, i, xOf, s.time)) continue;
       const t = age / POPUP_LIFE;
       ctx.globalAlpha = 1 - t;
       ctx.fillStyle = p.color;

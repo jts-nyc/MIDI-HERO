@@ -142,11 +142,15 @@ describe('perspective renderer lifecycle', () => {
 });
 
 describe('highway setting', () => {
-  it('keeps Flat as the default and accepts only the two supported renderers', () => {
-    expect(DEFAULT_SETTINGS.highway).toBe('flat');
-    expect(sanitize({ highway: 'perspective' }).highway).toBe('perspective');
-    expect(sanitize({ highway: 'unknown' }).highway).toBe('flat');
+  it('defaults to Perspective and accepts only the two supported renderers', () => {
+    expect(DEFAULT_SETTINGS.highway).toBe('perspective');
+    expect(sanitize({ highway: 'flat', highwayPicked: true }).highway).toBe('flat');
+    expect(sanitize({ highway: 'unknown' }).highway).toBe('perspective');
     expect(sanitize({}, { ...DEFAULT_SETTINGS, highway: 'perspective' }).highway).toBe('perspective');
+  });
+
+  it('moves old saves that only stored the former Flat default onto Perspective', () => {
+    expect(sanitize({ highway: 'flat' }).highway).toBe('perspective');
   });
 });
 

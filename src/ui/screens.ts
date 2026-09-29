@@ -287,6 +287,9 @@ export interface PartPickerOptions {
   onBack: () => void;
 }
 
+/** the part table stays open once someone opens it, across re-renders and songs */
+let partsOpen = false;
+
 export function showPartPicker(o: PartPickerOptions): void {
   const st = o.state;
   const rows = o.rows
@@ -316,11 +319,13 @@ export function showPartPicker(o: PartPickerOptions): void {
   const splitOptions = [48, 53, 55, 57, 60, 62, 64, 65, 67, 72].map((p) => `<option value="${p}" ${st.split === p ? 'selected' : ''}>${noteName(p)}</option>`).join('');
   const el = screen(`<div class="panel" style="width:min(900px,100%)">
     <h2>${esc(o.title)}</h2>
-    <p>Pick the part(s) you will play. Everything else becomes the backing band.</p>
+    <details id="parts" ${partsOpen || !st.selected.size ? 'open' : ''}>
+      <summary>${st.selected.size ? `You play: <b>${esc(o.rows.filter((r) => st.selected.has(r.part.key)).map((r) => r.part.name).join(' + '))}</b> — the rest is your band. <u>Change part</u>` : 'Pick the part(s) you will play. Everything else becomes the backing band.'}</summary>
     <table>
       <tr><th></th><th>Part</th><th>Notes</th><th>Notes/s</th><th>Chord</th><th>Range</th><th>Starts</th><th>Folded</th></tr>
       ${rows}
     </table>
+    </details>
     ${o.levels.length ? `<div class="seg" id="difficulty" role="radiogroup" aria-label="Difficulty" style="grid-template-columns:repeat(${o.levels.length},1fr)">${o.levels.map((l, i) =>
       o.locked?.includes(l.level)
         ? `<button role="radio" aria-checked="false" disabled title="Locked" data-level="${l.level}">
@@ -346,6 +351,9 @@ export function showPartPicker(o: PartPickerOptions): void {
       <button class="primary big" id="play" ${st.selected.size ? '' : 'disabled'}>Play</button>
     </div>
   </div>`);
+  el.querySelector<HTMLDetailsElement>('#parts')!.addEventListener('toggle', (e) => {
+    if (st.selected.size) partsOpen = (e.target as HTMLDetailsElement).open;
+  });
   el.querySelectorAll<HTMLElement>('tr.part').forEach((tr) =>
     tr.addEventListener('click', () => {
       if (tr.dataset.playable !== '1') return;
@@ -693,6 +701,7 @@ export function showSettings(o: SettingsScreenOptions): void {
       rate: Number(get<HTMLSelectElement>('rate').value),
       speed: Number(get<HTMLInputElement>('speed').value),
       highway: get<HTMLSelectElement>('highway').value as Settings['highway'],
+      highwayPicked: s.highwayPicked || get<HTMLSelectElement>('highway').value !== s.highway,
       names: get<HTMLInputElement>('names').checked,
       noteNames: get<HTMLInputElement>('noteNames').checked,
       synth: get<HTMLSelectElement>('feedbackSound').value !== 'off',

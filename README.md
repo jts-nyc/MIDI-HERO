@@ -38,6 +38,12 @@ npm run build
 
 Node 22.12 or newer. Vite 8, Vitest 4, TypeScript, `midi-file`; no other runtime dependencies.
 
+### Your own songs (local only)
+
+Drop `.mid` files into `local-songs/` and they appear in the song list under `npm run dev`.
+The folder is gitignored and never built or deployed, so it is the place for songs you
+don't have the rights to share. See [local-songs/README.md](local-songs/README.md).
+
 ### First Lights student trial
 
 Choose **First Lights — Anchors** in the song list, or open `?song=first-lights` on your running
