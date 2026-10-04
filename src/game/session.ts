@@ -7,6 +7,7 @@ import {
   type FxState,
 } from '../render/fx.ts';
 import { noteName } from '../render/layout.ts';
+import { capTier, FULL_FEEDBACK, type FeedbackProfile } from './feedback.ts';
 import type { PracticeSection, PracticeView } from '../render/practice.ts';
 import type { Hud, KeyVisual, NoteVisual, Popup } from '../render/renderer.ts';
 import { theme } from '../render/renderer.ts';
@@ -106,6 +107,8 @@ export interface SessionOptions {
   effects?: boolean;
   /** timing words over hits; default 'perfect' */
   tierText?: TierText;
+  /** how much the highway says besides the notes; default everything (see feedback.ts) */
+  feedback?: FeedbackProfile;
   /** practice mode; absent for a normal play */
   practice?: PracticeOptions;
   /** a count-in click at an audio-context time (practice mode counts in before every pass) */
@@ -161,6 +164,7 @@ export class PlaySession {
   readonly popups: Popup[] = [];
   /** effects and meters for the renderer */
   readonly fx: FxState = createFx();
+  readonly profile: FeedbackProfile;
   readonly filter = new ChannelFilter();
   readonly tracker = new OctaveTracker(3);
   /** semitones added to a played pitch to get the chart pitch (relative judging) */
@@ -222,6 +226,8 @@ export class PlaySession {
       }
     }
     this.noteVisuals = opts.chart.notes.map(() => ({ state: 'pending', hitTime: 0, judgment: '' }));
+    this.profile = opts.feedback ?? FULL_FEEDBACK;
+    this.fx.intensity = this.profile.intensity;
     this.leadIn = opts.visibleSeconds * opts.rate + opts.barSeconds;
     if (opts.autoplay) {
       const j = opts.autoplay.jitterMs / 1000;
@@ -332,10 +338,12 @@ export class PlaySession {
         : { state: 'hit', hitTime: this.now(), judgment: result.judgment };
       this.keyVisuals.set(pitch, { kind: result.judgment, since: t });
       // Wait mode has no timing judgment: a hit is a hit, shown by its particles alone.
-      const word = tierWord(result.judgment, this.opts.practice?.wait ? 'off' : this.opts.tierText ?? 'perfect');
-      if (word) this.popups.push({ text: word, pitch, time: this.now(), color: JUDGMENT_COLOR[result.judgment] });
+      const word = tierWord(result.judgment, this.opts.practice?.wait ? 'off' : capTier(this.opts.tierText ?? 'perfect', this.profile));
+      if (word && (result.judgment !== 'miss' || this.profile.missWord)) {
+        this.popups.push({ text: word, pitch, time: this.now(), color: JUDGMENT_COLOR[result.judgment] });
+      }
       emitHit(this.fx, pitch, result.judgment === 'miss' ? 'late' : result.judgment, this.fx.meters.starActive);
-      if (this.judge.combo > 0) emitStreak(this.fx, this.judge.combo);
+      if (this.judge.combo > 0 && this.profile.streakCounter) emitStreak(this.fx, this.judge.combo);
       if (this.practice?.waiting) this.refreshOwed();
       if (ev.source !== 'autoplay') this.tracker.observe(true, 0);
     } else {
@@ -434,12 +442,13 @@ export class PlaySession {
       switch (e.type) {
         case 'miss':
           this.noteVisuals[e.noteId] = { state: 'missed', hitTime: now, judgment: 'miss' };
-          this.popups.push({ text: 'Miss', pitch: e.pitch, time: now, color: JUDGMENT_COLOR.miss });
+          if (this.profile.missWord) this.popups.push({ text: 'Miss', pitch: e.pitch, time: now, color: JUDGMENT_COLOR.miss });
           emitMiss(this.fx, e.pitch);
           break;
-        case 'break': emitBreak(this.fx, e.streak ?? 0); break;
-        case 'milestone': emitMilestone(this.fx, e.streak ?? 0); break;
-        case 'level': emitLevel(this.fx, e.streak ?? 1); break;
+        // A short streak just resets; only a profile with the shatter lets the number fall apart.
+        case 'break': emitBreak(this.fx, this.profile.shatter ? e.streak ?? 0 : 0); break;
+        case 'milestone': if (this.profile.milestones) emitMilestone(this.fx, e.streak ?? 0); break;
+        case 'level': emitLevel(this.fx, e.streak ?? 1, this.profile.edgeGlow); break;
         case 'fail': emitCallout(this.fx, 'SONG FAILED', 'fail', 2); break;
         case 'star': emitCallout(this.fx, this.judge.starReady ? 'STAR POWER READY' : 'STAR PHRASE!', 'star', 1); break;
         case 'starOn': emitStar(this.fx); break;

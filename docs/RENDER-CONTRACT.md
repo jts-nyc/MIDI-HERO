@@ -12,7 +12,21 @@ Unchanged from v0.1, plus one field:
 
 ```ts
 fx: FxState   // effects and meters, filled by the session every frame (src/render/fx.ts)
+feedback?: FeedbackProfile   // how much to show besides the notes (src/game/feedback.ts); absent = everything
 ```
+
+Most of the profile is applied by the session before the state reaches the renderer (it emits no
+streak counter, milestone, glow or shatter when the profile says not to, and `fx.intensity` scales
+the particle bursts). A renderer reads only `feedback.sway`: false keeps the perspective highway
+still on bar lines.
+
+## Perspective
+
+`src/render/highway3d.ts` projects a road running into the screen: `depthY(dt, hitY, pps)` is the
+row of a song event `dt` seconds ahead, moving at `pps` at the hit line and slowing toward the
+horizon, and `scaleAt(y)` is the lane width at that row. The two agree, so a note's position, size
+and speed all say the same distance. `horizonSeconds(hitY, pps)` is how far ahead the highway
+shows; the session's lead-in uses it.
 
 ## FxState (src/render/fx.ts)
 

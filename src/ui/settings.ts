@@ -33,6 +33,8 @@ export interface Settings {
   tierText: TierText;
   /** from Medium up: a bonk when a key stays down after its note is over */
   letGo: boolean;
+  /** Easy and Medium show fewer words, counters and flashes over the notes (see game/feedback.ts) */
+  feedbackByLevel: boolean;
   backingVolume: number;
   /** practice mode: hold the song at an unplayed note until it is played */
   practiceWait: boolean;
@@ -66,6 +68,7 @@ export const DEFAULT_SETTINGS: Settings = {
   effects: true,
   tierText: 'perfect',
   letGo: true,
+  feedbackByLevel: true,
   backingVolume: 0.8,
   practiceWait: false,
   practiceLadder: true,
@@ -87,7 +90,7 @@ export function urlOverrides(search: string): Partial<Settings> {
   if ([25, 49, 61, 88].includes(kb)) out.kb = kb as KeyboardSize;
   const timing = p.get('timing');
   if (timing === 'strict' || timing === 'normal' || timing === 'relaxed') out.timing = timing;
-  const bool = (k: keyof Settings & ('names' | 'synth' | 'easy' | 'noteNames' | 'hitSound' | 'arcade' | 'effects' | 'letGo')) => {
+  const bool = (k: keyof Settings & ('names' | 'synth' | 'easy' | 'noteNames' | 'hitSound' | 'arcade' | 'effects' | 'letGo' | 'feedbackByLevel')) => {
     const v = p.get(k);
     if (v === '1' || v === 'true') out[k] = true;
     else if (v === '0' || v === 'false') out[k] = false;
@@ -100,6 +103,7 @@ export function urlOverrides(search: string): Partial<Settings> {
   bool('arcade');
   bool('effects');
   bool('letGo');
+  bool('feedbackByLevel');
   const feedback = p.get('feedback');
   if (isFeedbackSound(feedback)) {
     out.feedbackSound = feedback;
@@ -136,7 +140,7 @@ export function sanitize(raw: unknown, base: Settings = DEFAULT_SETTINGS): Setti
   // A saved 'flat' only counts if the player picked it; older saves stored the old default.
   if (r.highway === 'perspective' || (r.highway === 'flat' && r.highwayPicked === true)) s.highway = r.highway;
   if (r.timing === 'strict' || r.timing === 'normal' || r.timing === 'relaxed') s.timing = r.timing;
-  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'letGo', 'firstRunDone', 'highwayPicked', 'practiceWait', 'practiceLadder'] as const) {
+  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'letGo', 'feedbackByLevel', 'firstRunDone', 'highwayPicked', 'practiceWait', 'practiceLadder'] as const) {
     if (typeof r[k] === 'boolean') s[k] = r[k] as boolean;
   }
   num('speed', 100, 800);

@@ -62,7 +62,8 @@ Useful URL parameters (session only, they do not change saved settings):
 above 150 ms produces misses and wrong notes);
 `?file=fixtures/some.mid` loads a MIDI file served from `public/fixtures/` (local only, gitignored);
 `?difficulty=medium`, `?part=5:4` (track:channel), `?feedback=chart|press|off`, `?arcade=1`,
-`?effects=1` (also overrides the system's reduced-motion preference) choose what to check.
+`?effects=1` (also overrides the system's reduced-motion preference) choose what to check;
+`?feedbackByLevel=0` gives every level the full arcade feedback.
 
 `PORT=5180 npm run dev` runs a second dev server next to one that already has 5173. In dev
 builds `window.midihero.bench(seconds)` in the console reports the work per frame.
@@ -112,6 +113,17 @@ below. A five-finger exercise or a simple melody stops at Medium (the same or a 
 and the keys have to be let go in time); sixteenths add Hard; chords of more than three notes,
 as in a two-handed piano part, add Expert. The choice is stored per song, travels in song packs,
 and has its own best score.
+
+**Highway.** The perspective highway is a road: a note keeps one speed along it, so on screen it
+crawls at the horizon and reaches the Speed setting at the keys, shrinking by the same amount the
+lanes do. Beat and bar lines ride the same road, so the next bar line tells when the notes above
+it land. The flat highway scrolls at the Speed setting everywhere.
+
+**Feedback by level.** Easy shows the notes and the keys and little else: no words over hits or
+misses, no streak counter behind the notes, no call-outs or edge flashes, half the particles. A
+missed note still falls through grey and its key still flashes red. Medium adds Perfect and Miss
+words and the streak milestones; Hard and Expert get everything. Settings → "Calmer highway on
+Easy and Medium" turns this off, and "Timing words over hits" never shows more than the level allows.
 
 **Streak and multiplier.** The multiplier rises at streaks of 10, 30 and 50 (2×, 3×, 4×). The
 performance meter at the right gains with hits and drains with misses and wrong notes; below 30%

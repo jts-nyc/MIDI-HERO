@@ -4,6 +4,7 @@ import { fitCanvas, MAX_DPR } from './canvas.ts';
 import { Tint, type FxState } from './fx.ts';
 import { isBlackKey, layoutKeys, noteName, type KeyboardLayout } from './layout.ts';
 import type { PracticeView } from './practice.ts';
+import type { FeedbackProfile } from '../game/feedback.ts';
 
 export type NoteState = 'pending' | 'hit' | 'missed';
 
@@ -64,6 +65,8 @@ export interface RenderState {
   fx: FxState;
   /** practice mode (sections, loop, wait); absent or NO_PRACTICE when off. See practice.ts */
   practice?: PracticeView;
+  /** how much the highway shows besides the notes (see feedback.ts); absent = everything */
+  feedback?: FeedbackProfile;
 }
 
 export const theme = {
@@ -208,11 +211,13 @@ export class PracticeVenueVisuals {
     ctx.globalAlpha = 1;
   }
 
-  drawLoop(ctx: CanvasRenderingContext2D, s: RenderState, width: number, hitY: number, topScale: number): void {
+  /** `yOf` maps a song time to a screen row; the flat highway's is linear. */
+  drawLoop(ctx: CanvasRenderingContext2D, s: RenderState, width: number, hitY: number, topScale: number,
+    yOf: (t: number) => number = (t) => hitY - (t - s.time) * s.pixelsPerSecond): void {
     const loop = s.practice?.loop;
     if (!loop) return;
     for (let end = 0; end < 2; end++) {
-      const y = hitY - ((end === 0 ? loop.start : loop.end) - s.time) * s.pixelsPerSecond;
+      const y = yOf(end === 0 ? loop.start : loop.end);
       if (y < 0 || y > hitY) continue;
       const left = width * (1 - (topScale + (1 - topScale) * y / hitY)) / 2;
       ctx.strokeStyle = PRACTICE_COLOR;

@@ -20,7 +20,8 @@ import { buildParts, defaultPart, notesOf } from './midi/parts.ts';
 import type { FeedbackSound } from './game/session.ts';
 import { noteName, displayRange } from './render/layout.ts';
 import { Renderer, type RenderState } from './render/renderer.ts';
-import { PerspectiveRenderer } from './render/highway3d.ts';
+import { horizonSeconds, PerspectiveRenderer } from './render/highway3d.ts';
+import { feedbackFor } from './game/feedback.ts';
 import { bestKey, bestsForSong, deleteSong, getBest, listSongs, parseBestKey, putSong, recordBest, saveChoice, type BestScore } from './storage/db.ts';
 import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
@@ -113,8 +114,12 @@ let gateHandler: ((ev: InputEvent) => void) | null = null;
 /** calibration: every key press is a tap */
 let tapHandler: ((perfMs: number) => void) | null = null;
 let calibrating = false;
-/** hardware octave shift learned at the gate, per MIDI port, for this page session */
-const octaveShiftByPort = new Map<string, number>();
+/**
+ * The MIDI pitch the keyboard sends for its lowest C, learned at the gate, per port, for this
+ * page session. The octave shift of a play is the song's window against this: songs get
+ * different windows, the keyboard stays the same.
+ */
+const lowCByPort = new Map<string, number>();
 let lastPlay: { window: PitchWindow; relative: boolean; autoplay: { jitterMs: number } | null; practice: PracticeChoice | null } | null = null;
 /** the play screen's overlay, for the practice speed shown on it */
 let hudEl: HTMLElement | null = null;
@@ -139,7 +144,7 @@ const onInput = (ev: InputEvent): void => {
 keyboard.onEvent = onInput;
 midi.onEvent = onInput;
 midi.onChange = () => {
-  octaveShiftByPort.clear(); // a reconnect may have reset the keyboard's octave buttons
+  lowCByPort.clear(); // a reconnect may have reset the keyboard's octave buttons
   const id = midi.autoSelect(settings.midiPortId);
   toast(id ? `MIDI: ${midi.listPorts().find((p) => p.id === id)?.name ?? id}` : 'MIDI keyboard disconnected');
 };
@@ -464,7 +469,7 @@ function settingsScreen(onClose: () => void): void {
       midi.select(id);
       settings.midiPortId = id;
       saveSettings(settings);
-      octaveShiftByPort.clear();
+      lowCByPort.clear();
       settingsScreen(onClose);
     },
     onResetChannel: () => {
@@ -786,7 +791,10 @@ function play(): void {
   };
   const sig = song.timeSigs[0]!;
   const barSeconds = ticksToSeconds(song.tempoMap, song.ppq, (song.ppq * 4 * sig.numerator) / sig.denominator);
-  const visibleSeconds = (canvas.clientHeight * 0.82) / runSettings.speed;
+  // The lead-in covers everything on screen: the perspective highway shows further ahead.
+  const hitLineY = canvas.clientHeight * 0.82;
+  const visibleSeconds = runSettings.highway === 'perspective' ? horizonSeconds(hitLineY, runSettings.speed) : hitLineY / runSettings.speed;
+  const feedbackProfile = feedbackFor(difficulty, runSettings.feedbackByLevel);
   if (relative) keyboard.base = window.low;
   else if (trial) keyboard.base = 48;
   const partName = partIds.map((id) => current!.parts.find((x) => x.key === partKey(id))?.name ?? '').join(' + ');
@@ -823,6 +831,7 @@ function play(): void {
     // The system's reduced-motion preference turns the particles off, unless the URL asks for them.
     effects: runSettings.effects && (params.has('effects') || !matchMedia('(prefers-reduced-motion: reduce)').matches),
     tierText: runSettings.tierText,
+    feedback: feedbackProfile,
     hint: trial ? `First Lights · ${trialRate * 100} BPM · C4, E4, G4` : relative ? PlaySession.keysHint(window) : partName,
     ...(loop && choice ? {
       practice: { loop, sections, current: from, label: loopLabel(sections, from, to), wait: choice.wait, ladder: choice.ladder },
@@ -848,10 +857,10 @@ function play(): void {
   s.onOctave = (ev) => {
     if (ev.type === 'reoffset') {
       toast(`Octave adjusted (${ev.delta > 0 ? '+' : ''}${ev.delta / 12}). Keep playing.`);
-      if (midi.selectedId) octaveShiftByPort.set(midi.selectedId, s.octaveOffset);
+      if (midi.selectedId) lowCByPort.set(midi.selectedId, window.low - s.octaveOffset);
     } else {
       toast('Your keyboard seems transposed. Check its transpose setting.', 'error');
-      if (midi.selectedId) octaveShiftByPort.delete(midi.selectedId);
+      if (midi.selectedId) lowCByPort.delete(midi.selectedId);
       s.pause();
       runGate(window, s);
     }
@@ -902,15 +911,16 @@ function play(): void {
     hud: s.hud(), showNames: runSettings.names, showNoteNames: runSettings.noteNames,
     physical: relative ? window : null,
     fx: s.fx,
+    feedback: feedbackProfile,
     ...(s.practice ? { practice: s.practice } : {}),
   };
   document.title = `MIDI Hero — ${lib.title}`;
 
   const portId = midi.selectedId;
   if (relative && !autoplay && portId && midi.status === 'granted') {
-    const known = octaveShiftByPort.get(portId);
-    if (known !== undefined) {
-      s.octaveOffset = known;
+    const lowC = lowCByPort.get(portId);
+    if (lowC !== undefined) {
+      s.octaveOffset = window.low - lowC;
       playHud(s);
     } else {
       s.pause();
@@ -975,7 +985,7 @@ function runGate(window: PitchWindow, s: PlaySession): void {
     const offset = window.low - ev.pitch;
     s.octaveOffset = offset;
     s.filter.lock(ev.channel);
-    if (midi.selectedId) octaveShiftByPort.set(midi.selectedId, offset);
+    if (midi.selectedId) lowCByPort.set(midi.selectedId, ev.pitch);
     gateHandler = null;
     toast(offset === 0 ? 'Keyboard lined up.' : `Keyboard lined up (octave ${offset > 0 ? '+' : ''}${offset / 12}).`);
     s.resume();

@@ -5,7 +5,8 @@ import { fitCanvas, MAX_DPR } from './canvas.ts';
 import { layoutKeys, noteName, type KeyColumn, type KeyboardLayout } from './layout.ts';
 import { PracticeVenueVisuals, supersededPopup, theme, type NoteVisual, type RenderState } from './renderer.ts';
 
-const TOP_SCALE = 0.35;
+/** Width of the highway at the horizon relative to the keyboard; also how far away the horizon is. */
+const TOP_SCALE = 0.5;
 const HIT_FADE = 0.15;
 const POPUP_LIFE = 0.45;
 const BAR_PULSE = 0.12;
@@ -22,6 +23,29 @@ export function scaleAt(y: number, hitY: number): number {
 
 export function projectX(x: number, y: number, width: number, hitY: number): number {
   return width / 2 + (x - width / 2) * scaleAt(y, hitY);
+}
+
+/**
+ * Seconds of song visible between the hit line and the horizon. `pps` is the scroll speed at
+ * the hit line, so the Speed setting keeps its meaning and perspective only adds what is seen
+ * further out.
+ */
+export function horizonSeconds(hitY: number, pps: number): number {
+  return hitY / (TOP_SCALE * Math.max(1, pps));
+}
+
+/**
+ * Screen row of an event `dt` seconds ahead of the hit line: a true perspective projection of a
+ * road running into the screen. A note keeps one speed along the road; on screen it crawls at
+ * the horizon and accelerates to `pps` as it reaches the keys, and its width shrinks by the same
+ * `scaleAt(y)` the lanes use, so position, size and motion all agree about how far away it is.
+ * Below the hit line (dt < 0) the road is flat: a missed note keeps falling at `pps`.
+ */
+export function depthY(dt: number, hitY: number, pps: number): number {
+  if (dt <= 0) return hitY - dt * pps;
+  const d = dt / horizonSeconds(hitY, pps);
+  const scale = 1 / (1 + d * (1 / TOP_SCALE - 1));
+  return hitY * (scale - TOP_SCALE) / (1 - TOP_SCALE);
 }
 
 function shade(hex: string): string {
@@ -134,6 +158,11 @@ export class PerspectiveRenderer {
     return this.width / 2 + (x - this.width / 2) * this.rowScale(y);
   }
 
+  /** Screen row of song time `t` when the highway is drawn at `s.time`. */
+  private yAt(t: number, s: RenderState): number {
+    return depthY(t - s.time, this.hitY, s.pixelsPerSecond);
+  }
+
   private lane(ctx: CanvasRenderingContext2D, left: number, right: number): void {
     ctx.beginPath();
     ctx.moveTo(this.xAt(left, 0), 0);
@@ -192,7 +221,8 @@ export class PerspectiveRenderer {
     const ctx = this.ctx;
     const hitY = this.hitY;
     const width = this.width;
-    const visibleSec = hitY / s.pixelsPerSecond;
+    const visibleSec = horizonSeconds(hitY, s.pixelsPerSecond);
+    const sways = s.feedback?.sway !== false;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.globalAlpha = 1;
     ctx.fillStyle = theme.bg;
@@ -210,7 +240,7 @@ export class PerspectiveRenderer {
       if (!b.isBar) continue;
       const age = (s.time - b.time) / BAR_PULSE;
       pulse = 1 - age;
-      if (!this.reduceMotion) sway = Math.sin(age * Math.PI * 2) * 4 * pulse;
+      if (!this.reduceMotion && sways) sway = Math.sin(age * Math.PI * 2) * 4 * pulse;
     }
 
     ctx.save();
@@ -252,7 +282,7 @@ export class PerspectiveRenderer {
       const b = s.beatLines[i]!;
       if (b.time > s.time + visibleSec) break;
       if (b.time < s.time) continue;
-      const y = hitY - (b.time - s.time) * s.pixelsPerSecond;
+      const y = this.yAt(b.time, s);
       ctx.lineWidth = b.isBar ? 2 : 1;
       ctx.strokeStyle = b.isBar ? theme.bar : theme.beat;
       ctx.beginPath();
@@ -276,7 +306,7 @@ export class PerspectiveRenderer {
       if (!col || (vis?.state === 'hit' && vis.hold !== 'holding' && vis.hold !== 'released' && s.time - (vis.holdEnd ?? vis.hitTime) > HIT_FADE) || n.time + n.duration < s.time - 0.5) continue;
       this.drawNote(n, col, vis, s);
     }
-    this.practiceVenue.drawLoop(ctx, s, width, hitY, TOP_SCALE);
+    this.practiceVenue.drawLoop(ctx, s, width, hitY, TOP_SCALE, (t) => this.yAt(t, s));
     ctx.restore();
     ctx.lineWidth = 1;
     this.drawHitLine(s.fx, this.layout!, width, hitY, s.fx.meters.starActive, s.practice?.waiting === true);
@@ -329,9 +359,10 @@ export class PerspectiveRenderer {
       this.drawHold(n, col, vis, s, gold);
       return;
     }
-    const bottom = this.hitY - (n.time - s.time) * s.pixelsPerSecond;
-    const h = Math.max(6, n.duration * s.pixelsPerSecond) * this.rowScale(bottom);
-    const top = bottom - h;
+    const bottom = this.yAt(n.time, s);
+    // The far end of the note is projected on its own; a short note still shows a few rows.
+    const top = Math.min(this.yAt(n.time + n.duration, s), bottom - 6 * this.rowScale(bottom));
+    const h = bottom - top;
     if (hit) {
       // A completed hold starts its pop at holdEnd, even when the onset is far below the keys.
       const t = Math.max(0, Math.min(1, (s.time - (vis.holdEnd ?? vis.hitTime)) / HIT_FADE));
@@ -381,7 +412,7 @@ export class PerspectiveRenderer {
 
   private drawHold(n: ChartNote, col: Column, vis: NoteVisual, s: RenderState, gold: boolean): void {
     const ctx = this.ctx;
-    const top = Math.max(-10, this.hitY - (n.time + n.duration - s.time) * s.pixelsPerSecond);
+    const top = Math.max(-10, this.yAt(n.time + n.duration, s));
     if (top >= this.hitY) return;
     const left = col.x + 1;
     const right = col.x + col.w - 1;
