@@ -26,7 +26,8 @@
       #overlay > * { pointer-events: auto; }
       .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
         gap: 20px; padding: 28px 24px; background: var(--bg); overflow: auto; }
-      .screen.center { justify-content: center; }
+      .screen > * { flex-shrink: 0; }
+      .screen.center { justify-content: safe center; }
       .screen.transparent { background: transparent; pointer-events: none; }
       .screen.transparent > * { pointer-events: auto; }
       h1 { font-size: 44px; margin: 0; text-align: center; }
@@ -53,14 +54,16 @@
       .status { font-size: 20px; }
       .stars { font-size: 72px; letter-spacing: 8px; color: var(--warn); }
       .stars .off { opacity: 0.25; }
-      .hud { position: absolute; top: 14px; right: 14px; }
+      .hud { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); }
       .hud button { font-size: 22px; padding: 10px 22px; background: rgba(23, 26, 35, 0.85); }
-      .q { width: min(900px, 100%); display: flex; flex-direction: column; gap: 10px; align-items: center; }
-      .q .text { font-size: 28px; font-weight: 700; text-align: center; }
-      .q .opts { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
-      .q .opts button { min-width: 170px; font-size: 26px; }
+      .qs { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 18px 24px; width: min(1100px, 100%); }
+      .q { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+      .q .text { font-size: 26px; font-weight: 700; text-align: center; }
+      .q .opts { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+      .q .opts button { min-width: 140px; font-size: 24px; padding: 10px 20px; }
+      .screen.form { gap: 14px; padding-top: 18px; }
       .q .opts button[aria-pressed="true"] { background: var(--good); border-color: var(--good); color: #06210f; }
-      textarea { font: inherit; font-size: 22px; width: min(900px, 100%); min-height: 90px; padding: 12px; border-radius: 12px;
+      textarea { font: inherit; font-size: 22px; width: min(900px, 100%); min-height: 64px; height: 64px; padding: 12px; border-radius: 12px;
         border: 3px solid var(--border); background: var(--panel); color: var(--text); resize: vertical; }
       label.lbl { font-size: 24px; font-weight: 700; text-align: center; }
       .toast { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); background: var(--panel);

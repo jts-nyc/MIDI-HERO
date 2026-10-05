@@ -31,7 +31,7 @@ export interface Question {
 export const QUESTIONS: readonly Question[] = [
   { key: 'fun', text: 'Was it fun?', options: [{ value: 'yes', label: 'Yes' }, { value: 'kind-of', label: 'Kind of' }, { value: 'no', label: 'No' }] },
   { key: 'difficulty', text: 'How hard was it?', options: [{ value: 'too-easy', label: 'Too easy' }, { value: 'just-right', label: 'Just right' }, { value: 'too-hard', label: 'Too hard' }] },
-  { key: 'lined_up', text: 'When you pressed a key, did the game match what you played?', options: [{ value: 'yes', label: 'Yes' }, { value: 'sometimes', label: 'Sometimes' }, { value: 'no', label: 'No' }] },
+  { key: 'lined_up', text: 'Did the game match what you played?', options: [{ value: 'yes', label: 'Yes' }, { value: 'sometimes', label: 'Sometimes' }, { value: 'no', label: 'No' }] },
   { key: 'again', text: 'Would you play it again?', options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
 ];
 

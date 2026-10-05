@@ -275,7 +275,7 @@ async function startRun(entry: SimpleSong, level: SimpleLevel): Promise<void> {
     tierText: settings.tierText,
     feedback: profile,
     hint: flow.input === 'keyboard'
-      ? `Computer keys: bottom row Z X C V B N M starts at ${noteName(keyboard.base)}`
+      ? 'Computer keys: Z X C V B N M'
       : `${entry.title} · ${LEVEL_LABEL[level]}`,
   });
   if (relative && flow.input === 'midi' && checkC !== null) s.octaveOffset = window.low - checkC;
@@ -464,13 +464,15 @@ function playScreen(): void {
 function resultsScreen(): void {
   const run = flow.run;
   if (!run) return dispatch({ type: 'home' });
-  const n = run.finished || run.hit > 0 ? starCount(run.accuracy) : 0;
+  // Accuracy counts the notes that went by; a run stopped early gets no stars, only its count.
+  const n = run.finished ? starCount(run.accuracy) : 0;
   const stars = Array.from({ length: 5 }, (_, i) => `<span class="${i < n ? '' : 'off'}">★</span>`).join('');
+  const trial = SIMPLE_SONGS.find((s) => s.id === run.song)?.trial;
   const el = screen(`
     <h1>${esc(cheer(n, run.finished))}</h1>
-    <div class="stars" aria-label="${n} of 5 stars">${stars}</div>
+    ${run.finished ? `<div class="stars" aria-label="${n} of 5 stars">${stars}</div>` : ''}
     <p style="font-size:30px;color:var(--text)">You played <b>${run.hit}</b> of <b>${run.total}</b> notes on time.</p>
-    <p>${esc(titleOf(run.song))} · ${LEVEL_LABEL[run.level]}</p>
+    <p>${esc(titleOf(run.song))}${trial ? '' : ` · ${LEVEL_LABEL[run.level]}`}</p>
     <button class="primary huge" id="next">Next</button>`, 'center');
   on(el, '#next', () => dispatch({ type: 'next' }));
   el.querySelector<HTMLButtonElement>('#next')?.focus();
@@ -484,10 +486,10 @@ function feedbackScreen(): void {
       <div class="opts">${q.options.map((o) => `<button data-q="${q.key}" data-v="${o.value}" aria-pressed="false">${esc(o.label)}</button>`).join('')}</div></div>`).join('');
   const el = screen(`
     <h2>Tell us what you think</h2>
-    ${qs}
+    <div class="qs">${qs}</div>
     <label class="lbl" for="comment">Anything else? (optional)<br><span style="font-weight:500;color:var(--warn)">Please don't write your name or anyone else's.</span></label>
     <textarea id="comment" maxlength="${COMMENT_MAX}" placeholder="What was good? What was confusing?"></textarea>
-    <button class="primary huge" id="done">Done</button>`);
+    <button class="primary huge" id="done">Done</button>`, 'form');
   el.querySelectorAll<HTMLButtonElement>('[data-q]').forEach((b) =>
     b.addEventListener('click', () => {
       const key = b.dataset.q as keyof Answers;

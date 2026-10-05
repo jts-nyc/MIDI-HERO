@@ -23,7 +23,7 @@ export interface SimpleSong {
 /** The curated list, easiest first. Ids are the bundled manifest's. */
 export const SIMPLE_SONGS: readonly SimpleSong[] = [
   { id: STUDENT_TRIAL_ID, title: 'First Lights', blurb: 'Three notes: C, E and G', color: '#2f7cf6', trial: true },
-  { id: 'five-finger', title: 'Five-Finger Warm-up', blurb: 'Five notes, one hand', color: '#11a36a' },
+  { id: 'five-finger', title: 'Warm-up', blurb: 'Five fingers, one hand', color: '#11a36a' },
   { id: 'twinkle', title: 'Twinkle Twinkle', blurb: 'The first song', color: '#c77d00' },
   { id: 'ode-to-joy', title: 'Ode to Joy', blurb: 'Steady and calm', color: '#9b4dd6' },
   { id: 'saints', title: 'When the Saints', blurb: 'A marching tune', color: '#d6453d' },
