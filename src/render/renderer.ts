@@ -1,7 +1,8 @@
 import type { Chart, ChartNote } from '../midi/chart.ts';
 import type { BeatLine } from '../midi/parse.ts';
-import { fitCanvas, MAX_DPR } from './canvas.ts';
+import { canvasDpr, fitCanvas } from './canvas.ts';
 import { Tint, type FxState } from './fx.ts';
+import { HitFeel } from './hitFeel.ts';
 import { isBlackKey, layoutKeys, noteName, type KeyboardLayout } from './layout.ts';
 import type { PracticeView } from './practice.ts';
 import type { FeedbackProfile } from '../game/feedback.ts';
@@ -67,6 +68,10 @@ export interface RenderState {
   practice?: PracticeView;
   /** how much the highway shows besides the notes (see feedback.ts); absent = everything */
   feedback?: FeedbackProfile;
+  /** keep things still (no swells, drifts, sway or pulses); absent = follow prefers-reduced-motion */
+  reduceMotion?: boolean;
+  /** the frame-time fallback is at its lowest level: skip the lights (venue, charge, rails, fog) */
+  lowFx?: boolean;
 }
 
 export const theme = {
@@ -105,7 +110,6 @@ const KEYBOARD_FRACTION = 0.18;
 const MIN_NOTE_HEIGHT = 6;
 const HIT_FADE = 0.15;
 const POP_SCALE = 0.6; // a hit gem grows by this much while it fades
-const POPUP_LIFE = 0.45;
 const PASS_THROUGH = 70; // px a missed note stays visible below the hit line
 const MAX_PASSING = 64;
 const STREAK_MIN = 3; // the big counter appears from this streak
@@ -262,6 +266,14 @@ const PRACTICE_COLOR = '#54e4e8';
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private practiceVenue = new PracticeVenueVisuals();
+  private feel = new HitFeel();
+  private keyWhite = new Float32Array(128);
+  private low = false;
+  /** lane of a pitch at the hit line, for the light columns */
+  private colOf = (pitch: number) => this.layout?.columns.get(pitch);
+  private xOf = (pitch: number) => { const c = this.layout?.columns.get(pitch); return c ? c.x + c.w / 2 : undefined; };
+  private popupsNow: { popups: Popup[]; time: number } = { popups: [], time: 0 };
+  private superseded = (i: number) => supersededPopup(this.popupsNow.popups, i, this.xOf, this.popupsNow.time);
   private motion: MediaQueryList;
   private reduceMotion = false;
   private layout: KeyboardLayout | null = null;
@@ -299,7 +311,7 @@ export class Renderer {
   private ensureLayout(low: number, high: number): KeyboardLayout {
     const width = Math.max(1, Math.floor(this.canvas.clientWidth));
     const height = Math.max(1, Math.floor(this.canvas.clientHeight));
-    const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+    const dpr = canvasDpr();
     if (this.layout && low === this.layout.low && high === this.layout.high &&
         width === this.width && height === this.height && dpr === this.dpr &&
         this.canvas.width === Math.round(width * dpr) && this.canvas.height === Math.round(height * dpr)) return this.layout;
@@ -323,6 +335,12 @@ export class Renderer {
     star.addColorStop(0, 'rgba(255,210,63,0.05)');
     star.addColorStop(1, 'rgba(255,210,63,0.24)');
     this.gradients.set(100, star);
+    // Fog at the far end of the highway: notes come out of the dark instead of popping in at the edge.
+    const fog = ctx.createLinearGradient(0, 0, 0, hitY * 0.24);
+    fog.addColorStop(0, 'rgba(10,12,18,0.9)');
+    fog.addColorStop(1, 'rgba(10,12,18,0)');
+    this.gradients.set(101, fog);
+    this.feel.cache(ctx, width, hitY);
     const w = Math.min(120, width * 0.14);
     for (let tint = 0; tint < TINT_RGB.length; tint++) {
       for (let side = 0; side < 2; side++) {
@@ -338,7 +356,8 @@ export class Renderer {
 
   draw(s: RenderState): void {
     const layout = this.ensureLayout(s.low, s.high);
-    this.reduceMotion = this.motion.matches;
+    this.reduceMotion = s.reduceMotion ?? this.motion.matches;
+    this.low = s.lowFx === true;
     this.practiceVenue.update(s, this.reduceMotion);
     const width = this.width;
     const height = this.height;
@@ -384,7 +403,7 @@ export class Renderer {
       ctx.globalAlpha = 1;
     }
 
-    this.practiceVenue.drawVenue(ctx, fx, width, hitY, 1, this.reduceMotion);
+    if (!this.low) this.practiceVenue.drawVenue(ctx, fx, width, hitY, 1, this.reduceMotion);
 
     // Beat and bar lines
     const visibleSec = hitY / pps;
@@ -405,6 +424,7 @@ export class Renderer {
       ctx.lineTo(width, y);
       ctx.stroke();
     }
+    this.feel.update(fx, lines, Math.max(0, this.beatCursor - 2), s.time, this.reduceMotion);
 
     this.drawStreak(fx, width, hitY);
 
@@ -431,12 +451,22 @@ export class Renderer {
       this.drawNote(n, col, vis, s, hitY, star);
     }
 
+    if (!this.low) {
+      ctx.fillStyle = this.gradients.get(101)!;
+      ctx.fillRect(0, 0, width, hitY * 0.24);
+    }
+    this.feel.drawBeams(ctx, fx, this.colOf, hitY);
     this.practiceVenue.drawLoop(ctx, s, width, hitY, 1);
+    if (!this.low) {
+      this.feel.drawCharge(ctx, fx, width, hitY);
+      if (star) this.feel.drawRails(ctx, width, hitY);
+    }
     this.drawHitLine(fx, layout, width, hitY, star, s.practice?.waiting === true);
+    this.feel.drawLinePulse(ctx, width, hitY, star ? theme.star : '#9fc0ff');
     this.drawKeyboard(s, layout, hitY, keyboardH);
     this.drawPassing(s, layout, hitY);
     this.drawEffects(fx, layout, hitY);
-    this.drawPopups(s, layout, hitY);
+    this.drawPopups(s, hitY);
     this.drawGlow(fx, width, height);
     this.drawHud(s, width, hitY);
     this.practiceVenue.drawHud(ctx, s, width);
@@ -609,6 +639,8 @@ export class Renderer {
       if (!f.active || f.pitch < 0 || f.pitch > 127) continue;
       flash[f.pitch] = Math.max(flash[f.pitch]!, 1 - f.age / f.life);
     }
+    const white = this.keyWhite;
+    this.feel.keyFlashes(s.fx, white);
     const blackH = keyboardH * 0.62;
     for (let pass = 0; pass < 2; pass++) {
       for (let c = 0; c < this.columns.length; c++) {
@@ -624,6 +656,13 @@ export class Renderer {
         if (red > 0 && !kv) {
           ctx.globalAlpha = red * 0.85;
           ctx.fillStyle = theme.wrong;
+          ctx.fillRect(col.x + 0.5, hitY, col.w - 1, h);
+          ctx.globalAlpha = 1;
+        }
+        const lit = white[col.pitch]!;
+        if (lit > 0) {
+          ctx.globalAlpha = lit * 0.75;
+          ctx.fillStyle = '#ffffff';
           ctx.fillRect(col.x + 0.5, hitY, col.w - 1, h);
           ctx.globalAlpha = 1;
         }
@@ -707,24 +746,10 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
-  private drawPopups(s: RenderState, layout: KeyboardLayout, hitY: number): void {
-    const ctx = this.ctx;
-    const xOf = (pitch: number) => { const c = layout.columns.get(pitch); return c ? c.x + c.w / 2 : undefined; };
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = 'bold 14px system-ui';
-    for (let i = 0; i < s.popups.length; i++) {
-      const p = s.popups[i]!;
-      const age = s.time - p.time;
-      if (age < 0 || age > POPUP_LIFE) continue;
-      const col = layout.columns.get(p.pitch);
-      if (!col || supersededPopup(s.popups, i, xOf, s.time)) continue;
-      const t = age / POPUP_LIFE;
-      ctx.globalAlpha = 1 - t;
-      ctx.fillStyle = p.color;
-      ctx.fillText(p.text, col.x + col.w / 2, hitY - 40 - (this.reduceMotion ? 0 : t * 30));
-    }
-    ctx.globalAlpha = 1;
+  private drawPopups(s: RenderState, hitY: number): void {
+    this.popupsNow.popups = s.popups;
+    this.popupsNow.time = s.time;
+    this.feel.drawPopups(this.ctx, s.popups, s.time, this.xOf, hitY, this.reduceMotion, this.superseded);
   }
 
   /** The big streak counter sits behind the notes; it swells on every hit and breaks apart when the streak ends. */
@@ -812,7 +837,8 @@ export class Renderer {
     const shown = m.starActive ? m.multiplier * 2 : m.multiplier;
     const color = m.starActive ? theme.star : theme.multiplier[Math.min(3, m.multiplier - 1)]!;
     const cx = 42;
-    const cy = 78;
+    // A broken streak of 10+: the badge, back at 1x and grey, dips once (FEEL.dropLife).
+    const cy = 78 + (this.reduceMotion ? 0 : 7 * Math.sin(m.multiplierDrop * Math.PI));
     const r = 22 * (1 + (this.reduceMotion ? 0 : 0.25 * m.multiplierPulse));
     ctx.lineWidth = 5;
     ctx.strokeStyle = 'rgba(255,255,255,0.12)';

@@ -1,14 +1,14 @@
 import type { Chart, ChartNote } from '../midi/chart.ts';
 import type { BeatLine } from '../midi/parse.ts';
 import type { FxState } from './fx.ts';
-import { fitCanvas, MAX_DPR } from './canvas.ts';
+import { canvasDpr, fitCanvas } from './canvas.ts';
 import { layoutKeys, noteName, type KeyColumn, type KeyboardLayout } from './layout.ts';
-import { PracticeVenueVisuals, supersededPopup, theme, type NoteVisual, type RenderState } from './renderer.ts';
+import { PracticeVenueVisuals, supersededPopup, theme, type NoteVisual, type Popup, type RenderState } from './renderer.ts';
+import { HitFeel } from './hitFeel.ts';
 
 /** Width of the highway at the horizon relative to the keyboard; also how far away the horizon is. */
 const TOP_SCALE = 0.5;
 const HIT_FADE = 0.15;
-const POPUP_LIFE = 0.45;
 const BAR_PULSE = 0.12;
 const PASS_THROUGH = 70;
 const STREAK_MIN = 3;
@@ -80,6 +80,14 @@ class CachedText {
 export class PerspectiveRenderer {
   private ctx: CanvasRenderingContext2D;
   private practiceVenue = new PracticeVenueVisuals();
+  private feel = new HitFeel();
+  private keyWhite = new Float32Array(128);
+  private low = false;
+  private colOf = (pitch: number) => this.byPitch[pitch];
+  private xOf = (pitch: number) => { const c = this.byPitch[pitch]; return c ? c.x + c.w / 2 : undefined; };
+  private project = (x: number, y: number) => this.xAt(x, y);
+  private popupsNow: { popups: Popup[]; time: number } = { popups: [], time: 0 };
+  private superseded = (i: number) => supersededPopup(this.popupsNow.popups, i, this.xOf, this.popupsNow.time);
   private background: HTMLCanvasElement;
   private motion: MediaQueryList;
   private reduceMotion: boolean;
@@ -119,7 +127,7 @@ export class PerspectiveRenderer {
   private ensureLayout(s: RenderState): void {
     const width = Math.max(1, Math.floor(this.canvas.clientWidth));
     const height = Math.max(1, Math.floor(this.canvas.clientHeight));
-    const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+    const dpr = canvasDpr();
     if (this.layout && this.layout.low === s.low && this.layout.high === s.high &&
         width === this.width && height === this.height && dpr === this.dpr &&
         this.canvas.width === Math.round(width * dpr) && this.canvas.height === Math.round(height * dpr)) return;
@@ -144,6 +152,7 @@ export class PerspectiveRenderer {
     for (let y = 0; y <= this.hitY; y++) this.rows[y] = scaleAt(y, this.hitY);
     this.cacheBackground();
     this.cacheGradients();
+    this.feel.cache(this.ctx, width, this.hitY);
     this.bigFont = `bold ${Math.round(Math.min(150, this.hitY * 0.3))}px system-ui`;
   }
 
@@ -216,13 +225,14 @@ export class PerspectiveRenderer {
 
   draw(s: RenderState): void {
     this.ensureLayout(s);
-    this.reduceMotion = this.motion.matches;
+    this.reduceMotion = s.reduceMotion ?? this.motion.matches;
+    this.low = s.lowFx === true;
     this.practiceVenue.update(s, this.reduceMotion);
     const ctx = this.ctx;
     const hitY = this.hitY;
     const width = this.width;
     const visibleSec = horizonSeconds(hitY, s.pixelsPerSecond);
-    const sways = s.feedback?.sway !== false;
+    const sways = s.feedback?.sway !== false && !this.low;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.globalAlpha = 1;
     ctx.fillStyle = theme.bg;
@@ -232,16 +242,15 @@ export class PerspectiveRenderer {
     this.beats = s.beatLines;
     this.beatTime = s.time;
     while (this.beatCursor < s.beatLines.length && s.beatLines[this.beatCursor]!.time < s.time - BAR_PULSE) this.beatCursor++;
-    let pulse = 0;
     let sway = 0;
     for (let i = this.beatCursor; i < s.beatLines.length; i++) {
       const b = s.beatLines[i]!;
       if (b.time > s.time) break;
       if (!b.isBar) continue;
       const age = (s.time - b.time) / BAR_PULSE;
-      pulse = 1 - age;
-      if (!this.reduceMotion && sways) sway = Math.sin(age * Math.PI * 2) * 4 * pulse;
+      if (!this.reduceMotion && sways) sway = Math.sin(age * Math.PI * 2) * 4 * (1 - age);
     }
+    this.feel.update(s.fx, s.beatLines, this.beatCursor, s.time, this.reduceMotion);
 
     ctx.save();
     // Sway recedes to zero at the base so every note still lands exactly on its key.
@@ -269,7 +278,7 @@ export class PerspectiveRenderer {
       ctx.fill();
       ctx.globalAlpha = 1;
     }
-    this.practiceVenue.drawVenue(ctx, s.fx, width, hitY, TOP_SCALE, this.reduceMotion);
+    if (!this.low) this.practiceVenue.drawVenue(ctx, s.fx, width, hitY, TOP_SCALE, this.reduceMotion);
     // Counters use screen coordinates and sit behind the projected notes.
     ctx.restore();
     this.drawStreak(s.fx, width, hitY);
@@ -306,18 +315,15 @@ export class PerspectiveRenderer {
       if (!col || (vis?.state === 'hit' && vis.hold !== 'holding' && vis.hold !== 'released' && s.time - (vis.holdEnd ?? vis.hitTime) > HIT_FADE) || n.time + n.duration < s.time - 0.5) continue;
       this.drawNote(n, col, vis, s);
     }
+    this.feel.drawBeams(ctx, s.fx, this.colOf, hitY, this.project);
+    if (s.fx.meters.starActive && !this.low) this.feel.drawRails(ctx, width, hitY, this.project);
     this.practiceVenue.drawLoop(ctx, s, width, hitY, TOP_SCALE, (t) => this.yAt(t, s));
     ctx.restore();
     ctx.lineWidth = 1;
+    if (!this.low) this.feel.drawCharge(ctx, s.fx, width, hitY);
     this.drawHitLine(s.fx, this.layout!, width, hitY, s.fx.meters.starActive, s.practice?.waiting === true);
-    // Keep a passed bar visible above the keyboard for its entire 120 ms pulse.
-    if (pulse > 0 && !this.reduceMotion) {
-      ctx.fillStyle = theme.text;
-      ctx.globalAlpha = 0.16 + 0.5 * pulse;
-      const thickness = 2 + 2 * pulse;
-      ctx.fillRect(0, hitY - thickness - 2, width, thickness);
-      ctx.globalAlpha = 1;
-    }
+    // The hit line swells on every beat, more on a bar line, and on each click of the count-in.
+    this.feel.drawLinePulse(ctx, width, hitY, s.fx.meters.starActive ? theme.star : '#9fc0ff');
     this.drawKeyboard(s);
     this.drawPassing(s);
     this.drawEffects(s.fx, this.layout!, hitY);
@@ -475,6 +481,7 @@ export class PerspectiveRenderer {
       if (!f.active || f.pitch < 0 || f.pitch > 127) continue;
       this.keyFlash[f.pitch] = Math.max(this.keyFlash[f.pitch]!, 1 - f.age / f.life);
     }
+    this.feel.keyFlashes(s.fx, this.keyWhite);
     for (let i = 0; i < this.columns.length; i++) {
       const col = this.columns[i]!;
       const kv = s.keyVisuals.get(col.pitch);
@@ -486,6 +493,13 @@ export class PerspectiveRenderer {
       if (red > 0 && !kv) {
         ctx.globalAlpha = red * 0.85;
         ctx.fillStyle = theme.wrong;
+        ctx.fillRect(col.x + 0.5, hitY, col.w - 1, h);
+        ctx.globalAlpha = 1;
+      }
+      const lit = this.keyWhite[col.pitch]!;
+      if (lit > 0) {
+        ctx.globalAlpha = lit * 0.75;
+        ctx.fillStyle = '#ffffff';
         ctx.fillRect(col.x + 0.5, hitY, col.w - 1, h);
         ctx.globalAlpha = 1;
       }
@@ -512,22 +526,9 @@ export class PerspectiveRenderer {
   }
 
   private drawPopups(s: RenderState): void {
-    const ctx = this.ctx;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = 'bold 14px system-ui';
-    const xOf = (pitch: number) => { const c = this.byPitch[pitch]; return c ? c.x + c.w / 2 : undefined; };
-    for (let i = 0; i < s.popups.length; i++) {
-      const p = s.popups[i]!;
-      const age = s.time - p.time;
-      const col = this.byPitch[p.pitch];
-      if (age < 0 || age > POPUP_LIFE || !col || supersededPopup(s.popups, i, xOf, s.time)) continue;
-      const t = age / POPUP_LIFE;
-      ctx.globalAlpha = 1 - t;
-      ctx.fillStyle = p.color;
-      ctx.fillText(p.text, col.x + col.w / 2, this.hitY - 40 - (this.reduceMotion ? 0 : t * 30));
-    }
-    ctx.globalAlpha = 1;
+    this.popupsNow.popups = s.popups;
+    this.popupsNow.time = s.time;
+    this.feel.drawPopups(this.ctx, s.popups, s.time, this.xOf, this.hitY, this.reduceMotion, this.superseded);
   }
 
   private drawHitLine(fx: FxState, layout: KeyboardLayout, width: number, hitY: number, star: boolean, waiting: boolean): void {
@@ -675,7 +676,8 @@ export class PerspectiveRenderer {
     const shown = m.starActive ? m.multiplier * 2 : m.multiplier;
     const color = m.starActive ? theme.star : theme.multiplier[Math.min(3, m.multiplier - 1)]!;
     const cx = 42;
-    const cy = 78;
+    // A broken streak of 10+: the badge, back at 1x and grey, dips once (FEEL.dropLife).
+    const cy = 78 + (this.reduceMotion ? 0 : 7 * Math.sin(m.multiplierDrop * Math.PI));
     const r = 22 * (1 + (this.reduceMotion ? 0 : 0.25 * m.multiplierPulse));
     ctx.lineWidth = 5;
     ctx.strokeStyle = 'rgba(255,255,255,0.12)';

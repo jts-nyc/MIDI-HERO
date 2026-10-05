@@ -8,8 +8,20 @@ export interface CanvasSize {
 
 export const MAX_DPR = 2;
 
+/** The frame-time fallback lowers this to draw fewer pixels on a slow machine (feel.ts FrameGovernor). */
+let dprCap: number = MAX_DPR;
+
+export function setDprCap(cap: number): void {
+  dprCap = Math.max(1, Math.min(MAX_DPR, cap));
+}
+
+/** Device pixels per CSS pixel to draw at: the screen's, capped. */
+export function canvasDpr(): number {
+  return Math.min(window.devicePixelRatio || 1, dprCap);
+}
+
 export function fitCanvas(canvas: HTMLCanvasElement): CanvasSize {
-  const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+  const dpr = canvasDpr();
   const width = Math.max(1, Math.floor(canvas.clientWidth));
   const height = Math.max(1, Math.floor(canvas.clientHeight));
   const pw = Math.round(width * dpr);

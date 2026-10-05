@@ -1,0 +1,19 @@
+/* Menu transitions and the results celebration (docs/FEEL.md). Loaded by screens.ts. */
+.screen:not(.transparent) > .panel { animation: panel-in 190ms cubic-bezier(0.2, 0.9, 0.3, 1.08) both; }
+button { transition: transform 80ms ease-out, border-color 120ms; }
+button:active:not(:disabled) { transform: scale(0.96); }
+.results .stars .star.on { text-shadow: 0 0 14px rgba(255, 209, 102, 0.55); }
+.confetti { position: absolute; left: 50%; top: 28%; width: 0; height: 0; pointer-events: none; }
+.confetti i { position: absolute; width: 8px; height: 12px; border-radius: 2px; background: var(--c); opacity: 0;
+  animation: confetti 1.5s cubic-bezier(0.15, 0.7, 0.4, 1) both; animation-delay: var(--t); }
+@keyframes panel-in { from { opacity: 0; transform: translateY(10px) scale(0.985); } to { opacity: 1; transform: none; } }
+@keyframes confetti {
+  0% { opacity: 1; transform: translate(0, 0) rotate(0deg); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--r)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .screen > .panel, button { animation: none; transition: none; }
+  button:active:not(:disabled) { transform: none; }
+  .confetti { display: none; }
+}

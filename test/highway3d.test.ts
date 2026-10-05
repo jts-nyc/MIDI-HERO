@@ -5,6 +5,7 @@ import { theme, type RenderState } from '../src/render/renderer.ts';
 import { createFx, Tint } from '../src/render/fx.ts';
 import { DEFAULT_SETTINGS, sanitize } from '../src/ui/settings.ts';
 import { FULL_FEEDBACK } from '../src/game/feedback.ts';
+import { FEEL } from '../src/render/feel.ts';
 
 const width = 1024;
 const hitY = 600 - Math.round(600 * 0.18);
@@ -135,15 +136,17 @@ describe('perspective renderer lifecycle', () => {
     renderer.draw(state);
     expect(canvas.width).toBe(2048);
     expect(canvas.height).toBe(1200);
-    expect(ctx.createLinearGradient).toHaveBeenCalledTimes(14);
+    // 14 for the highway, 17 for the feel layer (6 light columns, 5 charge colours, 6 flares)
+    expect(ctx.createLinearGradient).toHaveBeenCalledTimes(31);
     renderer.draw(state);
-    expect(ctx.createLinearGradient).toHaveBeenCalledTimes(14);
+    expect(ctx.createLinearGradient).toHaveBeenCalledTimes(31);
     canvas.clientWidth = 800;
     renderer.draw(state);
     expect(canvas.width).toBe(1600);
     state.low = 48;
     renderer.draw(state);
-    expect(ctx.createLinearGradient).toHaveBeenCalledTimes(42);
+    // a resize rebuilds both; a range change only the highway's
+    expect(ctx.createLinearGradient).toHaveBeenCalledTimes(31 + 31 + 14);
   });
 
   it('anchors sway at the hit line and responds to reduced motion independently of the hint', () => {
@@ -177,17 +180,17 @@ describe('perspective renderer lifecycle', () => {
     expect(ctx.quadraticCurveTo).toHaveBeenCalledTimes(4);
   });
 
-  it('keeps the passed bar pulse above the keyboard for 120 ms', () => {
+  it('keeps the passed bar pulse above the keyboard for FEEL.beatPulse', () => {
     const { renderer, ctx, state } = fixture();
     state.time = 0;
     renderer.draw(state);
-    expect(ctx.fillRect).toHaveBeenCalledWith(0, hitY - 6, width, 4);
+    expect(ctx.fillRect).toHaveBeenCalledWith(0, hitY - 6, width, 5);
     ctx.fillRect.mockClear();
-    state.time = 0.06;
+    state.time = FEEL.beatPulse / 2;
     renderer.draw(state);
-    expect(ctx.fillRect).toHaveBeenCalledWith(0, hitY - 5, width, 3);
+    expect(ctx.fillRect).toHaveBeenCalledWith(0, hitY - 4.5, width, 3.5);
     ctx.fillRect.mockClear();
-    state.time = 0.121;
+    state.time = FEEL.beatPulse + 0.001;
     renderer.draw(state);
     expect(ctx.fillRect.mock.calls.some(([x, y, w]) => x === 0 && w === width && y < hitY - 2 && y > hitY - 7)).toBe(false);
   });

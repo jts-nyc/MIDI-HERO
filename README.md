@@ -69,7 +69,8 @@ Useful URL parameters (session only, they do not change saved settings):
 above 150 ms produces misses and wrong notes);
 `?file=fixtures/some.mid` loads a MIDI file served from `public/fixtures/` (local only, gitignored);
 `?difficulty=medium`, `?part=5:4` (track:channel), `?feedback=chart|press|off`, `?arcade=1`,
-`?effects=1` (also overrides the system's reduced-motion preference) choose what to check;
+`?effects=1` (also overrides the system's reduced-motion preference), `?uiSounds=0`, `?lowfx=1`
+(start at the lowest effects level), `?governor=0` (no automatic effects fallback) choose what to check;
 `?feedbackByLevel=0` gives every level the full arcade feedback.
 
 `PORT=5180 npm run dev` runs a second dev server next to one that already has 5173. In dev
@@ -149,6 +150,12 @@ is legato and costs nothing. Easy never minds.
 
 **Calibration.** Settings → "calibrate timing" measures the input offset (tap along to 8 clicks)
 and the visual offset (tap when a marker lands).
+
+**Feel.** Every hit lights its lane and flashes its key; the hit line swells on the beat; star
+power has its own look and sound; menus and the results screen have a little celebration, with
+short quiet cues that Settings can turn off. "Hit effects and motion" off (or the system's
+reduced-motion setting) keeps the highway still, and a slow computer turns effects down by
+itself. Constants and measurements: [docs/FEEL.md](docs/FEEL.md).
 
 ## How scoring works
 

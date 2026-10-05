@@ -1,6 +1,9 @@
 import { GameClock } from './audio/clock.ts';
 import { BackingScheduler } from './audio/scheduler.ts';
 import { WebAudioSynth, type Synth } from './audio/synth.ts';
+import { Sfx, type SfxCue } from './audio/sfx.ts';
+import { setDprCap } from './render/canvas.ts';
+import { FrameGovernor, type EffectsLevel } from './render/feel.ts';
 import { DEFAULT_JUDGE_CONFIG, OVERHOLD_COST, type JudgeConfig, type TimingPreset } from './game/judge.ts';
 import { calibrationBeats } from './game/calibration.ts';
 import { loopLabel, loopOf, practiceSections, trimChart, type PracticeSectionInfo } from './game/practice.ts';
@@ -105,6 +108,7 @@ const clock = new GameClock();
 let audioCtx: AudioContext | null = null;
 let synth: Synth | null = null;
 let backingSynth: WebAudioSynth | null = null;
+let sfx: Sfx | null = null;
 let scheduler: BackingScheduler | null = null;
 let session: PlaySession | null = null;
 let renderState: RenderState | null = null;
@@ -184,6 +188,7 @@ function ensureAudio(): void {
     audioCtx = ctx;
     synth = new WebAudioSynth(ctx);
     backingSynth = new WebAudioSynth(ctx);
+    sfx = new Sfx(ctx);
     // Only drive the game clock from the audio clock once it is actually running;
     // a context created without a user gesture may stay suspended.
     const attachWhenRunning = () => {
@@ -200,6 +205,17 @@ function ensureAudio(): void {
     console.warn('AudioContext unavailable', e);
   }
 }
+
+/** A short UI or game cue (audio/sfx.ts), if sound is running and the player wants them. */
+function cue(c: SfxCue, step = 0): void {
+  // The First Lights trial is a listening study: nothing is added to what it plays.
+  if (current?.lib.id === STUDENT_TRIAL_ID) return;
+  if (sfx && audioCtx?.state === 'running' && (sessionSettings ?? settings).uiSounds) sfx.play(c, step);
+}
+// Every button in a menu ticks.
+document.getElementById('overlay')?.addEventListener('click', (e) => {
+  if ((e.target as HTMLElement | null)?.closest('button')) cue('tick');
+});
 
 function latencyMs(): number | null {
   if (!audioCtx) return null;
@@ -795,6 +811,9 @@ function play(): void {
   const hitLineY = canvas.clientHeight * 0.82;
   const visibleSeconds = runSettings.highway === 'perspective' ? horizonSeconds(hitLineY, runSettings.speed) : hitLineY / runSettings.speed;
   const feedbackProfile = feedbackFor(difficulty, runSettings.feedbackByLevel);
+  // The system's reduced-motion preference is the same as Effects off (no particles, a still
+  // highway), unless the URL asks for effects.
+  const effectsOn = runSettings.effects && (params.has('effects') || !matchMedia('(prefers-reduced-motion: reduce)').matches);
   if (relative) keyboard.base = window.low;
   else if (trial) keyboard.base = 48;
   const partName = partIds.map((id) => current!.parts.find((x) => x.key === partKey(id))?.name ?? '').join(' + ');
@@ -828,8 +847,8 @@ function play(): void {
     relative, visibleSeconds, barSeconds, autoplay, countInBeats: sig.numerator,
     steadyBacking: trial, finishAtSongEnd: trial, disableStarPower: trial,
     barTimes,
-    // The system's reduced-motion preference turns the particles off, unless the URL asks for them.
-    effects: runSettings.effects && (params.has('effects') || !matchMedia('(prefers-reduced-motion: reduce)').matches),
+    effects: effectsOn,
+    cue,
     tierText: runSettings.tierText,
     feedback: feedbackProfile,
     hint: trial ? `First Lights · ${trialRate * 100} BPM · C4, E4, G4` : relative ? PlaySession.keysHint(window) : partName,
@@ -893,6 +912,7 @@ function play(): void {
       showResults({
         title: lib.title, detail, result, badges: [...badges, ...extra], previousBest, suggestion,
         onSuggestion: takeSuggestion, onPractise: (sg) => practicePicker(sg.section?.start), onRetry: play, onQuit: songSelect,
+        sound: (c, step) => cue(c, step),
       });
     if (autoplay || result.failed) show([], null);
     else {
@@ -912,8 +932,12 @@ function play(): void {
     physical: relative ? window : null,
     fx: s.fx,
     feedback: feedbackProfile,
+    reduceMotion: !effectsOn,
     ...(s.practice ? { practice: s.practice } : {}),
   };
+  runEffects = effectsOn;
+  governor.reset();
+  applyEffectsLevel(governor.level, false);
   document.title = `MIDI Hero — ${lib.title}`;
 
   const portId = midi.selectedId;
@@ -1034,19 +1058,48 @@ document.addEventListener('visibilitychange', () => {
 // ---------------------------------------------------------------------------
 // Frame loop
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Frame-time fallback: on a machine that cannot hold ~50 fps, turn effects down (docs/FEEL.md)
+// ---------------------------------------------------------------------------
+const governor = new FrameGovernor(params.get('lowfx') === '1' ? 2 : 0);
+const governed = params.get('governor') !== '0';
+let runEffects = true;
+let lastFrameMs = 0;
+let toldLowFx = false;
+
+function applyEffectsLevel(level: EffectsLevel, announce: boolean): void {
+  setDprCap(level === 0 ? 2 : level === 1 ? 1.5 : 1);
+  if (!session || !renderState) return;
+  session.fx.intensity = session.profile.intensity * (level >= 1 ? 0.5 : 1);
+  session.fx.enabled = runEffects && level < 2;
+  renderState.lowFx = level >= 2;
+  if (announce && level > 0 && !toldLowFx) {
+    toldLowFx = true;
+    toast('Fewer effects, to keep the notes smooth on this computer');
+  }
+}
+
 let lastDebug = 0;
 let frameCount = 0;
 let fpsWindowStart = 0;
 let fps = 0;
 let workMs = 0; // accumulated update+draw time in the current window
 let frameMs = 0; // average work per frame over the last window
-/** One frame of work: update the session and draw it. Returns the time it took, in ms. */
-function step(s: PlaySession, state: RenderState): number {
+const FRAME_STAMP_TRUST_MS = 50;
+/**
+ * One frame of work: update the session and draw it. Returns the time it took, in ms.
+ * `frameMs` is the frame's own timestamp (requestAnimationFrame's): the highway is drawn at the
+ * song time of that instant, not of whenever this code happens to run, so the notes move the
+ * same distance every frame however long the work before the draw took (docs/FEEL.md).
+ */
+function step(s: PlaySession, state: RenderState, frameMs = performance.now()): number {
   const w0 = performance.now();
   s.update();
   setMix(s.mixLevel);
   const liveSettings = sessionSettings ?? settings;
-  state.time = s.now() + (liveSettings.audioOffsetMs / 1000) * s.rate;
+  // A timestamp that is not from the last few frames (headless Chrome sends the odd stray one) is not trusted.
+  const at = frameMs <= w0 && frameMs > w0 - FRAME_STAMP_TRUST_MS ? frameMs : w0;
+  state.time = s.renderTimeAt(at) + (liveSettings.audioOffsetMs / 1000) * s.rate;
   state.hud = s.hud();
   (liveSettings.highway === 'perspective' ? perspectiveRenderer : renderer).draw(state);
   return performance.now() - w0;
@@ -1071,12 +1124,17 @@ if (import.meta.env.DEV) {
       };
       channel.port2.postMessage(0);
     });
-  (window as unknown as { midihero: unknown }).midihero = { bench, get session() { return session; }, get renderState() { return renderState; } };
+  (window as unknown as { midihero: unknown }).midihero = { bench, governor, get session() { return session; }, get renderState() { return renderState; } };
 }
 
-function frame(): void {
+function frame(frameMs: number): void {
   // Ask for the next frame first: a frame that throws must not stop the game drawing for good.
   requestAnimationFrame(frame);
+  if (governed && session?.status === 'playing') {
+    const level = governor.sample(frameMs - lastFrameMs);
+    if (level !== null) applyEffectsLevel(level, true);
+  }
+  lastFrameMs = frameMs;
   frameCount++;
   const nowMs = performance.now();
   if (nowMs - fpsWindowStart >= 1000) {
@@ -1087,7 +1145,7 @@ function frame(): void {
     fpsWindowStart = nowMs;
   }
   if (session && renderState) {
-    workMs += step(session, renderState);
+    workMs += step(session, renderState, frameMs);
     const t = performance.now();
     if (t - lastDebug > 250) {
       lastDebug = t;
