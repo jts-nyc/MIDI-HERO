@@ -268,6 +268,15 @@ export class PlaySession {
     return this.opts.clock.now();
   }
 
+  /**
+   * Song time to draw a frame at, from the frame's timestamp. Never later than the clock's now
+   * (a timestamp from the future would show notes the judge has not reached yet).
+   */
+  renderTimeAt(frameMs: number): number {
+    const now = this.opts.clock.now();
+    return Math.min(now, this.opts.clock.audibleSongTime(frameMs));
+  }
+
   /** 0..1: how much of the band's drums and pads the player has earned; falls when health is low. */
   get mixLevel(): number {
     return this.opts.steadyBacking ? 1 : this.judge.meter.mixLevel;

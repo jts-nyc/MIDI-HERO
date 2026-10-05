@@ -1040,13 +1040,21 @@ let fpsWindowStart = 0;
 let fps = 0;
 let workMs = 0; // accumulated update+draw time in the current window
 let frameMs = 0; // average work per frame over the last window
-/** One frame of work: update the session and draw it. Returns the time it took, in ms. */
-function step(s: PlaySession, state: RenderState): number {
+const FRAME_STAMP_TRUST_MS = 50;
+/**
+ * One frame of work: update the session and draw it. Returns the time it took, in ms.
+ * `frameMs` is the frame's own timestamp (requestAnimationFrame's): the highway is drawn at the
+ * song time of that instant, not of whenever this code happens to run, so the notes move the
+ * same distance every frame however long the work before the draw took (docs/FEEL.md).
+ */
+function step(s: PlaySession, state: RenderState, frameMs = performance.now()): number {
   const w0 = performance.now();
   s.update();
   setMix(s.mixLevel);
   const liveSettings = sessionSettings ?? settings;
-  state.time = s.now() + (liveSettings.audioOffsetMs / 1000) * s.rate;
+  // A timestamp that is not from the last few frames (headless Chrome sends the odd stray one) is not trusted.
+  const at = frameMs <= w0 && frameMs > w0 - FRAME_STAMP_TRUST_MS ? frameMs : w0;
+  state.time = s.renderTimeAt(at) + (liveSettings.audioOffsetMs / 1000) * s.rate;
   state.hud = s.hud();
   (liveSettings.highway === 'perspective' ? perspectiveRenderer : renderer).draw(state);
   return performance.now() - w0;
@@ -1074,7 +1082,7 @@ if (import.meta.env.DEV) {
   (window as unknown as { midihero: unknown }).midihero = { bench, get session() { return session; }, get renderState() { return renderState; } };
 }
 
-function frame(): void {
+function frame(frameMs: number): void {
   // Ask for the next frame first: a frame that throws must not stop the game drawing for good.
   requestAnimationFrame(frame);
   frameCount++;
@@ -1087,7 +1095,7 @@ function frame(): void {
     fpsWindowStart = nowMs;
   }
   if (session && renderState) {
-    workMs += step(session, renderState);
+    workMs += step(session, renderState, frameMs);
     const t = performance.now();
     if (t - lastDebug > 250) {
       lastDebug = t;
