@@ -1,6 +1,6 @@
 # Simple mode: a 10-minute student test
 
-Simple mode is a stripped-down MIDI Hero for early student feedback: five song cards, an
+Simple mode is a stripped-down MIDI Hero for early student feedback: six song cards, an
 automatic keyboard check, a count-in, a results screen and four one-tap questions. The one
 choice a student can make is Easy or Normal. The full game at the root URL is unchanged.
 
@@ -15,6 +15,13 @@ First Lights). On Easy the right note in any octave counts, so a bumped octave b
 not stop a beginner; Normal (the game's Medium level) wants the exact key. First Lights runs
 under the student-trial conditions in [STUDENT-TRIAL-READINESS](STUDENT-TRIAL-READINESS.md)
 (exact C4/E4/G4, normal timing) and ignores Easy/Normal.
+
+**Rhythm card.** One Rhythm Basics drill is on the cards, "Rhythm: The Pocket" (straight
+quarters on C4 and G4 over a click and bass), and the other four are not. The Pocket is the only
+drill that keeps its whole rhythm on Easy, so the Easy/Normal toggle means what it says; the
+syncopation, swing and 3-against-2 drills need Medium, and 7/8 needs explaining. Those four stay
+in the full game and the Rhythm Basics pack. If a later card does carry a song that opens above
+Easy, simple mode plays it at that level whatever the toggle says (`runDifficulty`).
 
 ## Setup, per machine (2 minutes)
 

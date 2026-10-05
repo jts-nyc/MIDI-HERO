@@ -57,7 +57,7 @@ Real-device listening and student validation remain outstanding.
 
 ### Simple mode for student testing
 
-`/simple/` is a stripped-down page on the same engine: five song cards, an automatic keyboard
+`/simple/` is a stripped-down page on the same engine: six song cards, an automatic keyboard
 check, a count-in, results and four one-tap feedback questions stored only in the browser
 (`/simple/?teacher=1` counts and exports them). Teacher defaults are fixed; the only choice is
 Easy or Normal. See [the 10-minute test protocol](docs/SIMPLE-TEST.md).

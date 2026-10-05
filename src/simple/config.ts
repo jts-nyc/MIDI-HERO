@@ -27,6 +27,9 @@ export const SIMPLE_SONGS: readonly SimpleSong[] = [
   { id: 'twinkle', title: 'Twinkle Twinkle', blurb: 'The first song', color: '#c77d00' },
   { id: 'ode-to-joy', title: 'Ode to Joy', blurb: 'Steady and calm', color: '#9b4dd6' },
   { id: 'saints', title: 'When the Saints', blurb: 'A marching tune', color: '#d6453d' },
+  // One Rhythm Basics drill, not all five: The Pocket is the only one that keeps its rhythm on
+  // Easy and needs no level talk; the others are for the full game (docs/SIMPLE-TEST.md).
+  { id: 'rhythm-1-straight', title: 'Rhythm: The Pocket', blurb: 'Two drums, C and G, on the beat', color: '#0e8a8f' },
 ];
 
 export const LEVEL_LABEL: Record<SimpleLevel, string> = { easy: 'Easy', normal: 'Normal' };

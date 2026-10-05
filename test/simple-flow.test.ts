@@ -83,6 +83,15 @@ describe('simple-mode songs and defaults', () => {
     expect(SIMPLE_SONGS.length).toBeLessThanOrEqual(6);
   });
 
+  it('offers one Rhythm Basics card, The Pocket, which keeps its rhythm on Easy', () => {
+    const rhythm = SIMPLE_SONGS.filter((s) => s.id.startsWith('rhythm-'));
+    expect(rhythm.map((s) => s.id)).toEqual(['rhythm-1-straight']);
+    expect(rhythm[0]!.title).toBe('Rhythm: The Pocket');
+    const entry = manifest.find((m) => m.id === 'rhythm-1-straight') as { difficulty?: string } | undefined;
+    expect(entry).toBeDefined();
+    expect(entry!.difficulty).toBeUndefined(); // no opening level above Easy, so the Easy/Normal toggle means what it says
+  });
+
   it('maps Easy and Normal to the game levels', () => {
     expect(difficultyFor('easy')).toBe('easy');
     expect(difficultyFor('normal')).toBe('medium');
