@@ -1,5 +1,5 @@
 // Generates the bundled demo songs as Standard MIDI Files, the song manifest,
-// and the beginner song pack. Run with: npm run gen-songs
+// the beginner song pack and the Rhythm Basics pack. Run with: npm run gen-songs
 //
 // Existing melodies are public domain (Beethoven, traditional, Petzold).
 // First Lights is an original four-bar student-trial arrangement.
@@ -336,6 +336,130 @@ const tierOf = (x: Song) => (x.trialOnly ? -1 : TIER.findIndex((t) => x.tag?.sta
 songs.sort((a, b) => tierOf(a) - tierOf(b) || a.bpm - b.bpm);
 
 // ---------------------------------------------------------------------------
+// Rhythm Basics — five drills, one rhythm each, from the five rounds of the
+// owner's "Pocket Change" jazz-drummer game (Reset Lab playground). The player
+// part uses two keys only: C4 for the game's kick, G4 for its snare, so the
+// rhythm is the only thing to learn. Swing is written into the note times
+// (offbeat at 2/3 of the beat): MIDI has no swing flag.
+// ---------------------------------------------------------------------------
+type Level = 'easy' | 'medium' | 'hard' | 'expert';
+type RhythmSong = Song & {
+  /** The level the Rhythm Basics pack opens the song at: Easy strips the rhythm it teaches. */
+  packDifficulty?: Level;
+};
+const KICK_KEY = p(C, 4), SNARE_KEY = p(G, 4);
+const RIDE = 51, PEDAL_HAT = 44, CLICK_HI = 76, CLICK_LO = 77;
+const tk = (beat: number) => Math.round(beat * PPQ);
+
+/** A line from [beat, pitch, beats] events that never overlap, padded with rests to `total` beats. */
+function line(events: [number, number, number][], total: number): N[] {
+  const out: N[] = [];
+  let at = 0;
+  for (const [beat, pitch, len] of [...events].sort((a, b) => a[0] - b[0])) {
+    const t = tk(beat);
+    if (t > at) out.push([0, (t - at) / PPQ]);
+    out.push([pitch, tk(len) / PPQ]);
+    at = t + tk(len);
+  }
+  if (tk(total) > at) out.push([0, (tk(total) - at) / PPQ]);
+  return out;
+}
+
+/** One pattern bar repeated: [beat in bar, value] → absolute beats. */
+const repeatBars = <T,>(pattern: [number, T][], beatsPerBar: number, bars: number, from = 0): [number, T][] =>
+  Array.from({ length: bars }, (_, b) => pattern.map(([beat, v]): [number, T] => [(from + b) * beatsPerBar + beat, v])).flat();
+
+/**
+ * The player part from Pocket Change hits: one line per key, each note lasting until the next
+ * hit of either key (so holding a key until the next one is never an over-hold), and a final
+ * kick held through the last bar.
+ */
+function drill(pattern: [number, 'kick' | 'snare'][], beatsPerBar: number, bars: number): Voice {
+  const hits = repeatBars(pattern, beatsPerBar, bars - 1);
+  hits.push([(bars - 1) * beatsPerBar, 'kick']);
+  const total = bars * beatsPerBar;
+  const onsets = [...new Set(hits.map(([b]) => tk(b)))].sort((a, b) => a - b);
+  const lineOf = (drum: 'kick' | 'snare', key: number) => line(hits.filter(([, d]) => d === drum).map(([b]): [number, number, number] => {
+    const next = onsets.find((t) => t > tk(b)) ?? tk(total);
+    return [b, key, (next - tk(b)) / PPQ];
+  }), total);
+  return { name: 'Rhythm (C = low drum, G = high drum)', channel: 0, program: 0, notes: lineOf('kick', KICK_KEY), layers: [{ notes: lineOf('snare', SNARE_KEY) }] };
+}
+
+/** A metronome: high click on the downbeat, low click on the other `clicks` (beats in the bar). */
+function click(clicks: number[], beatsPerBar: number, bars: number, total = bars * beatsPerBar): Voice {
+  const hi = line(Array.from({ length: bars }, (_, b): [number, number, number] => [b * beatsPerBar, CLICK_HI, 0.25]), total);
+  const lo = line(repeatBars(clicks.filter((c) => c > 0).map((c): [number, number] => [c, 0]), beatsPerBar, bars - 1).map(([b]): [number, number, number] => [b, CLICK_LO, 0.25]), total);
+  return { name: 'Click', channel: 9, program: 0, velocity: 70, notes: hi, layers: [{ notes: lo, velocity: 50 }] };
+}
+
+/** Bass on the given beats of each bar ([beat, pitch, beats]), the last bar one long root. */
+function bassLine(perBar: (bar: number) => [number, number, number][], beatsPerBar: number, bars: number, program = 33): Voice {
+  const evs = Array.from({ length: bars - 1 }, (_, b) => perBar(b).map(([beat, pitch, len]): [number, number, number] => [b * beatsPerBar + beat, pitch, len])).flat();
+  evs.push([(bars - 1) * beatsPerBar, p(C, 2), beatsPerBar]);
+  return { name: 'Bass', channel: 1, program, velocity: 70, notes: line(evs, bars * beatsPerBar) };
+}
+
+const POCKET: Record<string, [number, 'kick' | 'snare'][]> = {
+  // The pocket: straight quarter notes, kick and snare trade the pulse.
+  straight: [[0, 'kick'], [1, 'snare'], [2, 'kick'], [3, 'snare']],
+  // The side-eye: some attacks land halfway between the beats.
+  syncopated: [[0, 'kick'], [1, 'snare'], [1.5, 'kick'], [2.5, 'kick'], [3.5, 'snare']],
+  // The shuffle: long–short swing, the offbeat two-thirds through each beat.
+  swing: [[0, 'kick'], [2 / 3, 'snare'], [1, 'kick'], [1 + 2 / 3, 'snare'], [2, 'kick'], [2 + 2 / 3, 'snare'], [3, 'kick'], [3 + 2 / 3, 'snare']],
+  // The missing stair: 7/8 grouped 2 + 2 + 3, a bar of 3.5 quarter-note beats.
+  sevenEight: [[0, 'kick'], [1, 'snare'], [2, 'kick'], [2.5, 'snare'], [3, 'snare']],
+  // The double-cross: three snares against two kicks every two beats, shared attacks on 1 and 3.
+  threeTwo: [[0, 'kick'], [0, 'snare'], [2 / 3, 'snare'], [1, 'kick'], [4 / 3, 'snare'], [2, 'kick'], [2, 'snare'], [2 + 2 / 3, 'snare'], [3, 'kick'], [2 + 4 / 3, 'snare']],
+};
+
+const RHYTHM_BARS = 12;
+// 12-bar blues for the swing drill; the last bar is the ending.
+const bluesBars = ['C7', 'F7', 'C7', 'C7', 'F7', 'F7', 'C7', 'C7', 'G7', 'F7', 'C7', 'C'];
+const WALK: Record<string, number[]> = { C7: [C, E, G, A], F7: [F, A, C + 12, D + 12], G7: [G, B, D + 12, F + 12] };
+const swingRide: [number, number][] = [[0, 0], [1, 0], [1 + 2 / 3, 0], [2, 0], [3, 0], [3 + 2 / 3, 0]];
+const straightBass = (): [number, number, number][] => [[0, p(C, 2), 0.5], [1, p(C, 2), 0.5], [2, p(G, 2), 0.5], [3, p(G, 2), 0.5]];
+
+const rhythmSongs: RhythmSong[] = [
+  {
+    id: 'rhythm-1-straight', title: 'Rhythm 1: The Pocket (straight 4/4)', bpm: 84, timeSig: [4, 4],
+    tag: 'Rhythm Basics 1 · straight quarter notes · Easy and up',
+    voices: [drill(POCKET.straight!, 4, RHYTHM_BARS), click([0, 1, 2, 3], 4, RHYTHM_BARS), bassLine(straightBass, 4, RHYTHM_BARS)],
+  },
+  {
+    id: 'rhythm-2-syncopation', title: 'Rhythm 2: The Side-Eye (syncopation)', bpm: 80, timeSig: [4, 4], packDifficulty: 'medium',
+    tag: 'Rhythm Basics 2 · off-beat eighths · Medium and up',
+    voices: [drill(POCKET.syncopated!, 4, RHYTHM_BARS), click([0, 1, 2, 3], 4, RHYTHM_BARS), bassLine(straightBass, 4, RHYTHM_BARS)],
+  },
+  {
+    id: 'rhythm-3-swing', title: 'Rhythm 3: The Shuffle (swing)', bpm: 88, timeSig: [4, 4], packDifficulty: 'medium',
+    tag: 'Rhythm Basics 3 · swing, long–short · Medium and up',
+    voices: [
+      drill(POCKET.swing!, 4, RHYTHM_BARS),
+      { name: 'Ride and hi-hat', channel: 9, program: 0, velocity: 46,
+        notes: line([...repeatBars(swingRide, 4, RHYTHM_BARS - 1).map(([b]): [number, number, number] => [b, RIDE, 0.25]), [(RHYTHM_BARS - 1) * 4, RIDE, 0.25]], RHYTHM_BARS * 4),
+        layers: [{ velocity: 40, notes: line(repeatBars([[1, 0], [3, 0]], 4, RHYTHM_BARS - 1).map(([b]): [number, number, number] => [b, PEDAL_HAT, 0.25]), RHYTHM_BARS * 4) }] },
+      bassLine((b) => WALK[bluesBars[b]!]!.map((n, i): [number, number, number] => [i, p(n, 2), 0.9]), 4, RHYTHM_BARS, 32),
+    ],
+  },
+  {
+    // 7/8: the quarter-note tempo is 72 (eighths at 144); clicks and bass mark the groups 2 + 2 + 3.
+    id: 'rhythm-4-seven-eight', title: 'Rhythm 4: The Missing Stair (7/8)', bpm: 72, timeSig: [7, 8],
+    tag: 'Rhythm Basics 4 · 7/8 grouped 2 + 2 + 3 · Easy and up',
+    voices: [
+      drill(POCKET.sevenEight!, 3.5, RHYTHM_BARS),
+      click([0, 1, 2], 3.5, RHYTHM_BARS),
+      bassLine(() => [[0, p(C, 2), 0.75], [1, p(C, 2), 0.75], [2, p(G, 2), 1.25]], 3.5, RHYTHM_BARS),
+    ],
+  },
+  {
+    id: 'rhythm-5-three-two', title: 'Rhythm 5: The Double-Cross (3 against 2)', bpm: 66, timeSig: [4, 4], packDifficulty: 'medium',
+    tag: 'Rhythm Basics 5 · three against two, both hands · Medium and up',
+    voices: [drill(POCKET.threeTwo!, 4, RHYTHM_BARS), click([0, 1, 2, 3], 4, RHYTHM_BARS), bassLine(straightBass, 4, RHYTHM_BARS)],
+  },
+];
+
+// ---------------------------------------------------------------------------
 // SMF writer
 // ---------------------------------------------------------------------------
 type Abs = { tick: number; order: number; ev: MidiEvent };
@@ -424,6 +548,21 @@ for (const s of songs) {
   packSongs.unshift({ id: sha256(bytes), title: 'C Five-Finger Exercise (70 bpm)', midiBase64: Buffer.from(bytes).toString('base64'), defaultParts, timingPreset: 'relaxed' });
 }
 
+// Rhythm Basics: listed after the other songs, in teaching order, and in a pack of their own.
+const rhythmPackSongs: object[] = [];
+for (const s of rhythmSongs) {
+  const bytes = songToBytes(s);
+  const file = `${s.id}.mid`;
+  writeFileSync(join(songsDir, file), bytes);
+  const defaultParts = [{ track: 1, channel: s.voices[0]!.channel }];
+  manifest.push({ id: s.id, title: s.title, file, defaultParts, ...(s.tag ? { tag: s.tag } : {}) });
+  rhythmPackSongs.push({
+    id: sha256(bytes), title: s.title, midiBase64: Buffer.from(bytes).toString('base64'), defaultParts, timingPreset: 'normal',
+    ...(s.packDifficulty ? { difficulty: s.packDifficulty } : {}),
+  });
+  console.log(`wrote ${file} (${bytes.length} bytes)`);
+}
+
 writeFileSync(join(songsDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 
 const pack = {
@@ -436,3 +575,14 @@ const pack = {
 };
 writeFileSync(join(packsDir, 'beginner.midihero.json'), JSON.stringify(pack, null, 2) + '\n');
 console.log(`wrote manifest.json (${manifest.length} songs) and packs/beginner.midihero.json`);
+
+const rhythmPack = {
+  format: 'midihero-pack',
+  version: 1,
+  name: 'Rhythm Basics',
+  createdAt: '2026-10-05T00:00:00.000Z',
+  settings: { kb: 25, timing: 'normal', names: true, synth: true },
+  songs: rhythmPackSongs,
+};
+writeFileSync(join(packsDir, 'rhythm-basics.midihero.json'), JSON.stringify(rhythmPack, null, 2) + '\n');
+console.log('wrote packs/rhythm-basics.midihero.json');
