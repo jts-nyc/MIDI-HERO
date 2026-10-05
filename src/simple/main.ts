@@ -6,6 +6,7 @@
  */
 import { GameClock } from '../audio/clock.ts';
 import { BackingScheduler } from '../audio/scheduler.ts';
+import { Sfx, type SfxCue } from '../audio/sfx.ts';
 import { WebAudioSynth, type Synth } from '../audio/synth.ts';
 import { feedbackFor } from '../game/feedback.ts';
 import { DEFAULT_JUDGE_CONFIG, OVERHOLD_COST, type JudgeConfig } from '../game/judge.ts';
@@ -17,12 +18,13 @@ import type { InputEvent } from '../input/normalize.ts';
 import { buildChart, chooseWindow, offeredLevels, resolveLevel, splitNotes, type PitchWindow } from '../midi/chart.ts';
 import { beatLines, parseSong, ticksToSeconds } from '../midi/parse.ts';
 import { buildParts, defaultPart } from '../midi/parts.ts';
+import { frameStamp } from '../render/feel.ts';
 import { horizonSeconds, PerspectiveRenderer } from '../render/highway3d.ts';
 import { displayRange, noteName } from '../render/layout.ts';
 import { Renderer, type RenderState } from '../render/renderer.ts';
 import { partKey, type PartId, type SongData } from '../types.ts';
 import { effectiveFeedback, loadSettings, type Settings } from '../ui/settings.ts';
-import { difficultyFor, LEVEL_LABEL, SIMPLE_SONGS, simpleSettings, type SimpleLevel, type SimpleSong } from './config.ts';
+import { cueFor, difficultyFor, LEVEL_LABEL, SIMPLE_SONGS, simpleSettings, type SimpleLevel, type SimpleSong } from './config.ts';
 import { FeedbackStore, QUESTIONS, summarize, toCsv, toJson, COMMENT_MAX, type Answers, type StorageLike } from './feedback.ts';
 import { cheer, initialFlow, step, summarizeRun, type FlowEvent, type FlowState } from './flow.ts';
 
@@ -135,6 +137,7 @@ const clock = new GameClock();
 let audioCtx: AudioContext | null = null;
 let synth: Synth | null = null;
 let backingSynth: WebAudioSynth | null = null;
+let sfx: Sfx | null = null;
 let scheduler: BackingScheduler | null = null;
 let session: PlaySession | null = null;
 let renderState: RenderState | null = null;
@@ -182,6 +185,7 @@ function ensureAudio(): void {
     audioCtx = ctx;
     synth = new WebAudioSynth(ctx);
     backingSynth = new WebAudioSynth(ctx);
+    sfx = new Sfx(ctx);
     const attach = () => {
       if (ctx.state === 'running' && !clock.hasAudio) clock.attach(ctx);
     };
@@ -191,6 +195,11 @@ function ensureAudio(): void {
   } catch (e) {
     console.warn('AudioContext unavailable', e);
   }
+}
+
+/** A short game cue (audio/sfx.ts) for the run in progress, once sound is running. */
+function playCue(c: SfxCue): void {
+  if (sfx && audioCtx?.state === 'running' && runSettings?.uiSounds) sfx.play(c);
 }
 
 async function loadSong(id: string): Promise<{ song: SongData; parts: PartId[] }> {
@@ -271,6 +280,7 @@ async function startRun(entry: SimpleSong, level: SimpleLevel): Promise<void> {
     relative, visibleSeconds, barSeconds, autoplay, countInBeats: sig.numerator,
     steadyBacking: trial, finishAtSongEnd: trial, disableStarPower: trial,
     barTimes,
+    cue: cueFor(settings, playCue),
     effects: settings.effects && !matchMedia('(prefers-reduced-motion: reduce)').matches,
     tierText: settings.tierText,
     feedback: profile,
@@ -347,14 +357,16 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) pauseRun();
 });
 
-function frame(): void {
+function frame(frameMs: number): void {
   requestAnimationFrame(frame);
   const s = session;
   const state = renderState;
   if (!s || !state || !runSettings) return;
+  const w0 = performance.now();
   s.update();
   if (!session) return; // the song just finished
-  state.time = s.now() + (runSettings.audioOffsetMs / 1000) * s.rate;
+  // Drawn at the frame's own timestamp, as in the full game, so update time does not jitter the notes (docs/FEEL.md).
+  state.time = s.renderTimeAt(frameStamp(frameMs, w0)) + (runSettings.audioOffsetMs / 1000) * s.rate;
   state.hud = s.hud();
   if (runSettings.highway === 'perspective') (perspectiveRenderer ??= new PerspectiveRenderer(canvas)).draw(state);
   else (flatRenderer ??= new Renderer(canvas)).draw(state);

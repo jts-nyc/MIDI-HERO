@@ -8,7 +8,7 @@ import { DEFAULT_JUDGE_CONFIG } from '../src/game/judge.ts';
 import { PlaySession, type SessionOptions } from '../src/game/session.ts';
 import { buildChart } from '../src/midi/chart.ts';
 import { parseSong } from '../src/midi/parse.ts';
-import { beatPulse, chargeAlpha, countPulse, FEEL, FrameGovernor, GOVERNOR, popupPose, type PopupPose } from '../src/render/feel.ts';
+import { beatPulse, chargeAlpha, countPulse, FEEL, FRAME_STAMP_TRUST_MS, FrameGovernor, frameStamp, GOVERNOR, popupPose, type PopupPose } from '../src/render/feel.ts';
 import { activeCount, createFx, emitDrop, emitHit, emitLevel, emitMilestone, emitStar, POOL, stepFx, Tint } from '../src/render/fx.ts';
 import { confetti } from '../src/ui/screens.ts';
 import { FakeAudioContext } from './helpers/fakeAudio.ts';
@@ -286,5 +286,18 @@ describe('results confetti', () => {
     expect(html.match(/<i /g)!.length).toBe(12);
     expect(confetti(12)).toBe(html);
     expect(html).toContain('aria-hidden="true"');
+  });
+});
+
+describe('frameStamp: the instant a frame is drawn at (full game and simple mode)', () => {
+  it('uses the frame timestamp when it is from the last few frames', () => {
+    expect(frameStamp(1000, 1004)).toBe(1000);
+    expect(frameStamp(1004, 1004)).toBe(1004);
+  });
+
+  it('falls back to now for a stale or future timestamp', () => {
+    expect(frameStamp(1000 - FRAME_STAMP_TRUST_MS, 1000)).toBe(1000);
+    expect(frameStamp(1010, 1004)).toBe(1004);
+    expect(frameStamp(0, 5000)).toBe(5000);
   });
 });

@@ -89,6 +89,17 @@ export function chargeAlpha(multiplier: number, star: boolean): number {
 // Frame-time fallback
 // ---------------------------------------------------------------------------
 
+/** A frame timestamp older than this (ms), or from the future, is not trusted: headless Chrome sends the odd stray one. */
+export const FRAME_STAMP_TRUST_MS = 50;
+
+/**
+ * The instant to draw a frame at: the frame's own requestAnimationFrame timestamp when it is from
+ * the last few frames, otherwise now. Shared by the full game and simple mode (docs/FEEL.md).
+ */
+export function frameStamp(frameMs: number, nowMs: number): number {
+  return frameMs <= nowMs && frameMs > nowMs - FRAME_STAMP_TRUST_MS ? frameMs : nowMs;
+}
+
 /** 0: everything; 1: half the particles, canvas at most 1.5× resolution; 2: no particles or lights, 1× resolution. */
 export type EffectsLevel = 0 | 1 | 2;
 

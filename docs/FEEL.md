@@ -28,7 +28,8 @@ frame-to-frame error of 7.9 ms unsmoothed and under 1 ms smoothed.
 **Draw at the frame's timestamp.** Before this pass the highway was drawn at `performance.now()`
 taken partway through the frame, so however long `update()` took showed up as note jitter. Now
 `step()` draws at the `requestAnimationFrame` timestamp (stray timestamps more than 50 ms old
-or in the future fall back to now). `scripts/timing-probe.mjs` measures it in headless Chrome
+or in the future fall back to now; `frameStamp()` in `feel.ts`). Simple mode (`/simple/`) draws
+the same way. `scripts/timing-probe.mjs` measures it in headless Chrome
 (Minuet in G, perspective, 1024×600):
 
 | | step error p95, 1× | 4× CPU throttle | 6× | drawn time vs a straight line, p95 at 4× |

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { difficultyFor, SIMPLE_SONGS, simpleSettings } from '../src/simple/config.ts';
+import { cueFor, difficultyFor, SIMPLE_SONGS, simpleSettings } from '../src/simple/config.ts';
 import { cheer, initialFlow, step, summarizeRun, type FlowState, type RunSummary } from '../src/simple/flow.ts';
 import { STUDENT_TRIAL_ID, studentTrialSettings } from '../src/game/studentTrial.ts';
 import { DEFAULT_SETTINGS } from '../src/ui/settings.ts';
@@ -100,9 +100,19 @@ describe('simple-mode songs and defaults', () => {
     expect(simpleSettings(saved, 'normal', {}).easy).toBe(false);
   });
 
+  it('plays the game cues on the songs, never on the First Lights listening trial', () => {
+    const play = () => undefined;
+    const quiet = { ...saved, uiSounds: false };
+    expect(simpleSettings(quiet, 'easy', {}).uiSounds).toBe(true); // a teacher default, not the saved setting
+    expect(cueFor(simpleSettings(saved, 'easy', {}), play)).toBe(play);
+    expect(cueFor(simpleSettings(saved, 'normal', {}), play)).toBe(play);
+    expect(simpleSettings(saved, 'easy', { trial: true }).uiSounds).toBe(false);
+    expect(cueFor(simpleSettings(saved, 'easy', { trial: true }), play)).toBeUndefined();
+  });
+
   it('runs First Lights under the student trial conditions', () => {
     const s = simpleSettings(saved, 'normal', { trial: true });
-    expect(s).toEqual(studentTrialSettings({ ...DEFAULT_SETTINGS, audioOffsetMs: 40, inputOffsetMs: -25, midiPortId: 'port-1', firstRunDone: true }, 'press', 1));
+    expect(s).toEqual({ ...studentTrialSettings({ ...DEFAULT_SETTINGS, audioOffsetMs: 40, inputOffsetMs: -25, midiPortId: 'port-1', firstRunDone: true }, 'press', 1), uiSounds: false });
     expect(s).toMatchObject({ timing: 'normal', kb: 25, highway: 'flat', synth: true, feedbackSound: 'press' });
   });
 });

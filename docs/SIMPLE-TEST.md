@@ -10,7 +10,8 @@ choice a student can make is Easy or Normal. The full game at the root URL is un
 
 Teacher defaults are fixed: 25-key window, relaxed timing, note names on the keys and the
 falling notes, the computer sounds the song's note on a hit, no fail-out, no penalty for
-holding a key. On Easy the right note in any octave counts, so a bumped octave button does
+holding a key, and the game's quiet cues for star power, streaks and level-ups (none during
+First Lights). On Easy the right note in any octave counts, so a bumped octave button does
 not stop a beginner; Normal (the game's Medium level) wants the exact key. First Lights runs
 under the student-trial conditions in [STUDENT-TRIAL-READINESS](STUDENT-TRIAL-READINESS.md)
 (exact C4/E4/G4, normal timing) and ignores Easy/Normal.

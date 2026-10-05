@@ -3,7 +3,7 @@ import { BackingScheduler } from './audio/scheduler.ts';
 import { WebAudioSynth, type Synth } from './audio/synth.ts';
 import { Sfx, type SfxCue } from './audio/sfx.ts';
 import { setDprCap } from './render/canvas.ts';
-import { FrameGovernor, type EffectsLevel } from './render/feel.ts';
+import { FrameGovernor, frameStamp, type EffectsLevel } from './render/feel.ts';
 import { DEFAULT_JUDGE_CONFIG, OVERHOLD_COST, type JudgeConfig, type TimingPreset } from './game/judge.ts';
 import { calibrationBeats } from './game/calibration.ts';
 import { loopLabel, loopOf, practiceSections, trimChart, type PracticeSectionInfo } from './game/practice.ts';
@@ -1085,7 +1085,6 @@ let fpsWindowStart = 0;
 let fps = 0;
 let workMs = 0; // accumulated update+draw time in the current window
 let frameMs = 0; // average work per frame over the last window
-const FRAME_STAMP_TRUST_MS = 50;
 /**
  * One frame of work: update the session and draw it. Returns the time it took, in ms.
  * `frameMs` is the frame's own timestamp (requestAnimationFrame's): the highway is drawn at the
@@ -1097,9 +1096,7 @@ function step(s: PlaySession, state: RenderState, frameMs = performance.now()): 
   s.update();
   setMix(s.mixLevel);
   const liveSettings = sessionSettings ?? settings;
-  // A timestamp that is not from the last few frames (headless Chrome sends the odd stray one) is not trusted.
-  const at = frameMs <= w0 && frameMs > w0 - FRAME_STAMP_TRUST_MS ? frameMs : w0;
-  state.time = s.renderTimeAt(at) + (liveSettings.audioOffsetMs / 1000) * s.rate;
+  state.time = s.renderTimeAt(frameStamp(frameMs, w0)) + (liveSettings.audioOffsetMs / 1000) * s.rate;
   state.hud = s.hud();
   (liveSettings.highway === 'perspective' ? perspectiveRenderer : renderer).draw(state);
   return performance.now() - w0;

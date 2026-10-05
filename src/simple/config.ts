@@ -42,7 +42,8 @@ type Calibration = Pick<Settings, 'audioOffsetMs' | 'inputOffsetMs' | 'midiPortI
 /**
  * The settings for one simple-mode run. Teacher defaults: a 25-key window, relaxed timing,
  * note names on the keys and on the falling notes, the computer sounds the song's note on a
- * hit, no fail-out, no held-too-long penalty, calm feedback on Easy. Easy also accepts the
+ * hit, no fail-out, no held-too-long penalty, calm feedback on Easy, the game's quiet cues on.
+ * Easy also accepts the
  * right note in any octave, so a bumped octave button does not stop a beginner.
  * First Lights keeps the student trial's own conditions (exact pitches, normal timing).
  */
@@ -54,7 +55,8 @@ export function simpleSettings(saved: Calibration, level: SimpleLevel, song: Pic
     midiPortId: saved.midiPortId,
     firstRunDone: true,
   };
-  if (song.trial) return studentTrialSettings(calibration, 'press', 1);
+  // First Lights is a listening trial: no cues are added to what it plays.
+  if (song.trial) return { ...studentTrialSettings(calibration, 'press', 1), uiSounds: false };
   return {
     ...calibration,
     kb: 25,
@@ -76,5 +78,14 @@ export function simpleSettings(saved: Calibration, level: SimpleLevel, song: Pic
     wrongNotePenalty: 'combo',
     practiceWait: false,
     practiceLadder: false,
+    uiSounds: true,
   };
+}
+
+/**
+ * The session's cue handler for a run (star power, milestones, level-ups; audio/sfx.ts), or
+ * none when the run's settings turn cues off. Which cues a level hears is the session's call.
+ */
+export function cueFor<C>(settings: Pick<Settings, 'uiSounds'>, play: (cue: C) => void): ((cue: C) => void) | undefined {
+  return settings.uiSounds ? play : undefined;
 }
