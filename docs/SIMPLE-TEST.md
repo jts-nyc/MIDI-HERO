@@ -23,6 +23,15 @@ syncopation, swing and 3-against-2 drills need Medium, and 7/8 needs explaining.
 in the full game and the Rhythm Basics pack. If a later card does carry a song that opens above
 Easy, simple mode plays it at that level whatever the toggle says (`runDifficulty`).
 
+**No timing check in simple mode.** The full game offers its tap-along calibration once, on
+the first play in a browser. Simple mode does not, on purpose: its flow is meant to get a
+student playing in one tap after an automatic keyboard check, and the calibration is a
+two-part tap-along with millisecond readouts and Save / Try again choices, which is a teacher's
+tool. Simple mode also only reads the device calibration and never writes the full game's
+settings, and the cards' relaxed timing (Good within ±180 ms) already absorbs the delay of a
+wired keyboard and speakers. So the teacher calibrates each machine once in the full game
+(step 5 below) and simple mode picks it up.
+
 ## Setup, per machine (2 minutes)
 
 1. Chrome only, signed in the way the students will use it. **Not Incognito or Guest**: those
@@ -32,7 +41,11 @@ Easy, simple mode plays it at that level whatever the toggle says (`runDifficult
 3. Open the student link. When Chrome asks to use MIDI devices, click **Allow**. The bottom of
    the song screen should name the keyboard.
 4. Play one card yourself: the keyboard check should show a green letter and "It works!".
-5. Open the teacher view: it should say 0 responses. If old ones are there, download them,
+5. Optional, once per machine: open the full game (the same link without `simple/`), play any
+   song, and take **Check timing** when it is offered (or Settings → "Measure these: calibrate
+   timing"). Simple mode uses that calibration. It matters most for First Lights, which judges
+   on normal timing.
+6. Open the teacher view: it should say 0 responses. If old ones are there, download them,
    then clear.
 
 **Chromebooks with student logins:** answers are stored per Chrome profile. If each student

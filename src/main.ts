@@ -5,7 +5,7 @@ import { Sfx, type SfxCue } from './audio/sfx.ts';
 import { setDprCap } from './render/canvas.ts';
 import { FrameGovernor, frameStamp, type EffectsLevel } from './render/feel.ts';
 import { DEFAULT_JUDGE_CONFIG, OVERHOLD_COST, type JudgeConfig, type TimingPreset } from './game/judge.ts';
-import { calibrationBeats } from './game/calibration.ts';
+import { calibrationBeats, calibrationOffered, markCalibrationOffered, shouldOfferCalibration, type OfferStorage } from './game/calibration.ts';
 import { loopLabel, loopOf, practiceSections, trimChart, type PracticeSectionInfo } from './game/practice.ts';
 import { keyLevelOf, listKeyLevel, RATES, songStars, starsByLevel, suggestNextStep, TOP_LEVEL, unlockedLevels, UNLOCK_STARS, type LevelBest, type Suggestion } from './game/results.ts';
 import { PlaySession } from './game/session.ts';
@@ -29,7 +29,7 @@ import { bestKey, bestsForSong, deleteSong, getBest, listSongs, parseBestKey, pu
 import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
 import {
-  gateMessage, installDropZone, setPracticeRate, showCalibration, showError, showExportDialog, showFirstRun, showGate, showPartPicker, showPause, showPlayHud,
+  gateMessage, installDropZone, setPracticeRate, showCalibration, showCalibrationOffer, showError, showExportDialog, showFirstRun, showGate, showPartPicker, showPause, showPlayHud,
   showPracticePicker, showPracticeResults, showResults, showSettings, showSongSelect, showStudentTrial, showStudentTrialResults, showUnsupported, toast,
   type PartPickerState, type PartRow, type PracticeChoice, type SongRow,
 } from './ui/screens.ts';
@@ -737,8 +737,33 @@ function practicePicker(sectionStart?: number): void {
 
 const nearestRate = (rate: number): number => RATES.reduce((a, b) => (Math.abs(b - rate) < Math.abs(a - rate) ? b : a));
 
+function offerStorage(): OfferStorage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The first play in a browser offers the tap-along timing check once (docs/FEEL.md). Returns
+ * true when the offer is on screen; `then` starts the play after the check or the skip.
+ */
+function offerCalibrationFirst(autoplay: boolean, then: () => void): boolean {
+  const store = offerStorage();
+  const offer = shouldOfferCalibration({
+    offered: calibrationOffered(store), inputOffsetMs: settings.inputOffsetMs, audioOffsetMs: settings.audioOffsetMs,
+    trial: current?.lib.id === STUDENT_TRIAL_ID, autoplay,
+  });
+  if (!offer) return false;
+  markCalibrationOffered(store);
+  showCalibrationOffer({ onCheck: () => calibrate(then), onSkip: then });
+  return true;
+}
+
 async function startPlay(autoplay: { jitterMs: number } | null, practice: PracticeChoice | null = null): Promise<void> {
   if (!current) return;
+  if (offerCalibrationFirst(!!autoplay, () => void startPlay(autoplay, practice))) return;
   const { lib, song, picker } = current;
   const sel = selectionOptions();
   if (!sel) return;

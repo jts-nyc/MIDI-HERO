@@ -785,6 +785,22 @@ export interface CalibrationOptions {
   onClose: () => void;
 }
 
+/** Once per browser, before the first play: offer the timing check, or play straight away. */
+export function showCalibrationOffer(o: { onCheck: () => void; onSkip: () => void }): void {
+  const el = screen(`<div class="panel" style="text-align:center">
+    <h2>Check your timing first?</h2>
+    <p>Keyboards, speakers and screens each add a small delay. Tap along to a few clicks (about half a minute)
+      and the game allows for this computer's delay, so on-time notes score on time.</p>
+    <p>This is asked once. You can do it later in Settings: "Measure these: calibrate timing".</p>
+    <div class="row" style="justify-content:center">
+      <button class="primary big" id="cal-check">Check timing</button><button class="big" id="cal-skip">Skip, just play</button>
+    </div>
+  </div>`);
+  el.querySelector('#cal-check')!.addEventListener('click', o.onCheck);
+  el.querySelector('#cal-skip')!.addEventListener('click', o.onSkip);
+  el.querySelector<HTMLButtonElement>('#cal-check')?.focus();
+}
+
 const CAL_TRAVEL = 1.2; // s a falling marker is on screen before it lands
 
 export function showCalibration(o: CalibrationOptions): void {

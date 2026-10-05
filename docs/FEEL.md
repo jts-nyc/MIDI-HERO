@@ -46,6 +46,14 @@ the input offset by tapping along to 8 clicks and the visual offset by tapping w
 land; the medians go into "Input offset" and "Visual offset". Bluetooth audio adds 100 ms or
 more; the settings screen warns above 60 ms of output latency.
 
+**First-play offer.** The first time a person presses Play in a browser that has no calibration
+(both offsets 0), the game asks once: "Check your timing first?", with **Check timing** (the
+same tap-along, then the song starts) and **Skip, just play**. Either answer is remembered in
+`localStorage` (`midihero.calibrationOffered.v1`); without storage the offer is never made, so
+nobody is asked on every play. It is not offered for the First Lights trial, whose protocol
+fixes what comes before it, or for autoplay (`shouldOfferCalibration()` in
+`game/calibration.ts`). Simple mode does not offer it: see [SIMPLE-TEST](SIMPLE-TEST.md).
+
 ## 2. What answers each moment
 
 The session turns judge events into effect state (`fx.ts`); the renderers only draw it. Levels
