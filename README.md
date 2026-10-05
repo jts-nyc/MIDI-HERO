@@ -97,6 +97,30 @@ The repository bundles only public-domain demo songs and the owner's own exercis
 of commercial songs stay on the teacher's machine and travel to students inside a song pack
 shared through Google Classroom or Drive, never through this repository.
 
+## Rhythm Basics pack
+
+Five twelve-bar drills, one rhythm each, taken from the five rounds of the owner's "Pocket Change"
+jazz-drummer game. Every drill uses two keys, C4 (the low drum) and G4 (the high drum), over a
+click and a bass that plays every beat, so the rhythm is the only new thing. Teach them in order:
+
+| # | Song | Rhythm | Tempo | Opens at |
+|---|---|---|---|---|
+| 1 | The Pocket | straight quarter notes, C and G trade the beat | 84 | Easy |
+| 2 | The Side-Eye | syncopation: attacks halfway between the beats | 80 | Medium |
+| 3 | The Shuffle | swing over a 12-bar blues: the offbeat two-thirds through each beat | 88 | Medium |
+| 4 | The Missing Stair | 7/8 grouped 2 + 2 + 3 (eighths at 144) | 72 | Easy |
+| 5 | The Double-Cross | three against two: C on the beats, G in triplets, both hands | 66 | Medium |
+
+Easy keeps one note a beat, on the beat, so it removes every off-beat note: on songs 2, 3 and 5
+it would leave only the pulse. The pack (`?pack=packs/rhythm-basics.midihero.json`) opens those
+three at Medium, and their song-select tags say "Medium and up"; bundled songs have no default
+level, so in the plain song list a student has to pick Medium. On song 4, Easy keeps the start of
+each group (eighths 1, 3 and 5), which still teaches the 2 + 2 + 3. Song 5 also has Hard: Medium
+drops the C under the shared attacks, Hard is the full two-hand part. Swing is written into the
+note times (MIDI has no swing flag); at 88 bpm straight eighths land 114 ms early, so on Normal
+timing they score Good rather than Perfect or Great. `npm run gen-songs` writes the songs and
+the pack.
+
 ## How the game works
 
 **Sound.** With the default setting a hit sounds the note as the file has it (pitch, velocity,

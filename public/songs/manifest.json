@@ -117,5 +117,65 @@
       }
     ],
     "tag": "Challenge · speeds up from 96 to 184 bpm"
+  },
+  {
+    "id": "rhythm-1-straight",
+    "title": "Rhythm 1: The Pocket (straight 4/4)",
+    "file": "rhythm-1-straight.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Rhythm Basics 1 · straight quarter notes · Easy and up"
+  },
+  {
+    "id": "rhythm-2-syncopation",
+    "title": "Rhythm 2: The Side-Eye (syncopation)",
+    "file": "rhythm-2-syncopation.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Rhythm Basics 2 · off-beat eighths · Medium and up"
+  },
+  {
+    "id": "rhythm-3-swing",
+    "title": "Rhythm 3: The Shuffle (swing)",
+    "file": "rhythm-3-swing.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Rhythm Basics 3 · swing, long–short · Medium and up"
+  },
+  {
+    "id": "rhythm-4-seven-eight",
+    "title": "Rhythm 4: The Missing Stair (7/8)",
+    "file": "rhythm-4-seven-eight.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Rhythm Basics 4 · 7/8 grouped 2 + 2 + 3 · Easy and up"
+  },
+  {
+    "id": "rhythm-5-three-two",
+    "title": "Rhythm 5: The Double-Cross (3 against 2)",
+    "file": "rhythm-5-three-two.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Rhythm Basics 5 · three against two, both hands · Medium and up"
   }
 ]
