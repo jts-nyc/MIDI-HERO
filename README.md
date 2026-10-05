@@ -55,6 +55,13 @@ appear in the setup check. Computer keys Q/E/T play those notes. It does not wri
 See the [implementation review and preflight checklist](docs/STUDENT-TRIAL-READINESS.md).
 Real-device listening and student validation remain outstanding.
 
+### Simple mode for student testing
+
+`/simple/` is a stripped-down page on the same engine: five song cards, an automatic keyboard
+check, a count-in, results and four one-tap feedback questions stored only in the browser
+(`/simple/?teacher=1` counts and exports them). Teacher defaults are fixed; the only choice is
+Easy or Normal. See [the 10-minute test protocol](docs/SIMPLE-TEST.md).
+
 Useful URL parameters (session only, they do not change saved settings):
 `?kb=25&timing=relaxed&names=1&synth=1` set class defaults for a bookmark;
 `?pack=packs/beginner.midihero.json` loads a pack from this site;
