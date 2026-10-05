@@ -13,7 +13,12 @@ Unchanged from v0.1, plus one field:
 ```ts
 fx: FxState   // effects and meters, filled by the session every frame (src/render/fx.ts)
 feedback?: FeedbackProfile   // how much to show besides the notes (src/game/feedback.ts); absent = everything
+reduceMotion?: boolean       // keep still: no swells, drifts, sway or beat pulses; absent = follow prefers-reduced-motion
+lowFx?: boolean              // the frame-time fallback is at its lowest level: skip venue, charge light, rails and fog
 ```
+
+`time` is the song time of the frame's `requestAnimationFrame` timestamp, not of the moment the
+renderer runs (docs/FEEL.md §1).
 
 Most of the profile is applied by the session before the state reaches the renderer (it emits no
 streak counter, milestone, glow or shatter when the profile says not to, and `fx.intensity` scales
@@ -42,10 +47,12 @@ numbers work unprojected.
 | `rings[]` `{pitch, radius, age, life, tint}` | ring around the anchor; `radius` is in white-key widths and grows from 30% to 100% over its life |
 | `shocks[]` `{pitch, age, life, tint}` | two short bars running outward along the hit line from the key (Perfect only) |
 | `flashes[]` `{pitch, age, life, tint}` | the key lit red, alpha `1 - age/life` (missed note, wrong key) |
+| `beams[]` `{pitch, age, life, strength, tint}` | a column of light up the lane from the hit line (`FEEL.beamReach` of the highway), alpha `strength·(1 - age/life)²`, additive; the key itself flashes white for the first `FEEL.keyFlash` s |
+| `surge` `{age, life, tint}` | while `life > 0`, a flare rising from the whole hit line (milestone, level-up with glow, star power) |
 | `callouts[]` `{text, kind, age, life}` | centred text near the top: "25 NOTE STREAK!", "STAR POWER!", "SONG FAILED" |
 | `streak` `{value, pulse, shatterValue, shatterAge, shatterLife}` | big counter behind the notes from a streak of 3; scale and alpha follow `pulse`; while `shatterLife > 0` the old value falls apart in red |
 | `glow` `{age, life, tint}` | light at the left and right screen edges while `life > 0` |
-| `meters` | `multiplier`, `multiplierProgress` (0..1 radial meter), `multiplierPulse`, `health` (0..1), `zone` (green/yellow/red), `low` (dim the highway), `canFail`, `starGauge` (0..1), `starReady`, `starActive` (gold highway, notes glow, badge shows multiplier × 2) |
+| `meters` | `multiplier`, `multiplierProgress` (0..1 radial meter), `multiplierPulse`, `multiplierDrop` (1 after a streak of 10+ broke, decays: the badge dips once), `health` (0..1), `zone` (green/yellow/red), `low` (dim the highway), `canFail`, `starGauge` (0..1), `starReady`, `starActive` (gold highway, notes glow, badge shows multiplier × 2) |
 | `countdown` `{value, phase}` | the number of beats left in the count-in when `value > 0`; `phase` runs 0..1 through the beat |
 | `enabled` | false when the player turned effects off; the session then emits no particles, rings or shocks, so there is nothing to check |
 
@@ -70,7 +77,8 @@ numbers work unprojected.
 No allocation per frame: indexed loops over the pools, cached gradients and strings. With
 everything on, the flat renderer measures 0.10 ms mean and 0.2 ms p95 per frame (update and
 draw) on the 4.3k-note Sandstorm pad part on the owner's Mac; the budget is 2 ms.
-In a dev build: `await window.midihero.bench(5)`.
+In a dev build: `await window.midihero.bench(5)`. The feel layer (docs/FEEL.md) builds its
+gradients once per size and allocates nothing per frame either.
 
 ## Practice mode
 

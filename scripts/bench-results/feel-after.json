@@ -1,0 +1,87 @@
+{
+  "browser": "154.0.8037.97",
+  "platform": "darwin",
+  "cpu": "Apple M1 Max",
+  "viewport": "1024x600",
+  "dpr": 1,
+  "seconds": 5,
+  "syntheticPractice": false,
+  "song": "fixture",
+  "part": "5:4",
+  "sourceNotes": 4881,
+  "sourceNotesPerSecond": 14.94786163810924,
+  "results": [
+    {
+      "highway": "flat",
+      "throttle": 1,
+      "frames": 6758,
+      "meanMs": 0.106,
+      "p95Ms": 0.2,
+      "maxMs": 4.4,
+      "notes": 4314,
+      "start": 5.803392686687568,
+      "end": 10.805364277657546,
+      "status": "playing"
+    },
+    {
+      "highway": "perspective",
+      "throttle": 1,
+      "frames": 7960,
+      "meanMs": 0.092,
+      "p95Ms": 0.2,
+      "maxMs": 4,
+      "notes": 4314,
+      "start": 5.821824228202821,
+      "end": 10.823502210857043,
+      "status": "playing"
+    },
+    {
+      "highway": "flat",
+      "throttle": 4,
+      "frames": 3122,
+      "meanMs": 0.34,
+      "p95Ms": 1,
+      "maxMs": 2.3,
+      "notes": 4314,
+      "start": 5.804026853470022,
+      "end": 10.808209811699285,
+      "status": "playing"
+    },
+    {
+      "highway": "perspective",
+      "throttle": 4,
+      "frames": 3076,
+      "meanMs": 0.341,
+      "p95Ms": 1,
+      "maxMs": 2.3,
+      "notes": 4314,
+      "start": 5.817443711483429,
+      "end": 10.821812700084227,
+      "status": "playing"
+    },
+    {
+      "highway": "flat",
+      "throttle": 6,
+      "frames": 1961,
+      "meanMs": 0.541,
+      "p95Ms": 1.6,
+      "maxMs": 3.2,
+      "notes": 4314,
+      "start": 5.813539864055425,
+      "end": 10.817523743252533,
+      "status": "playing"
+    },
+    {
+      "highway": "perspective",
+      "throttle": 6,
+      "frames": 1841,
+      "meanMs": 0.581,
+      "p95Ms": 1.6,
+      "maxMs": 3.4,
+      "notes": 4314,
+      "start": 5.81347542031294,
+      "end": 10.81908547335211,
+      "status": "playing"
+    }
+  ]
+}

@@ -208,6 +208,8 @@ function ensureAudio(): void {
 
 /** A short UI or game cue (audio/sfx.ts), if sound is running and the player wants them. */
 function cue(c: SfxCue, step = 0): void {
+  // The First Lights trial is a listening study: nothing is added to what it plays.
+  if (current?.lib.id === STUDENT_TRIAL_ID) return;
   if (sfx && audioCtx?.state === 'running' && (sessionSettings ?? settings).uiSounds) sfx.play(c, step);
 }
 // Every button in a menu ticks.

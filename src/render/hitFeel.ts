@@ -169,8 +169,6 @@ export class HitFeel {
     hitY: number, still: boolean, superseded: (i: number) => boolean): void {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
     for (let i = 0; i < popups.length; i++) {
       const p = popups[i]!;
       const age = time - p.time;
@@ -186,15 +184,10 @@ export class HitFeel {
         ctx.save();
         ctx.translate(x, y);
         ctx.scale(pose.scale, pose.scale);
-        ctx.strokeText(p.text, 0, 0);
         ctx.fillText(p.text, 0, 0);
         ctx.restore();
-      } else {
-        ctx.strokeText(p.text, x, y);
-        ctx.fillText(p.text, x, y);
-      }
+      } else ctx.fillText(p.text, x, y);
     }
-    ctx.lineWidth = 1;
     ctx.globalAlpha = 1;
   }
 }
