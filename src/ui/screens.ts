@@ -680,6 +680,7 @@ export function showSettings(o: SettingsScreenOptions): void {
     ${chk('easy', 'Easy mode: any octave counts')}
     ${chk('arcade', 'Arcade mode: the song ends when the performance meter runs out')}
     ${chk('effects', 'Hit effects (turn off on a slow computer)')}
+    ${chk('feedbackByLevel', 'Calmer highway on Easy and Medium: fewer words, counters and flashes over the notes')}
     <label class="field">Timing words over hits <select id="tierText">${opt('perfect', 'Perfect only', s.tierText)}${opt('all', 'Perfect, Great, Good', s.tierText)}${opt('off', 'none (misses still show)', s.tierText)}</select></label>
     ${chk('letGo', 'Keys held after their note is over bonk and cost points (Medium and up)')}
     <label class="field">Wrong notes <select id="wrongNotePenalty">${opt('combo', 'reset combo', s.wrongNotePenalty)}${opt('none', 'ignore', s.wrongNotePenalty)}${opt('score', 'reset combo and lose points', s.wrongNotePenalty)}</select></label>
@@ -710,6 +711,7 @@ export function showSettings(o: SettingsScreenOptions): void {
       arcade: get<HTMLInputElement>('arcade').checked,
       effects: get<HTMLInputElement>('effects').checked,
       tierText: get<HTMLSelectElement>('tierText').value as Settings['tierText'],
+      feedbackByLevel: get<HTMLInputElement>('feedbackByLevel').checked,
       letGo: get<HTMLInputElement>('letGo').checked,
       wrongNotePenalty: get<HTMLSelectElement>('wrongNotePenalty').value as Settings['wrongNotePenalty'],
       foldMode: get<HTMLSelectElement>('foldMode').value as Settings['foldMode'],

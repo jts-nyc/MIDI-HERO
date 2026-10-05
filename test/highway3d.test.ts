@@ -1,9 +1,10 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { PerspectiveRenderer, projectX, scaleAt } from '../src/render/highway3d.ts';
+import { depthY, horizonSeconds, PerspectiveRenderer, projectX, scaleAt } from '../src/render/highway3d.ts';
 import { layoutKeys } from '../src/render/layout.ts';
 import { theme, type RenderState } from '../src/render/renderer.ts';
 import { createFx, Tint } from '../src/render/fx.ts';
 import { DEFAULT_SETTINGS, sanitize } from '../src/ui/settings.ts';
+import { FULL_FEEDBACK } from '../src/game/feedback.ts';
 
 const width = 1024;
 const hitY = 600 - Math.round(600 * 0.18);
@@ -28,16 +29,67 @@ describe('perspective projection', () => {
       const gemWidth = projectX(col.x + col.w - 1, 0, width, hitY) - projectX(col.x + 1, 0, width, hitY);
       expect(gemWidth).toBeGreaterThanOrEqual(6);
     }
-    expect(projectX(width, 0, width, hitY) - projectX(0, 0, width, hitY)).toBeCloseTo(width * 0.35);
+    expect(projectX(width, 0, width, hitY) - projectX(0, 0, width, hitY)).toBeCloseTo(width * 0.5);
   });
 
   it('scales linearly, clamps outside the highway, and handles a zero-height canvas', () => {
-    expect(scaleAt(0, hitY)).toBe(0.35);
-    expect(scaleAt(hitY / 2, hitY)).toBeCloseTo(0.675);
+    expect(scaleAt(0, hitY)).toBe(0.5);
+    expect(scaleAt(hitY / 2, hitY)).toBeCloseTo(0.75);
     expect(scaleAt(hitY, hitY)).toBe(1);
-    expect(scaleAt(-20, hitY)).toBe(0.35);
+    expect(scaleAt(-20, hitY)).toBe(0.5);
     expect(scaleAt(hitY + 20, hitY)).toBe(1);
     expect(Number.isFinite(scaleAt(0, 0))).toBe(true);
+  });
+});
+
+describe('perspective depth', () => {
+  const pps = 300;
+
+  it('puts now on the hit line and the horizon at horizonSeconds; further out is off screen', () => {
+    expect(depthY(0, hitY, pps)).toBe(hitY);
+    expect(depthY(horizonSeconds(hitY, pps), hitY, pps)).toBeCloseTo(0, 9);
+    expect(depthY(100, hitY, pps)).toBeLessThan(0);
+    expect(horizonSeconds(hitY, pps)).toBeCloseTo(hitY / (0.5 * pps));
+  });
+
+  it('moves at the Speed setting at the keys and slows toward the horizon, like a road', () => {
+    const eps = 1e-4;
+    const atKeys = (depthY(0, hitY, pps) - depthY(eps, hitY, pps)) / eps;
+    expect(atKeys).toBeCloseTo(pps, 1);
+    const far = horizonSeconds(hitY, pps) * 0.9;
+    const atHorizon = (depthY(far, hitY, pps) - depthY(far + eps, hitY, pps)) / eps;
+    expect(atHorizon).toBeLessThan(pps * 0.4);
+    let previous = Infinity;
+    for (let t = 0; t <= horizonSeconds(hitY, pps); t += 0.05) {
+      const y = depthY(t, hitY, pps);
+      expect(y).toBeLessThan(previous);
+      previous = y;
+    }
+  });
+
+  it('agrees with the lane width: a note looks as far away as it is drawn', () => {
+    // At any row, the width scale of the lanes equals the distance scale that placed the note there.
+    for (const t of [0.2, 0.7, 1.5, 3]) {
+      const d = t / horizonSeconds(hitY, pps);
+      const distanceScale = 1 / (1 + d * (1 / 0.5 - 1));
+      expect(scaleAt(depthY(t, hitY, pps), hitY)).toBeCloseTo(distanceScale, 9);
+    }
+  });
+
+  it('keeps missed notes falling at the Speed setting below the keys', () => {
+    expect(depthY(-0.1, hitY, pps)).toBeCloseTo(hitY + 30);
+  });
+});
+
+describe('feedback profile on the highway', () => {
+  it('skips the bar sway when the profile asks for a still highway', () => {
+    const { renderer, ctx, state } = fixture();
+    state.feedback = { ...FULL_FEEDBACK, sway: false };
+    renderer.draw(state);
+    expect(ctx.transform).toHaveBeenLastCalledWith(1, 0, -0, 1, 0, 0);
+    state.feedback = FULL_FEEDBACK;
+    renderer.draw(state);
+    expect(ctx.transform.mock.lastCall![4]).not.toBe(0);
   });
 });
 

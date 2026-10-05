@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Renderer, theme, type RenderState } from '../src/render/renderer.ts';
-import { PerspectiveRenderer, projectX } from '../src/render/highway3d.ts';
+import { PerspectiveRenderer, depthY, projectX } from '../src/render/highway3d.ts';
 import { createFx } from '../src/render/fx.ts';
 import { layoutKeys } from '../src/render/layout.ts';
 import { NO_PRACTICE, type PracticeView } from '../src/render/practice.ts';
@@ -71,7 +71,7 @@ for (const perspective of [false, true]) {
         const lines = f.marks.filter(m => m.kind === 'stroke' && m.color === cyan);
         expect(lines).toHaveLength(2);
         for (let i = 0; i < 2; i++) {
-          const y = hitY - ((i === 0 ? 3 : 5) - time) * 100;
+          const y = perspective ? depthY((i === 0 ? 3 : 5) - time, hitY, 100) : hitY - ((i === 0 ? 3 : 5) - time) * 100;
           const x = perspective ? projectX(0, y, width, hitY) : 0;
           expect(lines[i]!.args[0]).toEqual([x, y]);
           expect(lines[i]!.args[1]).toEqual([width - x, y]);

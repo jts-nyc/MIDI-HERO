@@ -123,6 +123,8 @@ export interface FxState {
   countdown: Countdown;
   /** false: meters and counters only, no particles (slow machines, reduced motion) */
   enabled: boolean;
+  /** share of the particles a hit bursts into, 0..1; lower levels keep the highway calmer */
+  intensity: number;
   rng: () => number;
   cursor: { particles: number; rings: number; shocks: number; flashes: number; callouts: number };
 }
@@ -160,6 +162,7 @@ export function createFx(rng: () => number = Math.random): FxState {
     },
     countdown: { value: 0, phase: 0 },
     enabled: true,
+    intensity: 1,
     rng,
     cursor: { particles: 0, rings: 0, shocks: 0, flashes: 0, callouts: 0 },
   };
@@ -222,7 +225,7 @@ export function emitHit(fx: FxState, pitch: number, kind: HitKind, star = false)
   if (!fx.enabled) return;
   const b = BURST[kind];
   const tint = star && kind !== 'late' ? Tint.gold : Tint[kind];
-  burst(fx, pitch, star ? b.count + 4 : b.count, b.size, b.speed, tint);
+  burst(fx, pitch, Math.round((star ? b.count + 4 : b.count) * fx.intensity), b.size, b.speed, tint);
   ring(fx, pitch, b.ring, tint);
   if (kind === 'perfect') {
     const s = take(fx.shocks, fx, 'shocks');
@@ -281,9 +284,10 @@ export function emitMilestone(fx: FxState, streak: number): void {
   emitCallout(fx, `${streak} NOTE STREAK!`, 'milestone');
 }
 
-/** The multiplier rose to `multiplier`. */
-export function emitLevel(fx: FxState, multiplier: number): void {
+/** The multiplier rose to `multiplier`. `glow` false: the badge pulses, the screen edges stay dark. */
+export function emitLevel(fx: FxState, multiplier: number, glow = true): void {
   fx.meters.multiplierPulse = 1;
+  if (!glow) return;
   fx.glow.age = 0;
   fx.glow.life = GLOW_LIFE;
   fx.glow.tint = multiplier >= 4 ? Tint.perfect : multiplier === 3 ? Tint.great : Tint.good;
