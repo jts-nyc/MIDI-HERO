@@ -54,6 +54,21 @@ nobody is asked on every play. It is not offered for the First Lights trial, who
 fixes what comes before it, or for autoplay (`shouldOfferCalibration()` in
 `game/calibration.ts`). Simple mode does not offer it: see [SIMPLE-TEST](SIMPLE-TEST.md).
 
+**Swing is judged like any other note.** The judge has no idea of swing: it compares each
+press with the note's written time, and Rhythm 3 (The Shuffle) writes its offbeats two-thirds
+of the way through each beat. At 88 bpm a player who plays straight eighths instead lands every
+offbeat 114 ms early (a sixth of a beat), inside the Good window on Normal (±120 ms) and on
+Relaxed (±180 ms). Played that way at Medium the drill scores 45 Perfect and 44 Good, 70%
+accuracy and 3 stars; played swung it can score 5. On Strict (Good ±84 ms, nothing beyond
+±105 ms) the straight offbeats match nothing and count as wrong notes and misses. Below about
+83 bpm the gap passes 120 ms and Normal would call straight eighths early too.
+
+The windows stay as they are (decided in the integration PR): one set of windows for every song
+keeps the judging predictable, and the drill already rewards swing with Perfect against Good. If
+it should be stricter, the options, none built, are slowing the drill below 83 bpm, opening it
+on Strict timing in the pack, or a per-note window for written swing. Measured in
+`test/rhythm-basics.test.ts` ("swing judging").
+
 ## 2. What answers each moment
 
 The session turns judge events into effect state (`fx.ts`); the renderers only draw it. Levels

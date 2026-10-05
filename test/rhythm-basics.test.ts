@@ -3,9 +3,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { offeredLevels, openingLevel, simplify, splitNotes, type Difficulty } from '../src/midi/chart.ts';
+import { DEFAULT_JUDGE_CONFIG, Judge, type TimingPreset } from '../src/game/judge.ts';
+import { starCount } from '../src/game/results.ts';
+import { buildChart, offeredLevels, openingLevel, simplify, splitNotes, type Difficulty } from '../src/midi/chart.ts';
 import { parsePackJson } from '../src/midi/pack.ts';
-import { parseSong } from '../src/midi/parse.ts';
+import { parseSong, ticksToSeconds } from '../src/midi/parse.ts';
 
 const songsDir = join(process.cwd(), 'public/songs');
 const ORDER = ['rhythm-1-straight', 'rhythm-2-syncopation', 'rhythm-3-swing', 'rhythm-4-seven-eight', 'rhythm-5-three-two'];
@@ -141,5 +143,44 @@ describe('Rhythm Basics pack', () => {
       expect(song.difficulty).toBe(OPENS_AT[ORDER[i]!]);
       expect(song.timingPreset).toBe('normal');
     });
+  });
+});
+
+describe('swing judging (docs/FEEL.md): the windows are left as they are', () => {
+  /** Play The Shuffle at Medium with every off-beat as a straight eighth (half a beat), on-beats exact. */
+  function straightEighths(preset: TimingPreset) {
+    const { song } = load('rhythm-3-swing');
+    const chart = buildChart(song, { parts: [{ track: 1, channel: 0 }], difficulty: 'medium' });
+    const beat = ticksToSeconds(song.tempoMap, song.ppq, song.ppq);
+    const judge = new Judge(chart, { ...DEFAULT_JUDGE_CONFIG, preset });
+    const offDeltas: number[] = [];
+    for (const n of chart.notes) {
+      const into = n.tick % song.ppq;
+      const t = into === 0 ? n.time : n.time - (into / song.ppq) * beat + beat / 2;
+      judge.advance(t);
+      const r = judge.noteOn(n.pitch, t);
+      if (into !== 0 && r.kind === 'hit') offDeltas.push(Math.round(r.delta * 1000));
+    }
+    judge.advance(chart.duration + 1);
+    judge.finish();
+    return { judge, offDeltas, beat };
+  }
+
+  it('straight eighths land 114 ms early at 88 bpm and score Good on Normal and Relaxed timing', () => {
+    for (const preset of ['normal', 'relaxed'] as const) {
+      const { judge, offDeltas, beat } = straightEighths(preset);
+      expect(Math.round((beat / 6) * 1000)).toBe(114); // 2/3 − 1/2 of a beat
+      expect(offDeltas).toHaveLength(44);
+      expect(new Set(offDeltas)).toEqual(new Set([-114]));
+      expect(judge.counts).toMatchObject({ perfect: 45, great: 0, good: 44, miss: 0, wrong: 0 });
+      // Played straight, the swing drill still earns 3 stars; played swung, 5.
+      expect(judge.accuracy).toBeCloseTo((45 + 44 * 0.4) / 89, 6);
+      expect(starCount(judge.accuracy)).toBe(3);
+    }
+  });
+
+  it('on Strict timing straight eighths fall outside every window', () => {
+    const { judge } = straightEighths('strict');
+    expect(judge.counts).toMatchObject({ perfect: 45, good: 0, miss: 44, wrong: 44 });
   });
 });
