@@ -15,7 +15,7 @@ import { PlaySession } from '../game/session.ts';
 import { KeyboardInput } from '../input/keyboardInput.ts';
 import { MidiInput } from '../input/midiInput.ts';
 import type { InputEvent } from '../input/normalize.ts';
-import { buildChart, chooseWindow, offeredLevels, resolveLevel, splitNotes, type PitchWindow } from '../midi/chart.ts';
+import { buildChart, chooseWindow, isDifficulty, offeredLevels, resolveLevel, splitNotes, type Difficulty, type PitchWindow } from '../midi/chart.ts';
 import { beatLines, parseSong, ticksToSeconds } from '../midi/parse.ts';
 import { buildParts, defaultPart } from '../midi/parts.ts';
 import { frameStamp } from '../render/feel.ts';
@@ -24,7 +24,7 @@ import { displayRange, noteName } from '../render/layout.ts';
 import { Renderer, type RenderState } from '../render/renderer.ts';
 import { partKey, type PartId, type SongData } from '../types.ts';
 import { effectiveFeedback, loadSettings, type Settings } from '../ui/settings.ts';
-import { cueFor, difficultyFor, LEVEL_LABEL, SIMPLE_SONGS, simpleSettings, type SimpleLevel, type SimpleSong } from './config.ts';
+import { cueFor, LEVEL_LABEL, runDifficulty, SIMPLE_SONGS, simpleSettings, type SimpleLevel, type SimpleSong } from './config.ts';
 import { FeedbackStore, QUESTIONS, summarize, toCsv, toJson, COMMENT_MAX, type Answers, type StorageLike } from './feedback.ts';
 import { cheer, initialFlow, step, summarizeRun, type FlowEvent, type FlowState } from './flow.ts';
 
@@ -32,6 +32,8 @@ interface ManifestEntry {
   id: string;
   file: string;
   defaultParts: PartId[];
+  /** the level the song opens at (see runDifficulty) */
+  difficulty?: Difficulty;
 }
 
 const base = import.meta.env.BASE_URL;
@@ -202,7 +204,7 @@ function playCue(c: SfxCue): void {
   if (sfx && audioCtx?.state === 'running' && runSettings?.uiSounds) sfx.play(c);
 }
 
-async function loadSong(id: string): Promise<{ song: SongData; parts: PartId[] }> {
+async function loadSong(id: string): Promise<{ song: SongData; parts: PartId[]; songDefault?: Difficulty }> {
   manifest ??= (await (await fetch(`${base}songs/manifest.json`)).json()) as ManifestEntry[];
   const entry = manifest.find((m) => m.id === id);
   if (!entry) throw new Error(`Song not found: ${id}`);
@@ -220,7 +222,7 @@ async function loadSong(id: string): Promise<{ song: SongData; parts: PartId[] }
     const d = defaultPart(all);
     if (d) parts = [{ track: d.track, channel: d.channel }];
   }
-  return { song, parts };
+  return { song, parts, ...(isDifficulty(entry.difficulty) ? { songDefault: entry.difficulty } : {}) };
 }
 
 function stopBacking(): void {
@@ -238,11 +240,11 @@ function endEngine(): void {
 
 async function startRun(entry: SimpleSong, level: SimpleLevel): Promise<void> {
   ensureAudio();
-  const { song, parts } = await loadSong(entry.id);
+  const { song, parts, songDefault } = await loadSong(entry.id);
   const settings = simpleSettings(saved, level, entry);
   const trial = !!entry.trial;
   const offered = offeredLevels(splitNotes(song, { parts }).player, song).map((l) => l.level);
-  const difficulty = resolveLevel(trial ? 'easy' : difficultyFor(level), offered);
+  const difficulty = resolveLevel(trial ? 'easy' : runDifficulty(level, songDefault), offered);
   const feedback = effectiveFeedback(settings);
   const unfolded = buildChart(song, { parts, difficulty });
   const window: PitchWindow = trial ? { low: 48, high: 72 } : chooseWindow(unfolded.notes.map((n) => n.origPitch), settings.kb - 1);

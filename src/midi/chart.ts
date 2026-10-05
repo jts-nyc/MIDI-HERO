@@ -5,7 +5,7 @@ import { ticksToSeconds } from './parse.ts';
 import { markPhrases, phraseSpans, type Phrase } from './phrases.ts';
 
 export {
-  DIFFICULTIES, DIFFICULTY_LABEL, isDifficulty, levelStats, offeredLevels, resolveLevel, simplify, type Difficulty, type LevelStats,
+  DIFFICULTIES, DIFFICULTY_LABEL, higherLevel, isDifficulty, levelStats, offeredLevels, openingLevel, resolveLevel, simplify, type Difficulty, type LevelStats,
 } from './difficulty.ts';
 
 export { type Phrase } from './phrases.ts';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cueFor, difficultyFor, SIMPLE_SONGS, simpleSettings } from '../src/simple/config.ts';
+import { cueFor, difficultyFor, runDifficulty, SIMPLE_SONGS, simpleSettings } from '../src/simple/config.ts';
 import { cheer, initialFlow, step, summarizeRun, type FlowState, type RunSummary } from '../src/simple/flow.ts';
 import { STUDENT_TRIAL_ID, studentTrialSettings } from '../src/game/studentTrial.ts';
 import { DEFAULT_SETTINGS } from '../src/ui/settings.ts';
@@ -86,6 +86,14 @@ describe('simple-mode songs and defaults', () => {
   it('maps Easy and Normal to the game levels', () => {
     expect(difficultyFor('easy')).toBe('easy');
     expect(difficultyFor('normal')).toBe('medium');
+  });
+
+  it("raises a run to the song's own opening level, never lowers it", () => {
+    expect(runDifficulty('easy')).toBe('easy');
+    expect(runDifficulty('normal')).toBe('medium');
+    expect(runDifficulty('easy', 'medium')).toBe('medium');
+    expect(runDifficulty('normal', 'easy')).toBe('medium');
+    expect(runDifficulty('normal', 'hard')).toBe('hard');
   });
 
   const saved = { ...DEFAULT_SETTINGS, audioOffsetMs: 40, inputOffsetMs: -25, midiPortId: 'port-1', timing: 'strict' as const, arcade: true, rate: 0.5, kb: 88 as const };

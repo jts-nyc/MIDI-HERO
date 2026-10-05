@@ -14,7 +14,7 @@ import { KeyboardInput } from './input/keyboardInput.ts';
 import { MidiInput } from './input/midiInput.ts';
 import type { InputEvent } from './input/normalize.ts';
 import {
-  buildChart, chooseWindow, DIFFICULTY_LABEL, isDifficulty, offeredLevels, resolveLevel, splitNotes,
+  buildChart, chooseWindow, DIFFICULTY_LABEL, isDifficulty, offeredLevels, openingLevel, resolveLevel, splitNotes,
   type Chart, type ChartOptions, type Difficulty, type Hand, type PitchWindow,
 } from './midi/chart.ts';
 import { buildPack, parsePackJson, sha256Hex, type PackSettings, type PackValidation } from './midi/pack.ts';
@@ -45,6 +45,8 @@ interface ManifestEntry {
   file: string;
   defaultParts: PartId[];
   split?: number;
+  /** the level the song opens at until the player picks one (the Rhythm Basics songs that need off-beats) */
+  difficulty?: Difficulty;
 }
 
 interface LibrarySong {
@@ -249,7 +251,7 @@ async function loadLibrary(): Promise<void> {
   const bundled: LibrarySong[] = manifest.map((m) => ({
     id: m.id, title: m.title, tag: m.tag, source: 'bundled', file: m.file, defaultParts: m.defaultParts,
     parts: choices[m.id]?.parts ?? m.defaultParts, split: choices[m.id]?.split ?? m.split, hands: choices[m.id]?.hands, timingPreset: choices[m.id]?.timing,
-    difficulty: isDifficulty(choices[m.id]?.difficulty) ? choices[m.id]!.difficulty : undefined, keyLevel: choices[m.id]?.keyLevel,
+    difficulty: openingLevel(choices[m.id]?.difficulty, m.difficulty), keyLevel: choices[m.id]?.keyLevel,
   }));
   let local: LibrarySong[] = [];
   if (import.meta.env.DEV) {

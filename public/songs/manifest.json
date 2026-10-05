@@ -140,7 +140,8 @@
         "channel": 0
       }
     ],
-    "tag": "Rhythm Basics 2 · off-beat eighths · Medium and up"
+    "tag": "Rhythm Basics 2 · off-beat eighths · Medium and up",
+    "difficulty": "medium"
   },
   {
     "id": "rhythm-3-swing",
@@ -152,7 +153,8 @@
         "channel": 0
       }
     ],
-    "tag": "Rhythm Basics 3 · swing, long–short · Medium and up"
+    "tag": "Rhythm Basics 3 · swing, long–short · Medium and up",
+    "difficulty": "medium"
   },
   {
     "id": "rhythm-4-seven-eight",
@@ -176,6 +178,7 @@
         "channel": 0
       }
     ],
-    "tag": "Rhythm Basics 5 · three against two, both hands · Medium and up"
+    "tag": "Rhythm Basics 5 · three against two, both hands · Medium and up",
+    "difficulty": "medium"
   }
 ]

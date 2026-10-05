@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { offeredLevels, simplify, splitNotes, type Difficulty } from '../src/midi/chart.ts';
+import { offeredLevels, openingLevel, simplify, splitNotes, type Difficulty } from '../src/midi/chart.ts';
 import { parsePackJson } from '../src/midi/pack.ts';
 import { parseSong } from '../src/midi/parse.ts';
 
@@ -33,6 +33,17 @@ describe('Rhythm Basics songs', () => {
       expect(m.defaultParts).toEqual([{ track: 1, channel: 0 }]);
       expect(m.tag).toContain(OPENS_AT[m.id] ? 'Medium and up' : 'Easy and up');
     }
+  });
+
+  it('open at their level in the plain song list: Medium for the drills Easy would strip, Easy otherwise', () => {
+    const manifest = JSON.parse(readFileSync(join(songsDir, 'manifest.json'), 'utf8')) as { id: string; difficulty?: string }[];
+    for (const m of manifest) expect(m.difficulty, m.id).toBe(OPENS_AT[m.id]);
+    // The player's own last pick still wins; with none, the manifest's level; with neither, the game default.
+    expect(openingLevel(undefined, 'medium')).toBe('medium');
+    expect(openingLevel('easy', 'medium')).toBe('easy');
+    expect(openingLevel('hard', undefined)).toBe('hard');
+    expect(openingLevel(undefined, undefined)).toBeUndefined();
+    expect(openingLevel('loud', 'nonsense')).toBeUndefined();
   });
 
   it('are twelve bars on two keys, C4 and G4, so the rhythm is the only thing to learn', () => {

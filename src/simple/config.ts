@@ -2,7 +2,7 @@
  * Simple mode (/simple/): the teacher's defaults, baked in. Nothing here is a setting the
  * student can change except the one visible option, Easy or Normal.
  */
-import type { Difficulty } from '../midi/difficulty.ts';
+import { higherLevel, type Difficulty } from '../midi/difficulty.ts';
 import { STUDENT_TRIAL_ID, studentTrialSettings } from '../game/studentTrial.ts';
 import { DEFAULT_SETTINGS, type Settings } from '../ui/settings.ts';
 
@@ -34,6 +34,16 @@ export const LEVEL_LABEL: Record<SimpleLevel, string> = { easy: 'Easy', normal: 
 /** Easy is the game's Easy level (one note a beat at most); Normal is its Medium. */
 export function difficultyFor(level: SimpleLevel): Difficulty {
   return level === 'easy' ? 'easy' : 'medium';
+}
+
+/**
+ * The game level for a run: the card's Easy or Normal, raised to the song's own opening level
+ * (the manifest's `difficulty`) when that is higher. A rhythm drill whose off-beats Easy would
+ * strip opens at Medium even when Easy is picked, as it does in the full game's song list.
+ */
+export function runDifficulty(level: SimpleLevel, songDefault?: Difficulty): Difficulty {
+  const wanted = difficultyFor(level);
+  return songDefault ? higherLevel(wanted, songDefault) : wanted;
 }
 
 /** Device calibration is the one thing kept from the full game's saved settings on this machine. */

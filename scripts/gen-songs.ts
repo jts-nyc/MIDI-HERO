@@ -526,6 +526,8 @@ type ManifestEntry = {
   id: string; title: string; file: string; tag?: string;
   defaultParts: { track: number; channel: number }[];
   split?: number;
+  /** the level the song opens at in the song list until the player picks one (default Easy) */
+  difficulty?: 'easy' | 'medium' | 'hard' | 'expert';
 };
 const manifest: ManifestEntry[] = [];
 const packSongs: object[] = [];
@@ -555,7 +557,7 @@ for (const s of rhythmSongs) {
   const file = `${s.id}.mid`;
   writeFileSync(join(songsDir, file), bytes);
   const defaultParts = [{ track: 1, channel: s.voices[0]!.channel }];
-  manifest.push({ id: s.id, title: s.title, file, defaultParts, ...(s.tag ? { tag: s.tag } : {}) });
+  manifest.push({ id: s.id, title: s.title, file, defaultParts, ...(s.tag ? { tag: s.tag } : {}), ...(s.packDifficulty ? { difficulty: s.packDifficulty } : {}) });
   rhythmPackSongs.push({
     id: sha256(bytes), title: s.title, midiBase64: Buffer.from(bytes).toString('base64'), defaultParts, timingPreset: 'normal',
     ...(s.packDifficulty ? { difficulty: s.packDifficulty } : {}),
