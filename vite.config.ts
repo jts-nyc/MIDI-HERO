@@ -38,6 +38,10 @@ export default defineConfig(({ command }) => ({
   build: {
     target: 'es2022',
     sourcemap: true,
+    // Two pages: the full game at the root, and simple mode for student testing at /simple/.
+    rolldownOptions: {
+      input: { main: resolve('index.html'), simple: resolve('simple/index.html') },
+    },
   },
   test: {
     include: ['test/**/*.test.ts'],

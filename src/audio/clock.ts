@@ -20,8 +20,22 @@ export interface AudioTimeSource {
   getOutputTimestamp?(): OutputTimestamp;
 }
 
+/**
+ * The browser reports the audio clock against the performance clock once per audio callback,
+ * and on some systems (Linux/ChromeOS audio servers with large buffers) each report is a few ms
+ * off. Used raw, that error shakes the highway and moves the judging window from frame to
+ * frame. The clock keeps a smoothed offset between the two clocks instead: each new report
+ * pulls it a fraction of the way, and a report far from it (a device change, a resume) is taken
+ * at once. The two clocks drift apart by parts per million, far less than the smoothing lags.
+ */
+export const OFFSET_SMOOTHING = 0.1; // share of the error taken from each new report
+export const OFFSET_SNAP = 0.015; // s: a report this far off is a jump, not jitter
+
 export class GameClock {
   private ctx: AudioTimeSource | null = null;
+  /** smoothed (audio reference − performance time), seconds; NaN until the first report */
+  private offset = NaN;
+  private lastReport = NaN;
   private startSong = 0;
   private startRef = 0;
   private _rate = 1;
@@ -53,6 +67,8 @@ export class GameClock {
   attach(ctx: AudioTimeSource): void {
     const song = this.now();
     this.ctx = ctx;
+    this.offset = NaN;
+    this.lastReport = NaN;
     this.startSong = song;
     this.startRef = this.refNow();
   }
@@ -64,7 +80,14 @@ export class GameClock {
     const ct = ots?.contextTime ?? 0;
     const pt = ots?.performanceTime ?? 0;
     if (ct > 0 || pt > 0) {
-      return ct + (perfMs - pt) / 1000;
+      if (ct !== this.lastReport) {
+        // a new report: smooth it in, or take it at once if it is a jump
+        this.lastReport = ct;
+        const raw = ct - pt / 1000;
+        const err = raw - this.offset;
+        this.offset = Math.abs(err) < OFFSET_SNAP ? this.offset + err * OFFSET_SMOOTHING : raw;
+      }
+      return this.offset + perfMs / 1000;
     }
     // Suspended or unsupported: fall back to currentTime with an estimated offset.
     return this.ctx.currentTime + (perfMs - this.perfNow()) / 1000;

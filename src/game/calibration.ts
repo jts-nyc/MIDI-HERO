@@ -94,3 +94,42 @@ export class TapCalibrator {
 export function visualOffset(visualTapOffsetMs: number, inputOffsetMs: number): number {
   return Math.max(-OFFSET_LIMIT_MS, Math.min(OFFSET_LIMIT_MS, Math.round(visualTapOffsetMs - inputOffsetMs)));
 }
+
+// ---------------------------------------------------------------------------
+// The once-per-browser offer before the first play
+// ---------------------------------------------------------------------------
+
+/** localStorage key: this browser has been offered the timing check. */
+export const CALIBRATION_OFFER_KEY = 'midihero.calibrationOffered.v1';
+
+export interface OfferStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
+/**
+ * Whether to offer the tap-along timing check before this play. Once per browser, and only on a
+ * play by a person (not autoplay) of a song other than the First Lights trial, whose own
+ * protocol fixes what happens before it, while this device has no calibration yet.
+ */
+export function shouldOfferCalibration(o: { offered: boolean; inputOffsetMs: number; audioOffsetMs: number; trial: boolean; autoplay: boolean }): boolean {
+  return !o.offered && !o.trial && !o.autoplay && o.inputOffsetMs === 0 && o.audioOffsetMs === 0;
+}
+
+/** True once the offer has been made in this browser. Without storage it counts as made, so nobody is asked on every play. */
+export function calibrationOffered(store: OfferStorage | null): boolean {
+  if (!store) return true;
+  try {
+    return store.getItem(CALIBRATION_OFFER_KEY) !== null;
+  } catch {
+    return true;
+  }
+}
+
+export function markCalibrationOffered(store: OfferStorage | null, at = Date.now()): void {
+  try {
+    store?.setItem(CALIBRATION_OFFER_KEY, String(at));
+  } catch {
+    /* storage unavailable */
+  }
+}

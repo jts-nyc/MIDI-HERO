@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { GameClock } from '../src/audio/clock.ts';
 import {
-  CALIBRATION_BEATS, CALIBRATION_INTERVAL, CALIBRATION_LEAD_IN, calibrationBeats, median, TapCalibrator, visualOffset,
+  CALIBRATION_BEATS, CALIBRATION_INTERVAL, CALIBRATION_LEAD_IN, CALIBRATION_OFFER_KEY, calibrationBeats, calibrationOffered, markCalibrationOffered, median,
+  shouldOfferCalibration, TapCalibrator, visualOffset,
 } from '../src/game/calibration.ts';
 import { FakeAudioContext } from './helpers/fakeAudio.ts';
 
@@ -102,5 +103,37 @@ describe('calibration on the game clock', () => {
     const cal = new TapCalibrator(beats);
     beats.forEach((b, i) => cal.tap(clock.audibleSongTime(1000 + b * 1000 + (i % 2 ? 24 : 26))));
     expect(cal.result()).toMatchObject({ count: 8, offsetMs: 25, ok: true });
+  });
+});
+
+describe('the once-per-browser timing-check offer', () => {
+  const fresh = { offered: false, inputOffsetMs: 0, audioOffsetMs: 0, trial: false, autoplay: false };
+
+  it('is offered on the first play of an uncalibrated browser', () => {
+    expect(shouldOfferCalibration(fresh)).toBe(true);
+  });
+
+  it('is not offered again, nor once the device is calibrated, nor for the First Lights trial or autoplay', () => {
+    expect(shouldOfferCalibration({ ...fresh, offered: true })).toBe(false);
+    expect(shouldOfferCalibration({ ...fresh, inputOffsetMs: 30 })).toBe(false);
+    expect(shouldOfferCalibration({ ...fresh, audioOffsetMs: -20 })).toBe(false);
+    expect(shouldOfferCalibration({ ...fresh, trial: true })).toBe(false);
+    expect(shouldOfferCalibration({ ...fresh, autoplay: true })).toBe(false);
+  });
+
+  it('is remembered in the browser, whatever the player chose', () => {
+    const map = new Map<string, string>();
+    const store = { getItem: (k: string) => map.get(k) ?? null, setItem: (k: string, v: string) => void map.set(k, v) };
+    expect(calibrationOffered(store)).toBe(false);
+    markCalibrationOffered(store, 123);
+    expect(map.get(CALIBRATION_OFFER_KEY)).toBe('123');
+    expect(calibrationOffered(store)).toBe(true);
+  });
+
+  it('counts as made when storage is missing or throws, so nobody is asked on every play', () => {
+    expect(calibrationOffered(null)).toBe(true);
+    const broken = { getItem: (): string | null => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };
+    expect(calibrationOffered(broken)).toBe(true);
+    expect(() => markCalibrationOffered(broken)).not.toThrow();
   });
 });

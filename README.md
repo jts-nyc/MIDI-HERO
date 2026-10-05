@@ -55,6 +55,13 @@ appear in the setup check. Computer keys Q/E/T play those notes. It does not wri
 See the [implementation review and preflight checklist](docs/STUDENT-TRIAL-READINESS.md).
 Real-device listening and student validation remain outstanding.
 
+### Simple mode for student testing
+
+`/simple/` is a stripped-down page on the same engine: six song cards, an automatic keyboard
+check, a count-in, results and four one-tap feedback questions stored only in the browser
+(`/simple/?teacher=1` counts and exports them). Teacher defaults are fixed; the only choice is
+Easy or Normal. See [the 10-minute test protocol](docs/SIMPLE-TEST.md).
+
 Useful URL parameters (session only, they do not change saved settings):
 `?kb=25&timing=relaxed&names=1&synth=1` set class defaults for a bookmark;
 `?pack=packs/beginner.midihero.json` loads a pack from this site;
@@ -62,7 +69,8 @@ Useful URL parameters (session only, they do not change saved settings):
 above 150 ms produces misses and wrong notes);
 `?file=fixtures/some.mid` loads a MIDI file served from `public/fixtures/` (local only, gitignored);
 `?difficulty=medium`, `?part=5:4` (track:channel), `?feedback=chart|press|off`, `?arcade=1`,
-`?effects=1` (also overrides the system's reduced-motion preference) choose what to check;
+`?effects=1` (also overrides the system's reduced-motion preference), `?uiSounds=0`, `?lowfx=1`
+(start at the lowest effects level), `?governor=0` (no automatic effects fallback) choose what to check;
 `?feedbackByLevel=0` gives every level the full arcade feedback.
 
 `PORT=5180 npm run dev` runs a second dev server next to one that already has 5173. In dev
@@ -96,6 +104,31 @@ embeds); the app shows an "Open in new tab" button when embedded.
 The repository bundles only public-domain demo songs and the owner's own exercises. Arrangements
 of commercial songs stay on the teacher's machine and travel to students inside a song pack
 shared through Google Classroom or Drive, never through this repository.
+
+## Rhythm Basics pack
+
+Five twelve-bar drills, one rhythm each, taken from the five rounds of the owner's "Pocket Change"
+jazz-drummer game. Every drill uses two keys, C4 (the low drum) and G4 (the high drum), over a
+click and a bass that plays every beat, so the rhythm is the only new thing. Teach them in order:
+
+| # | Song | Rhythm | Tempo | Opens at |
+|---|---|---|---|---|
+| 1 | The Pocket | straight quarter notes, C and G trade the beat | 84 | Easy |
+| 2 | The Side-Eye | syncopation: attacks halfway between the beats | 80 | Medium |
+| 3 | The Shuffle | swing over a 12-bar blues: the offbeat two-thirds through each beat | 88 | Medium |
+| 4 | The Missing Stair | 7/8 grouped 2 + 2 + 3 (eighths at 144) | 72 | Easy |
+| 5 | The Double-Cross | three against two: C on the beats, G in triplets, both hands | 66 | Medium |
+
+Easy keeps one note a beat, on the beat, so it removes every off-beat note: on songs 2, 3 and 5
+it would leave only the pulse. The pack (`?pack=packs/rhythm-basics.midihero.json`) opens those
+three at Medium, and their song-select tags say "Medium and up". The plain song list does too:
+`manifest.json` carries the same `difficulty`, which a song opens at until the player picks a
+level of their own. On song 4, Easy keeps the start of
+each group (eighths 1, 3 and 5), which still teaches the 2 + 2 + 3. Song 5 also has Hard: Medium
+drops the C under the shared attacks, Hard is the full two-hand part. Swing is written into the
+note times (MIDI has no swing flag); at 88 bpm straight eighths land 114 ms early, so on Normal
+timing they score Good rather than Perfect or Great. `npm run gen-songs` writes the songs and
+the pack.
 
 ## How the game works
 
@@ -142,6 +175,12 @@ is legato and costs nothing. Easy never minds.
 
 **Calibration.** Settings → "calibrate timing" measures the input offset (tap along to 8 clicks)
 and the visual offset (tap when a marker lands).
+
+**Feel.** Every hit lights its lane and flashes its key; the hit line swells on the beat; star
+power has its own look and sound; menus and the results screen have a little celebration, with
+short quiet cues that Settings can turn off. "Hit effects and motion" off (or the system's
+reduced-motion setting) keeps the highway still, and a slow computer turns effects down by
+itself. Constants and measurements: [docs/FEEL.md](docs/FEEL.md).
 
 ## How scoring works
 

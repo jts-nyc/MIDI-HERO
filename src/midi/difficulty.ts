@@ -8,6 +8,20 @@ export const DIFFICULTY_LABEL: Record<Difficulty, string> = { easy: 'Easy', medi
 
 export const isDifficulty = (v: unknown): v is Difficulty => v === 'easy' || v === 'medium' || v === 'hard' || v === 'expert';
 
+/**
+ * The level a song opens at in the song list: the player's own last choice, else the song's
+ * default (the manifest's or a pack's `difficulty`), else undefined (the game's default, Easy).
+ */
+export function openingLevel(saved: unknown, songDefault: unknown): Difficulty | undefined {
+  if (isDifficulty(saved)) return saved;
+  return isDifficulty(songDefault) ? songDefault : undefined;
+}
+
+/** The higher of two levels. */
+export function higherLevel(a: Difficulty, b: Difficulty): Difficulty {
+  return DIFFICULTIES.indexOf(a) >= DIFFICULTIES.indexOf(b) ? a : b;
+}
+
 /** What simplification needs to know about a note. SongNote and ChartNote both fit. */
 export interface GridNote {
   tick: number;

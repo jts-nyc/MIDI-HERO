@@ -9,6 +9,7 @@ import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Hand, type LevelS
 import type { Part } from '../types.ts';
 import { noteName } from '../render/layout.ts';
 import { effectiveFeedback, type KeyboardSize, type Settings } from './settings.ts';
+import './feel.css';
 
 const overlay = (): HTMLElement => document.getElementById('overlay')!;
 
@@ -573,12 +574,30 @@ export interface ResultsOptions {
   onPractise?: (s: Suggestion) => void;
   onRetry: () => void;
   onQuit: () => void;
+  /** a chime as each star lands (`step` 0..4), and a fanfare after the last one on a new best or 4+ stars */
+  sound?: (cue: 'star' | 'fanfare', step: number) => void;
 }
 
 const sectionLabel = (s: { fromBar: number; toBar: number }): string => (s.fromBar === s.toBar ? `Bar ${s.fromBar}` : `Bars ${s.fromBar}–${s.toBar}`);
 
 const COUNT_UP_MS = 1200;
 const STAR_STAGGER_MS = 220;
+/** how far into its 0.4 s pop a star looks landed */
+const STAR_LAND_MS = 160;
+const CONFETTI_COLORS = ['#3ddc84', '#4f8cff', '#ffd166', '#ff5c5c', '#c77dff', '#ffd23f'];
+
+/** A burst of paper from under the stars: CSS only, gone after 1.5 s. Deterministic so it is testable. */
+export function confetti(pieces = 28): string {
+  let html = '<div class="confetti" aria-hidden="true">';
+  for (let i = 0; i < pieces; i++) {
+    const a = (i / pieces) * Math.PI * 2 + (i % 3) * 0.4;
+    const reach = 140 + ((i * 53) % 120);
+    const dx = Math.round(Math.cos(a) * reach);
+    const dy = Math.round(Math.sin(a) * reach * 0.6 + 220 + ((i * 37) % 90));
+    html += `<i style="--c:${CONFETTI_COLORS[i % CONFETTI_COLORS.length]};--dx:${dx}px;--dy:${dy}px;--r:${((i * 97) % 720) - 360}deg;--t:${(i % 5) * 30}ms"></i>`;
+  }
+  return html + '</div>';
+}
 
 export function showResults(o: ResultsOptions): void {
   const r = o.result;
@@ -621,6 +640,17 @@ export function showResults(o: ResultsOptions): void {
   el.querySelector('#next')?.addEventListener('click', () => o.onSuggestion?.(sug!));
   el.querySelector('#practise')?.addEventListener('click', () => o.onPractise?.(sug!));
   if (still) return;
+  // Each star chimes as it lands; a new best or four stars and up get confetti and a fanfare.
+  const celebrate = n >= 4 || better || o.badges.includes('New best!');
+  const later = (ms: number, fn: () => void) => setTimeout(() => el.isConnected && fn(), ms);
+  for (let i = 0; i < n; i++) later(COUNT_UP_MS + i * STAR_STAGGER_MS + STAR_LAND_MS, () => o.sound?.('star', i));
+  if (celebrate) {
+    const at = COUNT_UP_MS + Math.max(0, n - 1) * STAR_STAGGER_MS + STAR_LAND_MS;
+    later(at, () => {
+      o.sound?.('fanfare', 0);
+      el.querySelector('.results')?.insertAdjacentHTML('beforeend', confetti());
+    });
+  }
   // Count the percentage up, easing out; the stars follow one by one (CSS, delayed past the count).
   const acc = el.querySelector<HTMLElement>('#accuracy')!;
   const t0 = performance.now();
@@ -679,7 +709,8 @@ export function showSettings(o: SettingsScreenOptions): void {
     <label class="field">Sound of my notes <select id="feedbackSound">${opt('chart', "the song's part when I play it right", fb)}${opt('press', 'every key I press (free play)', fb)}${opt('off', 'none: my keyboard has speakers (set Local Control ON)', fb)}</select></label>
     ${chk('easy', 'Easy mode: any octave counts')}
     ${chk('arcade', 'Arcade mode: the song ends when the performance meter runs out')}
-    ${chk('effects', 'Hit effects (turn off on a slow computer)')}
+    ${chk('effects', 'Hit effects and motion (turn off on a slow computer, or for a still highway)')}
+    ${chk('uiSounds', 'Menu, star power and streak sounds')}
     ${chk('feedbackByLevel', 'Calmer highway on Easy and Medium: fewer words, counters and flashes over the notes')}
     <label class="field">Timing words over hits <select id="tierText">${opt('perfect', 'Perfect only', s.tierText)}${opt('all', 'Perfect, Great, Good', s.tierText)}${opt('off', 'none (misses still show)', s.tierText)}</select></label>
     ${chk('letGo', 'Keys held after their note is over bonk and cost points (Medium and up)')}
@@ -710,6 +741,7 @@ export function showSettings(o: SettingsScreenOptions): void {
       easy: get<HTMLInputElement>('easy').checked,
       arcade: get<HTMLInputElement>('arcade').checked,
       effects: get<HTMLInputElement>('effects').checked,
+      uiSounds: get<HTMLInputElement>('uiSounds').checked,
       tierText: get<HTMLSelectElement>('tierText').value as Settings['tierText'],
       feedbackByLevel: get<HTMLInputElement>('feedbackByLevel').checked,
       letGo: get<HTMLInputElement>('letGo').checked,
@@ -751,6 +783,22 @@ export interface CalibrationOptions {
   onTaps: (handler: ((perfMs: number) => void) | null) => void;
   onSave: (offsets: { inputOffsetMs?: number; audioOffsetMs?: number }) => void;
   onClose: () => void;
+}
+
+/** Once per browser, before the first play: offer the timing check, or play straight away. */
+export function showCalibrationOffer(o: { onCheck: () => void; onSkip: () => void }): void {
+  const el = screen(`<div class="panel" style="text-align:center">
+    <h2>Check your timing first?</h2>
+    <p>Keyboards, speakers and screens each add a small delay. Tap along to a few clicks (about half a minute)
+      and the game allows for this computer's delay, so on-time notes score on time.</p>
+    <p>This is asked once. You can do it later in Settings: "Measure these: calibrate timing".</p>
+    <div class="row" style="justify-content:center">
+      <button class="primary big" id="cal-check">Check timing</button><button class="big" id="cal-skip">Skip, just play</button>
+    </div>
+  </div>`);
+  el.querySelector('#cal-check')!.addEventListener('click', o.onCheck);
+  el.querySelector('#cal-skip')!.addEventListener('click', o.onSkip);
+  el.querySelector<HTMLButtonElement>('#cal-check')?.focus();
 }
 
 const CAL_TRAVEL = 1.2; // s a falling marker is on screen before it lands

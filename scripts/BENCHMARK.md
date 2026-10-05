@@ -51,3 +51,20 @@ Raw samples and frame counts: [WP14](bench-results/wp14.json),
 [WP13 with synthetic practice](bench-results/wp13-practice.json).
 Both packages pass the perspective 4× p95 gate. The values include host/browser variance;
 these are CPU-throttled Mac measurements, not Chromebook hardware measurements.
+
+## Feel pass
+
+Measured with the same command after the feel layer (light columns, beat pulse, charge light,
+snapping timing words) landed, with the automatic effects fallback off (`governor=0`, which the
+script now sets). Mean / p95 ms, Sandstorm pad part 5:4, headless Chrome 154:
+
+| Throttle | flat before | flat after | perspective before | perspective after |
+| --- | --- | --- | --- | --- |
+| 1× | 0.096 / 0.2 | 0.106 / 0.2 | 0.096 / 0.2 | 0.092 / 0.2 |
+| 4× | 0.376 / 0.9 | 0.340 / 1.0 | 0.394 / 0.9 | 0.341 / 1.0 |
+| 6× | 0.637 / 1.5 | 0.541 / 1.6 | 0.647 / 1.5 | 0.581 / 1.6 |
+
+Raw: [before](bench-results/feel-before.json), [after](bench-results/feel-after.json). The
+difference is inside run-to-run spread on a shared host (see docs/FEEL.md §5).
+`node scripts/timing-probe.mjs --throttle 4` measures how evenly the drawn song time advances
+per frame (docs/FEEL.md §1).
