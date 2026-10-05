@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MIDI Hero — Simple</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0d12;
+        --panel: #171a23;
+        --panel-2: #222636;
+        --text: #ffffff;
+        --muted: #c9cede;
+        --accent: #4f8cff;
+        --good: #3ddc84;
+        --warn: #ffb020;
+        --bad: #ff6464;
+        --border: #3a4058;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 22px; overflow: hidden; }
+      #stage { position: fixed; inset: 0; display: block; width: 100%; height: 100%; }
+      #overlay { position: fixed; inset: 0; pointer-events: none; }
+      #overlay > * { pointer-events: auto; }
+      .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+        gap: 20px; padding: 28px 24px; background: var(--bg); overflow: auto; }
+      .screen.center { justify-content: center; }
+      .screen.transparent { background: transparent; pointer-events: none; }
+      .screen.transparent > * { pointer-events: auto; }
+      h1 { font-size: 44px; margin: 0; text-align: center; }
+      h2 { font-size: 32px; margin: 0; text-align: center; }
+      p { margin: 0; color: var(--muted); line-height: 1.4; text-align: center; }
+      button { font: inherit; color: var(--text); background: var(--panel-2); border: 3px solid var(--border);
+        border-radius: 14px; padding: 14px 26px; cursor: pointer; font-weight: 600; }
+      button:hover { border-color: var(--text); }
+      button:focus-visible { outline: 4px solid var(--warn); outline-offset: 3px; }
+      button.primary { background: var(--accent); border-color: var(--accent); }
+      button.huge { font-size: 32px; padding: 20px 48px; }
+      .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; width: min(1100px, 100%); }
+      .card { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 6px; min-height: 150px;
+        text-align: left; padding: 22px; border: 4px solid transparent; background: var(--card); }
+      .card:hover, .card:focus-visible { border-color: #fff; }
+      .card .t { font-size: 32px; font-weight: 800; }
+      .card .b { font-size: 20px; font-weight: 500; opacity: 0.95; }
+      .toggle { display: inline-flex; border: 3px solid var(--border); border-radius: 16px; overflow: hidden; }
+      .toggle button { border: 0; border-radius: 0; background: transparent; padding: 12px 34px; font-size: 26px; }
+      .toggle button[aria-pressed="true"] { background: var(--text); color: var(--bg); }
+      .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; justify-content: center; }
+      .big-key { font-size: 120px; line-height: 1; font-weight: 800; }
+      .ok { color: var(--good); }
+      .status { font-size: 20px; }
+      .stars { font-size: 72px; letter-spacing: 8px; color: var(--warn); }
+      .stars .off { opacity: 0.25; }
+      .hud { position: absolute; top: 14px; right: 14px; }
+      .hud button { font-size: 22px; padding: 10px 22px; background: rgba(23, 26, 35, 0.85); }
+      .q { width: min(900px, 100%); display: flex; flex-direction: column; gap: 10px; align-items: center; }
+      .q .text { font-size: 28px; font-weight: 700; text-align: center; }
+      .q .opts { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+      .q .opts button { min-width: 170px; font-size: 26px; }
+      .q .opts button[aria-pressed="true"] { background: var(--good); border-color: var(--good); color: #06210f; }
+      textarea { font: inherit; font-size: 22px; width: min(900px, 100%); min-height: 90px; padding: 12px; border-radius: 12px;
+        border: 3px solid var(--border); background: var(--panel); color: var(--text); resize: vertical; }
+      label.lbl { font-size: 24px; font-weight: 700; text-align: center; }
+      .toast { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); background: var(--panel);
+        border: 3px solid var(--border); border-radius: 12px; padding: 12px 20px; max-width: 90%; font-size: 22px; }
+      .banner { background: #12351f; border: 3px solid var(--good); border-radius: 14px; padding: 10px 22px; font-size: 24px; }
+      /* teacher view */
+      .teacher { font-size: 18px; align-items: stretch; width: min(1100px, 100%); margin: 0 auto; }
+      .teacher h1 { font-size: 32px; text-align: left; }
+      .teacher p { text-align: left; }
+      .teacher table { border-collapse: collapse; width: 100%; font-size: 18px; }
+      .teacher th, .teacher td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+      .teacher .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+      .teacher .box { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; }
+      .teacher .row { justify-content: flex-start; }
+      .teacher button { font-size: 18px; padding: 10px 18px; }
+      button.danger { border-color: var(--bad); color: var(--bad); }
+      @media (max-height: 700px) {
+        html, body { font-size: 20px; }
+        h1 { font-size: 36px; }
+        .card { min-height: 120px; }
+        .big-key { font-size: 90px; }
+        .q .text { font-size: 24px; }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <div id="overlay"></div>
+    <script type="module" src="/src/simple/main.ts"></script>
+  </body>
+</html>
