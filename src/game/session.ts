@@ -1,9 +1,10 @@
 import type { GameClock } from '../audio/clock.ts';
+import type { SfxCue } from '../audio/sfx.ts';
 import { FEEDBACK_CHANNEL, FEEDBACK_CHANNELS, type Synth } from '../audio/synth.ts';
 import { ChannelFilter, OctaveTracker, type InputEvent, type OctaveEvent } from '../input/normalize.ts';
 import type { CarriedNote, Chart } from '../midi/chart.ts';
 import {
-  createFx, emitBreak, emitCallout, emitHit, emitLevel, emitMilestone, emitMiss, emitSpark, emitStar, emitStreak, emitWrong, setCountdown, stepFx,
+  createFx, emitBreak, emitCallout, emitDrop, emitHit, emitLevel, emitMilestone, emitMiss, emitSpark, emitStar, emitStreak, emitWrong, setCountdown, stepFx,
   type FxState,
 } from '../render/fx.ts';
 import { noteName } from '../render/layout.ts';
@@ -113,6 +114,8 @@ export interface SessionOptions {
   practice?: PracticeOptions;
   /** a count-in click at an audio-context time (practice mode counts in before every pass) */
   click?: (accent: boolean, when: number) => void;
+  /** a short cue for a game moment: star power, a milestone, a level-up, a long streak broken (audio/sfx.ts) */
+  cue?: (cue: SfxCue) => void;
 }
 
 export interface PlayResult {
@@ -455,12 +458,30 @@ export class PlaySession {
           emitMiss(this.fx, e.pitch);
           break;
         // A short streak just resets; only a profile with the shatter lets the number fall apart.
-        case 'break': emitBreak(this.fx, this.profile.shatter ? e.streak ?? 0 : 0); break;
-        case 'milestone': if (this.profile.milestones) emitMilestone(this.fx, e.streak ?? 0); break;
-        case 'level': emitLevel(this.fx, e.streak ?? 1, this.profile.edgeGlow); break;
+        case 'break':
+          emitBreak(this.fx, this.profile.shatter ? e.streak ?? 0 : 0);
+          emitDrop(this.fx, e.streak ?? 0);
+          // The sound of a lost streak is for the levels that show it shattering; a beginner hears nothing.
+          if (this.profile.shatter && (e.streak ?? 0) >= 10) this.opts.cue?.('break');
+          break;
+        case 'milestone':
+          if (!this.profile.milestones) break;
+          emitMilestone(this.fx, e.streak ?? 0);
+          this.opts.cue?.('milestone');
+          break;
+        case 'level':
+          emitLevel(this.fx, e.streak ?? 1, this.profile.edgeGlow);
+          this.opts.cue?.('level');
+          break;
         case 'fail': emitCallout(this.fx, 'SONG FAILED', 'fail', 2); break;
-        case 'star': emitCallout(this.fx, this.judge.starReady ? 'STAR POWER READY' : 'STAR PHRASE!', 'star', 1); break;
-        case 'starOn': emitStar(this.fx); break;
+        case 'star':
+          emitCallout(this.fx, this.judge.starReady ? 'STAR POWER READY' : 'STAR PHRASE!', 'star', 1);
+          this.opts.cue?.('starPhrase');
+          break;
+        case 'starOn':
+          emitStar(this.fx);
+          this.opts.cue?.('starOn');
+          break;
         case 'starLost': this.dimPhrase(e.streak ?? -1); break;
         case 'held': this.endHold(e.noteId, 'held', Math.min(now, e.time)); break;
         case 'released': this.endHold(e.noteId, 'released', e.time); break;

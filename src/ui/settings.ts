@@ -27,8 +27,10 @@ export interface Settings {
   easy: boolean;
   /** arcade mode: the song ends when the performance meter runs out */
   arcade: boolean;
-  /** particles and other moving effects */
+  /** particles and other moving effects; off is the reduced-motion mode (docs/FEEL.md) */
   effects: boolean;
+  /** short quiet cues: menu clicks, star power, milestones, the results stars (audio/sfx.ts) */
+  uiSounds: boolean;
   /** timing words over hits: every tier, Perfect only (default), or none */
   tierText: TierText;
   /** from Medium up: a bonk when a key stays down after its note is over */
@@ -66,6 +68,7 @@ export const DEFAULT_SETTINGS: Settings = {
   easy: false,
   arcade: false,
   effects: true,
+  uiSounds: true,
   tierText: 'perfect',
   letGo: true,
   feedbackByLevel: true,
@@ -90,7 +93,7 @@ export function urlOverrides(search: string): Partial<Settings> {
   if ([25, 49, 61, 88].includes(kb)) out.kb = kb as KeyboardSize;
   const timing = p.get('timing');
   if (timing === 'strict' || timing === 'normal' || timing === 'relaxed') out.timing = timing;
-  const bool = (k: keyof Settings & ('names' | 'synth' | 'easy' | 'noteNames' | 'hitSound' | 'arcade' | 'effects' | 'letGo' | 'feedbackByLevel')) => {
+  const bool = (k: keyof Settings & ('names' | 'synth' | 'easy' | 'noteNames' | 'hitSound' | 'arcade' | 'effects' | 'uiSounds' | 'letGo' | 'feedbackByLevel')) => {
     const v = p.get(k);
     if (v === '1' || v === 'true') out[k] = true;
     else if (v === '0' || v === 'false') out[k] = false;
@@ -102,6 +105,7 @@ export function urlOverrides(search: string): Partial<Settings> {
   bool('hitSound');
   bool('arcade');
   bool('effects');
+  bool('uiSounds');
   bool('letGo');
   bool('feedbackByLevel');
   const feedback = p.get('feedback');
@@ -140,7 +144,7 @@ export function sanitize(raw: unknown, base: Settings = DEFAULT_SETTINGS): Setti
   // A saved 'flat' only counts if the player picked it; older saves stored the old default.
   if (r.highway === 'perspective' || (r.highway === 'flat' && r.highwayPicked === true)) s.highway = r.highway;
   if (r.timing === 'strict' || r.timing === 'normal' || r.timing === 'relaxed') s.timing = r.timing;
-  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'letGo', 'feedbackByLevel', 'firstRunDone', 'highwayPicked', 'practiceWait', 'practiceLadder'] as const) {
+  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'uiSounds', 'letGo', 'feedbackByLevel', 'firstRunDone', 'highwayPicked', 'practiceWait', 'practiceLadder'] as const) {
     if (typeof r[k] === 'boolean') s[k] = r[k] as boolean;
   }
   num('speed', 100, 800);

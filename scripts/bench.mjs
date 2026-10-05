@@ -55,7 +55,7 @@ try {
         if (values.file) await page.route('**/bench-fixture.mid', route => route.fulfill({ body: selected.bytes, contentType: 'audio/midi' }));
         const cdp = await context.newCDPSession(page);
         await cdp.send('Emulation.setCPUThrottlingRate', { rate: throttle });
-        const query = new URLSearchParams({ autoplay: '1', kb: '25', difficulty: 'expert', effects: '1', part: selected.part.key });
+        const query = new URLSearchParams({ autoplay: '1', kb: '25', difficulty: 'expert', effects: '1', governor: '0', part: selected.part.key });
         query.set(values.file ? 'file' : 'song', values.file ? 'bench-fixture.mid' : selected.id);
         await page.goto(`${server.resolvedUrls.local[0]}?${query}`);
         await page.waitForFunction(() => window.midihero?.session?.status === 'playing', null, { timeout: 30000 });
