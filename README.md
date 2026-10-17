@@ -8,6 +8,8 @@ and are scored on timing. Built for classroom use with small keyboards
 - Import any Standard MIDI File, pick the part you want to play; the rest becomes the backing band.
 - You hear your accuracy: a hit sounds the song's own note, a wrong key clunks, a miss is silent.
 - Four difficulty levels that remove notes instead of loosening timing (Easy: one note a beat).
+- New songs open in **learn mode**: the song waits at each note until it is played, once through. After
+  that (or a scored play of two stars or more) the song opens for a score; the other mode is one tap away.
 - Streak, multiplier, star power (sustain pedal or Space), a performance meter, scored holds.
 - 25/49-key mode folds out-of-range notes into a two-octave window and lines up with your
   keyboard's octave buttons ("press your lowest C").
@@ -68,7 +70,7 @@ Useful URL parameters (session only, they do not change saved settings):
 `?song=ode-to-joy&autoplay=1&jitter=60` plays a bundled song automatically (for testing; a jitter
 above 150 ms produces misses and wrong notes);
 `?file=fixtures/some.mid` loads a MIDI file served from `public/fixtures/` (local only, gitignored);
-`?difficulty=medium`, `?part=5:4` (track:channel), `?feedback=chart|press|off`, `?arcade=1`,
+`?mode=learn|score` (autoplay checks open in score unless `mode=learn`), `?difficulty=medium`, `?part=5:4` (track:channel), `?feedback=chart|press|off`, `?arcade=1`,
 `?effects=1` (also overrides the system's reduced-motion preference), `?uiSounds=0`, `?lowfx=1`
 (start at the lowest effects level), `?governor=0` (no automatic effects fallback) choose what to check;
 `?feedbackByLevel=0` gives every level the full arcade feedback.

@@ -1,5 +1,6 @@
 import { CALIBRATION_BEATS, TapCalibrator, visualOffset, type CalibrationResult } from '../game/calibration.ts';
 import { bestDelta, starCount, type Suggestion } from '../game/results.ts';
+import type { PlayMode } from '../game/learn.ts';
 import type { PracticeSectionInfo } from '../game/practice.ts';
 import type { PlayResult, PracticeResult } from '../game/session.ts';
 import type { TrialRate, TrialSound } from '../game/studentTrial.ts';
@@ -265,6 +266,8 @@ export interface PartPickerState {
   /** keep a duplicate of the player's part audible in the backing */
   guideTrack: boolean;
   difficulty: Difficulty;
+  /** learn: the song waits at every note; score: a normal scored play */
+  mode: PlayMode;
 }
 
 export interface PartPickerOptions {
@@ -282,6 +285,7 @@ export interface PartPickerOptions {
   kb: KeyboardSize;
   /** true when the single selected part spans more than two octaves */
   onChange: (state: PartPickerState) => void;
+  /** start in the picker's mode; the other mode's button sets `state.mode` first */
   onPlay: () => void;
   /** open practice mode on the selection */
   onPractise: () => void;
@@ -348,9 +352,14 @@ export function showPartPicker(o: PartPickerOptions): void {
       </select></label>
       <span style="flex:1"></span>
       <button id="back">Back</button>
-      <button class="big" id="practise" ${st.selected.size ? '' : 'disabled'} title="Loop a few bars, slower, until they are clean">Practise…</button>
-      <button class="primary big" id="play" ${st.selected.size ? '' : 'disabled'}>Play</button>
+      <button id="practise" ${st.selected.size ? '' : 'disabled'} title="Loop a few bars, slower, until they are clean">Practise…</button>
+      ${st.mode === 'learn'
+        ? `<button class="big" id="other" ${st.selected.size ? '' : 'disabled'} title="A normal play with a score">Play for score</button>
+      <button class="primary big" id="play" ${st.selected.size ? '' : 'disabled'} title="The song waits at every note until you play it">Learn it ▶</button>`
+        : `<button class="big" id="other" ${st.selected.size ? '' : 'disabled'} title="The song waits at every note until you play it">Learn mode</button>
+      <button class="primary big" id="play" ${st.selected.size ? '' : 'disabled'}>Play</button>`}
     </div>
+    ${st.mode === 'learn' ? '<p class="levels-note" style="text-align:right">New song: the notes wait for you. Play it through once, then go for a score.</p>' : ''}
   </div>`);
   el.querySelector<HTMLDetailsElement>('#parts')!.addEventListener('toggle', (e) => {
     if (st.selected.size) partsOpen = (e.target as HTMLDetailsElement).open;
@@ -389,6 +398,10 @@ export function showPartPicker(o: PartPickerOptions): void {
   });
   el.querySelector('#back')!.addEventListener('click', o.onBack);
   el.querySelector('#play')!.addEventListener('click', o.onPlay);
+  el.querySelector('#other')!.addEventListener('click', () => {
+    st.mode = st.mode === 'learn' ? 'score' : 'learn';
+    o.onPlay();
+  });
   el.querySelector('#practise')!.addEventListener('click', o.onPractise);
 }
 
@@ -493,6 +506,25 @@ export function showPracticeResults(o: PracticeResultsOptions): void {
   el.querySelector('#quit')!.addEventListener('click', o.onQuit);
 }
 
+/** After a learn-mode run: passed, go for a score; stopped early, learn again. */
+export function showLearnResults(o: { title: string; passed: boolean; hit: number; total: number; onScore: () => void; onLearn: () => void; onQuit: () => void }): void {
+  const el = screen(`<div class="panel results still" style="text-align:center">
+    <h2>${esc(o.title)}</h2>
+    ${o.passed
+      ? `<div class="accuracy">You did it!</div><p>You played all ${o.total} notes. Now try it with the music not waiting: play for a score.</p>`
+      : `<div class="accuracy" style="font-size:40px">Good start</div><p>You played ${o.hit} of ${o.total} notes. Play it to the end once and the song is yours.</p>`}
+    <div class="row" style="justify-content:center">
+      ${o.passed
+        ? '<button class="primary big" id="score">Play for score ▶</button><button id="learn">Learn mode again</button>'
+        : '<button class="primary big" id="learn">Learn mode again ▶</button><button id="score">Play for score</button>'}
+      <button id="quit">Song select</button>
+    </div>
+  </div>`);
+  el.querySelector('#score')!.addEventListener('click', o.onScore);
+  el.querySelector('#learn')!.addEventListener('click', o.onLearn);
+  el.querySelector('#quit')!.addEventListener('click', o.onQuit);
+}
+
 // ---------------------------------------------------------------------------
 // Gate: press your lowest C
 // ---------------------------------------------------------------------------
@@ -515,10 +547,11 @@ export function gateMessage(el: HTMLElement, msg: string): void {
 // ---------------------------------------------------------------------------
 // Play HUD, pause, results
 // ---------------------------------------------------------------------------
-export function showPlayHud(o: { onPause: () => void; onSkip: (() => void) | null; practice?: { rate: number; onStop: () => void } }): HTMLElement {
+export function showPlayHud(o: { onPause: () => void; onSkip: (() => void) | null; practice?: { rate: number; onStop: () => void; learn?: boolean } }): HTMLElement {
   const el = screen(`<div class="hud-hint">
       ${o.onSkip ? '<button id="skip">Skip to my part ⏩</button>' : ''}
-      ${o.practice ? `<span class="badge" id="practice-rate" aria-live="polite">${Math.round(o.practice.rate * 100)}% speed</span><button id="stop">Stop practice</button>` : ''}
+      ${o.practice?.learn ? '<span class="badge">Learn mode: the song waits for you</span><button id="stop">Stop</button>' : ''}
+      ${o.practice && !o.practice.learn ? `<span class="badge" id="practice-rate" aria-live="polite">${Math.round(o.practice.rate * 100)}% speed</span><button id="stop">Stop practice</button>` : ''}
       <button id="pause">Pause</button>
     </div>`, true);
   el.querySelector('#pause')!.addEventListener('click', o.onPause);

@@ -31,6 +31,13 @@ export interface PracticeOptions {
   wait: boolean;
   /** step the rate up after two clean passes, down after two failed ones */
   ladder: boolean;
+  /**
+   * Learn mode: one pass through the whole song in wait mode, with the normal lead-in and
+   * count-in instead of a loop; the session finishes at the song's end like a normal play.
+   */
+  once?: boolean;
+  /** shown on the highway in place of the section label (learn mode) */
+  title?: string;
 }
 
 /** What a practice session reports at the end. */
@@ -212,7 +219,10 @@ export class PlaySession {
     if (practice) {
       this.run = startRun(opts.rate, practice.ladder);
       this.rate = runRate(this.run);
-      this.practice = { sections: practice.sections, current: practice.current, loop: practice.loop, passes: 0, waiting: false, waitingFor: this.owed };
+      this.practice = {
+        sections: practice.sections, current: practice.current, loop: practice.once ? null : practice.loop, passes: 0, waiting: false, waitingFor: this.owed,
+        ...(practice.title ? { title: practice.title } : {}),
+      };
       opts.chart.notes.forEach((n, i) => n.star && this.starNotes.push(i));
     }
     this.judge = new Judge(opts.chart, opts.judgeConfig, this.rate);
@@ -237,7 +247,7 @@ export class PlaySession {
       this.autoJitter = opts.chart.notes.map(() => (Math.random() * 2 - 1) * j);
     }
     opts.clock.setRate(this.rate);
-    if (practice) {
+    if (practice && !practice.once) {
       opts.clock.start(practice.loop.start - opts.barSeconds);
       this.armCountIn();
     } else opts.clock.start(-this.leadIn);
@@ -572,7 +582,7 @@ export class PlaySession {
       if (!this.heldKeys.has(pitch) && now - kv.since > KEY_FLASH) this.keyVisuals.delete(pitch);
     }
     this.trimPopups();
-    if (this.practice) {
+    if (this.practice && !this.opts.practice!.once) {
       this.checkPassEnd(now);
       return;
     }
