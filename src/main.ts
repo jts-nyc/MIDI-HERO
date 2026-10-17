@@ -895,10 +895,11 @@ function play(): void {
     if (hudEl) setPracticeRate(hudEl, s.rate);
   };
   s.onWait = (waiting) => {
-    // Wait mode: the band is silent while the song is held, and picks up where it left off.
+    // Wait mode: the band is silent while the song is held, and picks up where it left off,
+    // with the notes that were sounding at the held onset (those on it included) struck again.
     if (!scheduler || s.status !== 'playing') return;
     if (waiting) scheduler.stop();
-    else scheduler.start();
+    else scheduler.start({ resound: true });
   };
   s.onOctave = (ev) => {
     if (ev.type === 'reoffset') {
