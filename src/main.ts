@@ -947,9 +947,8 @@ function play(): void {
       });
       return;
     }
-    if (passesSong('score', result, !!autoplay)) markLearned(offerStorage(), lib.id);
     if (result.practice) {
-      // Practice never writes bests or stars.
+      // Practice never writes bests or stars, and does not pass the song.
       showPracticeResults({
         title: lib.title,
         detail: `${partName} · ${DIFFICULTY_LABEL[difficulty]} · ${timing} timing`,
@@ -961,6 +960,7 @@ function play(): void {
       });
       return;
     }
+    if (passesSong('score', result, !!autoplay)) markLearned(offerStorage(), lib.id);
     const badges = [...(result.failed ? ['Song failed'] : []), ...(runSettings.easy ? ['Easy mode'] : []), ...(runSettings.rate < 1 ? [`${Math.round(runSettings.rate * 100)}% speed`] : []), ...(autoplay ? ['Autoplay'] : [])];
     const detail = `${partName} · ${DIFFICULTY_LABEL[difficulty]} · ${timing} timing · ${Math.round(runSettings.rate * 100)}% speed`;
     const suggestion = suggestNextStep({
