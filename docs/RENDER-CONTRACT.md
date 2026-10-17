@@ -33,7 +33,7 @@ When `guides` is set (Settings → Timing guides, `?guides=1`), a renderer:
 - draws the strike zone above the hit line (`TimingGuides.drawZone`), sized by `perfect` and `good`;
 - holds a pending note whose onset has passed on the hit line (`landedRow`) and lights its lane's pad (`note`, then `drawPads`);
 - draws the early/late tags and the timing meter from `marks`.
-Background and reasoning: docs/research/highway-legibility.md.
+Background and reasoning: the research summary in the PR that added the guides (the full notes are local-only, in docs/research/highway-legibility.md).
 
 ## Perspective
 

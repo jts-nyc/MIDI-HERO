@@ -1,6 +1,6 @@
 /**
  * Timing guides: an optional layer, shared by both highways, that makes the moment a note is to
- * be played easier to see (docs/research/highway-legibility.md). Off by default, so it can be
+ * be played easier to see (research: the PR that added this file; local notes in docs/research/). Off by default, so it can be
  * compared with the plain highway in class.
  *
  * - The grid is locked to the music: beat and bar lines are drawn stronger, and the perspective
