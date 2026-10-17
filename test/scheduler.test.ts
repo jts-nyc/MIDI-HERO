@@ -160,6 +160,24 @@ describe('BackingScheduler', () => {
     expect(ons.map((c) => [c.args[0], c.args[1]])).toEqual([[0, 48]]);
   });
 
+  it('after a wait, strikes again the notes the sustain pedal still holds, and the pedal ends them', () => {
+    const h = harness([
+      ev(0, 'cc', { controller: 64, value: 127, pitch: -1 }),
+      ev(0.2, 'on', { pitch: 48 }), ev(0.5, 'off', { pitch: 48 }), // key up, but the pedal holds it
+      ev(0.3, 'cc', { channel: 1, controller: 64, value: 127, pitch: -1 }),
+      ev(0.4, 'cc', { channel: 1, controller: 64, value: 0, pitch: -1 }),
+      ev(0.4, 'on', { channel: 1, pitch: 50 }), ev(0.6, 'off', { channel: 1, pitch: 50 }), // pedal up on channel 1: over
+      ev(2, 'cc', { controller: 64, value: 0, pitch: -1 }),
+    ].sort((a, b) => a.time - b.time));
+    const calls = waitAt(h, 1);
+    const ons = calls.filter((c) => c.method === 'noteOn');
+    expect(ons.map((c) => [c.args[0], c.args[1]])).toEqual([[0, 48]]);
+    // the pedal is down again and the key is up, so the release at 2 s ends the note
+    const i = calls.findIndex((c) => c.method === 'noteOn');
+    expect(calls.slice(0, i).some((c) => c.method === 'control' && c.args[0] === 0 && c.args[1] === 64 && (c.args[2] as number) >= 64)).toBe(true);
+    expect(calls.slice(i).some((c) => c.method === 'noteOff' && c.args[0] === 0 && c.args[1] === 48)).toBe(true);
+  });
+
   it('a plain start (pause and resume) does not strike anything again', () => {
     const { t, clock, synth, sched } = harness([ev(0, 'on', { pitch: 48 }), ev(4, 'off', { pitch: 48 })]);
     clock.start(0);
