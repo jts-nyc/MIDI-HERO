@@ -37,6 +37,8 @@ export interface Settings {
   letGo: boolean;
   /** Easy and Medium show fewer words, counters and flashes over the notes (see game/feedback.ts) */
   feedbackByLevel: boolean;
+  /** timing guides on the highway: locked grid, strike zone, landing pads, early/late (render/guides.ts) */
+  guides: boolean;
   backingVolume: number;
   /** practice mode: hold the song at an unplayed note until it is played */
   practiceWait: boolean;
@@ -72,6 +74,7 @@ export const DEFAULT_SETTINGS: Settings = {
   tierText: 'perfect',
   letGo: true,
   feedbackByLevel: true,
+  guides: false,
   backingVolume: 0.8,
   practiceWait: false,
   practiceLadder: true,
@@ -85,7 +88,7 @@ export const DEFAULT_SETTINGS: Settings = {
 const KEY = 'midihero.settings.v1';
 const CLASS_KEY = 'midihero.classDefaults.v1';
 
-/** Session-only overrides from URL parameters (kb, timing, names, synth, rate, speed, easy, noteNames). */
+/** Session-only overrides from URL parameters (kb, timing, names, synth, rate, speed, easy, noteNames, guides, ...). */
 export function urlOverrides(search: string): Partial<Settings> {
   const p = new URLSearchParams(search);
   const out: Partial<Settings> = {};
@@ -93,7 +96,7 @@ export function urlOverrides(search: string): Partial<Settings> {
   if ([25, 49, 61, 88].includes(kb)) out.kb = kb as KeyboardSize;
   const timing = p.get('timing');
   if (timing === 'strict' || timing === 'normal' || timing === 'relaxed') out.timing = timing;
-  const bool = (k: keyof Settings & ('names' | 'synth' | 'easy' | 'noteNames' | 'hitSound' | 'arcade' | 'effects' | 'uiSounds' | 'letGo' | 'feedbackByLevel')) => {
+  const bool = (k: keyof Settings & ('names' | 'synth' | 'easy' | 'noteNames' | 'hitSound' | 'arcade' | 'effects' | 'uiSounds' | 'letGo' | 'feedbackByLevel' | 'guides')) => {
     const v = p.get(k);
     if (v === '1' || v === 'true') out[k] = true;
     else if (v === '0' || v === 'false') out[k] = false;
@@ -108,6 +111,7 @@ export function urlOverrides(search: string): Partial<Settings> {
   bool('uiSounds');
   bool('letGo');
   bool('feedbackByLevel');
+  bool('guides');
   const feedback = p.get('feedback');
   if (isFeedbackSound(feedback)) {
     out.feedbackSound = feedback;
@@ -144,7 +148,7 @@ export function sanitize(raw: unknown, base: Settings = DEFAULT_SETTINGS): Setti
   // A saved 'flat' only counts if the player picked it; older saves stored the old default.
   if (r.highway === 'perspective' || (r.highway === 'flat' && r.highwayPicked === true)) s.highway = r.highway;
   if (r.timing === 'strict' || r.timing === 'normal' || r.timing === 'relaxed') s.timing = r.timing;
-  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'uiSounds', 'letGo', 'feedbackByLevel', 'firstRunDone', 'highwayPicked', 'practiceWait', 'practiceLadder'] as const) {
+  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'uiSounds', 'letGo', 'feedbackByLevel', 'guides', 'firstRunDone', 'highwayPicked', 'practiceWait', 'practiceLadder'] as const) {
     if (typeof r[k] === 'boolean') s[k] = r[k] as boolean;
   }
   num('speed', 100, 800);
