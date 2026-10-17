@@ -91,15 +91,23 @@ export const deleteSong = (id: string): Promise<undefined> => tx('songs', 'readw
  */
 export function bestKey(songId: string, parts: PartId[], split: number | undefined, preset: string, rate: number, easy: boolean, difficulty = 'expert'): string {
   const rateBucket = Math.round(rate * 10) / 10;
-  const key = [songId, parts.map((p) => `${p.track}:${p.channel}`).join('+'), split ?? '-', preset, rateBucket, easy ? 'easy' : 'exact'];
+  const key = [songId, selectionKey(parts, split), preset, rateBucket, easy ? 'easy' : 'exact'];
   if (difficulty !== 'expert') key.push(difficulty);
   return key.join('|');
 }
 
-/** What a best-score key says: the song, the playback-rate bucket, and the level suffix (null for the top level). */
-export function parseBestKey(key: string): { songId: string; rate: number; level: string | null } {
+/** The parts and hand split of a best-score key, as one string: which chart of the song was played. */
+export function selectionKey(parts: PartId[], split: number | undefined): string {
+  return `${parts.map((p) => `${p.track}:${p.channel}`).join('+')}|${split ?? '-'}`;
+}
+
+/**
+ * What a best-score key says: the song, its parts and split (see selectionKey), the playback-rate
+ * bucket, and the level suffix (null for the top level).
+ */
+export function parseBestKey(key: string): { songId: string; selection: string; rate: number; level: string | null } {
   const parts = key.split('|');
-  return { songId: parts[0] ?? '', rate: Number(parts[4]), level: parts[6] ?? null };
+  return { songId: parts[0] ?? '', selection: `${parts[1] ?? ''}|${parts[2] ?? ''}`, rate: Number(parts[4]), level: parts[6] ?? null };
 }
 
 /** Every best score of a song, across parts, levels and settings. */
