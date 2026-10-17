@@ -28,7 +28,7 @@ and are scored on timing. Built for classroom use with small keyboards
 
 ```bash
 npm install
-npm run gen-songs   # regenerate the bundled demo songs and the beginner pack
+npm run gen-songs   # regenerate the bundled demo songs and the packs
 npm run dev         # http://localhost:5173
 npm test
 npm run build
@@ -129,6 +129,28 @@ drops the C under the shared attacks, Hard is the full two-hand part. Swing is w
 note times (MIDI has no swing flag); at 88 bpm straight eighths land 114 ms early, so on Normal
 timing they score Good rather than Perfect or Great. `npm run gen-songs` writes the songs and
 the pack.
+
+## Rhythm Bosses pack
+
+One boss per Rhythm Basics round, on the same two keys, click and bass, a little faster than its
+drill. Each is sixteen bars in four phrases of four: the round's own rhythm, two twists on it, then
+a boss phrase that switches between two bars every bar. Play them after the drill of the same number.
+
+| # | Boss | Twists | Tempo | Opens at |
+|---|---|---|---|---|
+| 1 | The Pocket Boss | a rest on beat 4; eighth-note pairs; eighths starting on the "and" | 92 | Medium |
+| 2 | The Side-Eye Boss | the 3 + 3 + 2 tresillo; pushes on the "and" of 3 and 4; a bar with nothing on the beat | 88 | Medium |
+| 3 | The Shuffle Boss | swing with the downbeat skipped; a triplet on beat 3; swung pushes | 96 | Hard |
+| 4 | The Missing Stair Boss | 7/8 regrouped 3 + 2 + 2 and 2 + 3 + 2; the bass marks each group | 76 | Medium |
+| 5 | The Double-Cross Boss | the hands swap (G on the beats, C in triplets); quarter-note triplets | 72 | Hard |
+
+What the levels do to them: Easy keeps only on-beat notes. On Boss 1 that leaves the rests but
+removes every eighth. On Boss 2 it leaves only the pulse, and its bar of off-beats is empty. On
+Boss 4, Easy keeps the wrong notes of the 3 + 2 + 2 and 2 + 3 + 2 bars, so they come out as
+other groupings. Medium is the full part on bosses 1, 2 and 4. On Boss 3, Medium keeps the swing
+but drops one note of each triplet fill (five notes in all); on Boss 5, it drops the C under the
+shared attacks, as in drill 5. Hard is the full part on both. The pack
+(`?pack=packs/rhythm-bosses.midihero.json`) and the song list open each boss at that level.
 
 ## How the game works
 
