@@ -9,7 +9,7 @@ import { calibrationBeats, calibrationOffered, markCalibrationOffered, shouldOff
 import { loopLabel, loopOf, practiceSections, trimChart, type PracticeSectionInfo } from './game/practice.ts';
 import { keyLevelOf, listKeyLevel, RATES, songStars, starsByLevel, suggestNextStep, TOP_LEVEL, unlockedLevels, UNLOCK_STARS, type LevelBest, type Suggestion } from './game/results.ts';
 import { PlaySession } from './game/session.ts';
-import { initialSetup, lowCVerdict, setupResult, setupStep, type SetupStep } from './game/setup.ts';
+import { initialSetup, lowCVerdict, setupResult, setupStep, withMidi, type SetupStep } from './game/setup.ts';
 import { STUDENT_TRIAL_ID, studentTrialSettings, type TrialRate, type TrialSound } from './game/studentTrial.ts';
 import { KeyboardInput } from './input/keyboardInput.ts';
 import { MidiInput } from './input/midiInput.ts';
@@ -1043,7 +1043,7 @@ function runSetup(onDone: (kb: KeyboardSize, soundSelf: boolean) => void): void 
   // MIDI access and plugging in arrive without a callback of ours (main's onChange selects the port).
   const poll = setInterval(() => {
     if (midi.status !== st.midi || !!midi.selectedId !== st.hasPort) {
-      st = { ...st, midi: midi.status, hasPort: !!midi.selectedId };
+      st = withMidi(st, midi.status, !!midi.selectedId);
       render();
     }
   }, 300);
@@ -1069,7 +1069,7 @@ function runSetup(onDone: (kb: KeyboardSize, soundSelf: boolean) => void): void 
         st = { ...st, noKeyboard: true };
         render();
       },
-      onRetry: () => void requestMidi().then(() => { st = { ...st, midi: midi.status, hasPort: !!midi.selectedId }; shown = null; render(); }),
+      onRetry: () => void requestMidi().then(() => { st = withMidi(st, midi.status, !!midi.selectedId); shown = null; render(); }),
       onKb: (kb) => { st = { ...st, kb }; render(); },
       onSound: (soundSelf) => { st = { ...st, soundSelf }; render(); },
     });

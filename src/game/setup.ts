@@ -27,6 +27,14 @@ export const initialSetup = (midi: MidiStatus, hasPort: boolean): SetupState => 
   midi, hasPort, lowC: null, noKeyboard: false, kb: null, soundSelf: null,
 });
 
+/**
+ * The MIDI state changed. A keyboard that went away takes its learned C with it: a reconnect may
+ * have reset its octave buttons, or it may be a different keyboard.
+ */
+export function withMidi(s: SetupState, midi: MidiStatus, hasPort: boolean): SetupState {
+  return { ...s, midi, hasPort, lowC: hasPort ? s.lowC : null };
+}
+
 export function setupStep(s: SetupState): SetupStep {
   if (!s.noKeyboard) {
     if (s.midi === 'unsupported' || s.midi === 'denied') return 'blocked';

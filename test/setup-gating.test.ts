@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { initialSetup, lowCVerdict, setupResult, setupStep, type SetupState } from '../src/game/setup.ts';
+import { initialSetup, lowCVerdict, setupResult, setupStep, withMidi, type SetupState } from '../src/game/setup.ts';
 
 const ready = (over: Partial<SetupState> = {}): SetupState => ({ ...initialSetup('granted', true), ...over });
 
@@ -26,6 +26,15 @@ describe('first-run setup gating', () => {
   it('unplugging during setup goes back to "plug in"', () => {
     expect(setupStep(ready({ hasPort: false }))).toBe('connect');
     expect(setupStep(ready({ hasPort: false, lowC: 48 }))).toBe('connect');
+  });
+
+  it('a keyboard unplugged after its C was pressed must press a C again when it is back', () => {
+    const asked = ready({ lowC: 48, kb: 25 });
+    const unplugged = withMidi(asked, 'granted', false);
+    expect(unplugged.lowC).toBeNull();
+    expect(setupStep(unplugged)).toBe('connect');
+    expect(setupStep(withMidi(unplugged, 'granted', true))).toBe('press');
+    expect(withMidi(asked, 'granted', true).lowC).toBe(48); // nothing changed: the C stays
   });
 
   it('a blocked or missing Web MIDI says so instead of waiting forever', () => {
