@@ -202,6 +202,30 @@ describe('PlaySession in practice mode', () => {
     expect(clicks.length).toBe(8); // counted in again
   });
 
+  // Round 3: a click handed to the synth just before a pause was silenced with the band and lost.
+  it('a pause during the count-in sounds the clicks it silenced again after the resume', () => {
+    const { session, clicks, advance, t } = harness();
+    advance(0.47); // song time loop.start − 1.53: the second click (−1.5) is already scheduled
+    expect(clicks).toHaveLength(2);
+    session.pause();
+    t.perfMs += 5000;
+    session.resume();
+    advance(1.6);
+    expect(clicks.map((c) => c.accent)).toEqual([true, false, false, false, false]);
+    // the second click again (no audio here: `when` is song time), then the third and fourth
+    expect(clicks.slice(1).map((c) => c.when - clicks[0]!.when)).toEqual([0.5, 0.5, 1, 1.5]);
+  });
+
+  it('a pause after the count-in adds no clicks', () => {
+    const { session, clicks, advance, t } = harness();
+    advance(2.2);
+    session.pause();
+    t.perfMs += 5000;
+    session.resume();
+    advance(1);
+    expect(clicks).toHaveLength(4);
+  });
+
   it('autoplay passes are clean, and two of them step the rate up the ladder', () => {
     const { session, clock, passes, advance } = harness({ rate: 0.8, autoplay: { jitterMs: 0 } });
     expect(session.rate).toBe(0.8);
