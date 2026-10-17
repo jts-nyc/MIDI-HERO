@@ -4,7 +4,8 @@ import type { PracticeSectionInfo } from '../game/practice.ts';
 import type { PlayResult, PracticeResult } from '../game/session.ts';
 import type { TrialRate, TrialSound } from '../game/studentTrial.ts';
 import type { TimingPreset } from '../game/judge.ts';
-import type { MidiPort } from '../input/midiInput.ts';
+import type { KeyVerdict, SetupStep } from '../game/setup.ts';
+import type { MidiPort, MidiStatus } from '../input/midiInput.ts';
 import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Hand, type LevelStats } from '../midi/chart.ts';
 import type { Part } from '../types.ts';
 import { noteName } from '../render/layout.ts';
@@ -39,34 +40,72 @@ const fmtTime = (s: number): string => `${Math.floor(s / 60)}:${String(Math.floo
 // ---------------------------------------------------------------------------
 // First run
 // ---------------------------------------------------------------------------
-export function showFirstRun(o: { onDone: (kb: KeyboardSize, soundSelf: boolean) => void }): void {
-  const el = screen(`<div class="panel">
-    <h1>Welcome to MIDI Hero</h1>
-    <h2>How many keys does your keyboard have?</h2>
-    <div class="row" id="kb">
-      <button data-kb="25" class="primary">25</button><button data-kb="49">49</button><button data-kb="61">61</button><button data-kb="88">88</button>
-    </div>
-    <h2>Does your keyboard make sound by itself?</h2>
-    <div class="row" id="sound">
-      <button data-sound="0" class="primary">No, play sound from the computer</button><button data-sound="1">Yes, it has speakers</button>
-    </div>
-    <p>You can change these later in Settings.</p>
-    <div class="row"><button class="primary big" id="done">Continue</button></div>
-  </div>`);
-  let kb: KeyboardSize = 25;
-  let soundSelf = false;
-  const pick = (group: string, attr: string, cb: (v: string) => void) => {
-    el.querySelectorAll<HTMLButtonElement>(`#${group} button`).forEach((b) =>
-      b.addEventListener('click', () => {
-        el.querySelectorAll(`#${group} button`).forEach((x) => x.classList.remove('primary'));
-        b.classList.add('primary');
-        cb(b.dataset[attr]!);
-      }),
-    );
+export interface SetupScreenOptions {
+  step: Exclude<SetupStep, 'done'>;
+  /** 'blocked': why MIDI is unavailable */
+  midi: MidiStatus;
+  onNoKeyboard: () => void;
+  onRetry: () => void;
+  onKb: (kb: KeyboardSize) => void;
+  onSound: (soundSelf: boolean) => void;
+}
+
+/** A picture of two octaves of a keyboard with the C at the far left lit. */
+export function miniKeyboard(): string {
+  const whites = 15;
+  const w = Array.from({ length: whites }, (_, i) => `<div class="w${i === 0 ? ' target' : ''}">${i === 0 ? 'C' : ''}</div>`).join('');
+  const b = Array.from({ length: whites - 1 }, (_, i) => i)
+    .filter((i) => [0, 1, 3, 4, 5].includes(i % 7))
+    .map((i) => `<div class="b" style="left:calc(${((i + 1) / whites) * 100}% - ${(0.3 * 100) / whites}%);width:${(0.6 * 100) / whites}%"></div>`).join('');
+  return `<div class="mini-kb" aria-hidden="true">${w}${b}</div><div class="mini-kb-arrow">↑ this one: the C at the far left</div>`;
+}
+
+/** One step of first-run setup: one instruction, big. With a keyboard the way on is a key press. */
+export function showSetup(o: SetupScreenOptions): HTMLElement {
+  const noKb = '<button class="link" id="no-kb">I don\'t have a keyboard</button>';
+  const body: Record<SetupScreenOptions['step'], string> = {
+    blocked: o.midi === 'denied'
+      ? `<h1>Allow the keyboard</h1>
+        <p class="say">The browser blocked MIDI. Click the icon left of the web address, set MIDI to <b>Allow</b>, then press Try again.</p>
+        <div class="row" style="justify-content:center"><button class="primary big" id="retry">Try again</button></div>${noKb}`
+      : `<h1>This browser can't use a keyboard</h1>
+        <p class="say">Use <b>Chrome</b> or <b>Edge</b> on a Chromebook, Mac or Windows computer.</p>
+        <div class="row" style="justify-content:center"><button class="primary big" id="no-kb">Play with the computer keys</button></div>`,
+    connect: `<h1>Plug in your keyboard</h1>
+        <p class="say">Connect the USB cable to the computer.</p>
+        <p class="got waiting" aria-live="polite">${o.midi === 'pending' ? 'If the browser asks, click Allow.' : 'Waiting for your keyboard…'}</p>${noKb}`,
+    press: `<h1>Press the C at the far left of your keyboard</h1>
+        ${miniKeyboard()}
+        <p class="got waiting" id="setup-msg" aria-live="polite">Waiting for a key…</p>${noKb}`,
+    kb: `<h1>How many keys does your keyboard have?</h1>
+        <div class="choices">
+          <button class="primary" data-kb="25">25<span>small, 2 octaves</span></button>
+          <button data-kb="49">49<span>4 octaves</span></button>
+          <button data-kb="61">61<span>5 octaves</span></button>
+          <button data-kb="88">88<span>a full piano</span></button>
+        </div>
+        <p>Not sure? Choose 25.</p>`,
+    sound: `<h1>Does your keyboard have its own speakers?</h1>
+        <div class="choices">
+          <button class="primary" data-sound="0">No<span>the computer plays the sound</span></button>
+          <button data-sound="1">Yes<span>I hear it from the keyboard</span></button>
+        </div>
+        <p>Not sure? Choose No.</p>`,
   };
-  pick('kb', 'kb', (v) => (kb = Number(v) as KeyboardSize));
-  pick('sound', 'sound', (v) => (soundSelf = v === '1'));
-  el.querySelector('#done')!.addEventListener('click', () => o.onDone(kb, soundSelf));
+  const el = screen(`<div class="panel setup">${body[o.step]}</div>`);
+  el.querySelector('#no-kb')?.addEventListener('click', o.onNoKeyboard);
+  el.querySelector('#retry')?.addEventListener('click', o.onRetry);
+  el.querySelectorAll<HTMLButtonElement>('[data-kb]').forEach((b) => b.addEventListener('click', () => o.onKb(Number(b.dataset.kb) as KeyboardSize)));
+  el.querySelectorAll<HTMLButtonElement>('[data-sound]').forEach((b) => b.addEventListener('click', () => o.onSound(b.dataset.sound === '1')));
+  return el;
+}
+
+/** Live feedback for a key press on the setup or gate screen. */
+export function setupMessage(el: HTMLElement, v: KeyVerdict): void {
+  const m = el.querySelector('#setup-msg');
+  if (!m) return;
+  m.textContent = v.text;
+  m.className = `got ${v.ok ? 'ok' : 'no'}`;
 }
 
 /** A deliberately small, fixed musical task; regular song settings remain separate. */
@@ -497,20 +536,17 @@ export function showPracticeResults(o: PracticeResultsOptions): void {
 // Gate: press your lowest C
 // ---------------------------------------------------------------------------
 export function showGate(o: { keysHint: string; onSkip: () => void }): HTMLElement {
-  const el = screen(`<div class="panel" style="text-align:center">
-    <h2>Press the lowest C on your keyboard</h2>
-    <p>${esc(o.keysHint)}. This tells the game where your keyboard's octave buttons are set.</p>
-    <p id="gate-msg"></p>
-    <div class="row" style="justify-content:center"><button id="skip">Skip (computer keyboard)</button></div>
+  const el = screen(`<div class="panel setup">
+    <h1>Press the C at the far left of your keyboard</h1>
+    ${miniKeyboard()}
+    <p class="got waiting" id="setup-msg" aria-live="polite">Waiting for a key…</p>
+    <p>${esc(o.keysHint)}. This lines the game up with your keyboard.</p>
+    <button class="link" id="skip">I don't have a keyboard</button>
   </div>`);
   el.querySelector('#skip')!.addEventListener('click', o.onSkip);
   return el;
 }
 
-export function gateMessage(el: HTMLElement, msg: string): void {
-  const m = el.querySelector('#gate-msg');
-  if (m) m.textContent = msg;
-}
 
 // ---------------------------------------------------------------------------
 // Play HUD, pause, results
