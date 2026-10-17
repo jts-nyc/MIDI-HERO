@@ -41,7 +41,7 @@ Node 22.12 or newer. Vite 8, Vitest 4, TypeScript, `midi-file`; no other runtime
 Drop a `.mid` file anywhere on the song list, or paste a link to one into **Paste a link**. A link
 only works when its host lets other sites fetch the file (GitHub does); otherwise the app says to
 download the file and drop it in. Imported songs stay in that browser and are never uploaded.
-They open in practice with **Wait for me** on. See [docs/research/song-import.md](docs/research/song-import.md).
+They open in practice with **Wait for me** on.
 
 ### Your own songs (local only)
 

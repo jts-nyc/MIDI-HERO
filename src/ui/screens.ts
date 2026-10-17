@@ -187,7 +187,7 @@ export function showSongSelect(o: SongSelectOptions): void {
     <p>${esc(o.midiStatus)} ${o.onRetryMidi ? '<button id="retry-midi">Retry</button>' : ''}</p>
     <p>Drop <b>.mid</b> files or a <b>.midihero.json</b> pack anywhere on this page to add songs. Computer keyboard: <span class="kbd">Z</span>–<span class="kbd">M</span> / <span class="kbd">Q</span>–<span class="kbd">U</span> play notes, <span class="kbd">-</span>/<span class="kbd">=</span> shift octave.</p>
     <form class="row link-import" id="link-form">
-      <input id="link" type="url" inputmode="url" placeholder="Paste a link to a .mid file" aria-label="Link to a .mid file" autocomplete="off" />
+      <input id="link" type="text" inputmode="url" spellcheck="false" placeholder="Paste a link to a .mid file" aria-label="Link to a .mid file" autocomplete="off" />
       <button type="submit" id="link-go">Add song</button>
     </form>
     <p id="link-msg" class="link-msg" role="status" aria-live="polite"></p>
