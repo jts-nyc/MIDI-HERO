@@ -14,6 +14,7 @@ import { starCount } from '../game/results.ts';
 import { PlaySession } from '../game/session.ts';
 import { KeyboardInput } from '../input/keyboardInput.ts';
 import { MidiInput } from '../input/midiInput.ts';
+import { updateKeyboardBanner } from '../ui/keyboardBanner.ts';
 import type { InputEvent } from '../input/normalize.ts';
 import { buildChart, chooseWindow, isDifficulty, offeredLevels, resolveLevel, splitNotes, type Difficulty, type PitchWindow } from '../midi/chart.ts';
 import { beatLines, parseSong, ticksToSeconds } from '../midi/parse.ts';
@@ -167,6 +168,7 @@ midi.onChange = () => {
   if (!id) dispatch({ type: 'disconnected' }, false);
   toast(id ? `Keyboard: ${midi.listPorts().find((p) => p.id === id)?.name ?? 'connected'}` : 'Music keyboard unplugged');
   if (flow.screen === 'songs') render();
+  updateKeyboardBanner(midi);
 };
 
 function midiStatus(): string {
@@ -527,6 +529,7 @@ if (params.get('teacher') === '1') {
   requestAnimationFrame(frame);
   void midi.request().then((status) => {
     if (status === 'granted') midi.autoSelect(saved.midiPortId);
+    updateKeyboardBanner(midi);
     if (flow.screen === 'songs') render();
   });
   render();
