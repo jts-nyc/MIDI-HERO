@@ -1,6 +1,7 @@
 import { CALIBRATION_BEATS, TapCalibrator, visualOffset, type CalibrationResult } from '../game/calibration.ts';
 import { bestDelta, starCount, type Suggestion } from '../game/results.ts';
 import type { PlayMode } from '../game/learn.ts';
+import { KEYS_TO_TRY, type TutorialStep } from '../game/tutorial.ts';
 import type { PracticeSectionInfo } from '../game/practice.ts';
 import type { PlayResult, PracticeResult } from '../game/session.ts';
 import type { TrialRate, TrialSound } from '../game/studentTrial.ts';
@@ -9,7 +10,7 @@ import type { KeyVerdict, SetupStep } from '../game/setup.ts';
 import type { MidiPort, MidiStatus } from '../input/midiInput.ts';
 import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Hand, type LevelStats } from '../midi/chart.ts';
 import type { Part } from '../types.ts';
-import { noteName } from '../render/layout.ts';
+import { isBlackKey, noteName } from '../render/layout.ts';
 import { effectiveFeedback, type KeyboardSize, type Settings } from './settings.ts';
 import './feel.css';
 
@@ -213,6 +214,8 @@ export interface SongSelectOptions {
   onImport: (files: File[]) => void;
   onExport: () => void;
   onSettings: () => void;
+  /** the tutorial, again */
+  onTutorial: () => void;
   onRetryMidi: (() => void) | null;
 }
 
@@ -229,7 +232,7 @@ export function showSongSelect(o: SongSelectOptions): void {
   const setlist = (name: string) =>
     `<h2>${esc(name)}</h2><div class="list">${cls.filter((s) => s.pack === name).sort((a, b) => (a.packIndex ?? 0) - (b.packIndex ?? 0)).map(row).join('')}</div>`;
   const el = screen(`<div class="panel">
-    <div class="row" style="justify-content:space-between"><h1>MIDI Hero</h1><div class="row"><button id="import">Import .mid / pack</button><button id="export">Export class pack</button><button id="settings">Settings</button></div></div>
+    <div class="row" style="justify-content:space-between"><h1>MIDI Hero</h1><div class="row"><button id="tutorial">How to play</button><button id="import">Import .mid / pack</button><button id="export">Export class pack</button><button id="settings">Settings</button></div></div>
     <p>${esc(o.midiStatus)} ${o.onRetryMidi ? '<button id="retry-midi">Retry</button>' : ''}</p>
     <p>Drop <b>.mid</b> files or a <b>.midihero.json</b> pack anywhere on this page to add songs. Computer keyboard: <span class="kbd">Z</span>–<span class="kbd">M</span> / <span class="kbd">Q</span>–<span class="kbd">U</span> play notes, <span class="kbd">-</span>/<span class="kbd">=</span> shift octave.</p>
     ${loose.length ? `<h2>Class songs</h2><div class="list">${loose.map(row).join('')}</div>` : ''}
@@ -251,6 +254,7 @@ export function showSongSelect(o: SongSelectOptions): void {
   });
   el.querySelector('#export')!.addEventListener('click', o.onExport);
   el.querySelector('#settings')!.addEventListener('click', o.onSettings);
+  el.querySelector('#tutorial')!.addEventListener('click', o.onTutorial);
   el.querySelector('#retry-midi')?.addEventListener('click', () => o.onRetryMidi?.());
 }
 
@@ -570,6 +574,67 @@ export function showLearnResults(o: { title: string; passed: boolean; hit: numbe
   el.querySelector('#score')!.addEventListener('click', o.onScore);
   el.querySelector('#learn')!.addEventListener('click', o.onLearn);
   el.querySelector('#quit')!.addEventListener('click', o.onQuit);
+}
+
+// ---------------------------------------------------------------------------
+// Tutorial
+// ---------------------------------------------------------------------------
+/** The screen's keyboard from `low` to `high`, with the `lit` keys lit and named. */
+export function screenKeyboard(low: number, high: number, lit: readonly number[]): string {
+  const whites: number[] = [];
+  for (let p = low; p <= high; p++) if (!isBlackKey(p)) whites.push(p);
+  const n = whites.length;
+  const w = whites.map((p) => `<div class="w${lit.includes(p) ? ' lit' : ''}">${lit.includes(p) || p % 12 === 0 ? noteName(p) : ''}</div>`).join('');
+  const b = whites.slice(0, -1).flatMap((p, i) => (isBlackKey(p + 1) && p + 1 <= high
+    ? [`<div class="b${lit.includes(p + 1) ? ' lit' : ''}" style="left:calc(${((i + 1) / n) * 100}% - ${30 / n}%);width:${60 / n}%"></div>`]
+    : [])).join('');
+  return `${w}${b}`;
+}
+
+export interface TutorialScreenOptions {
+  step: Exclude<TutorialStep, 'play' | 'done'>;
+  firstSong: string;
+  onNext: () => void;
+  onSkip: () => void;
+}
+
+/** One step of the tutorial. Step 1 ('keys') has no skip; its Next appears once keys were pressed. */
+export function showTutorial(o: TutorialScreenOptions): HTMLElement {
+  const skip = '<button class="link" id="tut-skip">Skip the tutorial</button>';
+  const body: Record<TutorialScreenOptions['step'], string> = {
+    keys: `<h1>This is your keyboard, on the screen</h1>
+      <p class="say">Press any key on your keyboard. Watch it light up here.</p>
+      <div class="tut-kb" id="tut-kb" aria-hidden="true"></div>
+      <p class="got waiting" id="tut-msg" aria-live="polite">Press a key…</p>
+      <p id="tut-count">0 of ${KEYS_TO_TRY} keys</p>
+      <div class="row" style="justify-content:center"><button class="primary big" id="tut-next" hidden>Next ▶</button></div>`,
+    notes: `<h1>Notes fall down to the keyboard</h1>
+      <div class="tut-demo" aria-hidden="true"><div class="fall"></div><div class="line"></div><div class="key"></div></div>
+      <p class="say">When a note reaches the line, press the key that glows. The music waits for you.</p>
+      <div class="row" style="justify-content:center"><button class="primary big" id="tut-next">Try it ▶</button></div>${skip}`,
+    'first-song': `<h1>You did it!</h1>
+      <p class="say">Now your first song: <b>${esc(o.firstSong)}</b>. It waits for you too.</p>
+      <div class="row" style="justify-content:center"><button class="primary big" id="tut-next">Play ${esc(o.firstSong)} ▶</button></div>
+      <button class="link" id="tut-skip">Go to the song list</button>`,
+  };
+  const el = screen(`<div class="panel setup">${body[o.step]}</div>`);
+  el.querySelector('#tut-next')!.addEventListener('click', o.onNext);
+  el.querySelector('#tut-skip')?.addEventListener('click', o.onSkip);
+  return el;
+}
+
+/** Step 1's live part: light the pressed key and count the keys tried. */
+export function tutorialKeys(el: HTMLElement, o: { low: number; high: number; lit: readonly number[]; last: number | null; tried: number; done: boolean }): void {
+  const kb = el.querySelector('#tut-kb');
+  if (kb) kb.innerHTML = screenKeyboard(o.low, o.high, o.lit);
+  const msg = el.querySelector('#tut-msg');
+  if (msg && o.last !== null) {
+    msg.textContent = o.done ? `That's ${noteName(o.last)}! You've got it.` : `That's ${noteName(o.last)}! Try another key.`;
+    msg.className = 'got ok';
+  }
+  const count = el.querySelector('#tut-count');
+  if (count) count.textContent = `${Math.min(o.tried, KEYS_TO_TRY)} of ${KEYS_TO_TRY} keys`;
+  if (o.done) el.querySelector('#tut-next')?.removeAttribute('hidden');
 }
 
 // ---------------------------------------------------------------------------

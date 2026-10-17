@@ -565,6 +565,21 @@ for (const s of rhythmSongs) {
   console.log(`wrote ${file} (${bytes.length} bytes)`);
 }
 
+// The tutorial's song (src/game/tutorial.ts): four slow notes, played in learn mode. Not in the
+// song list: the tutorial opens it.
+{
+  const s: Song = {
+    id: 'tutorial', title: 'How to play', bpm: 72, timeSig: [4, 4],
+    voices: [
+      { name: 'Melody (right hand)', channel: 0, program: 0, notes: [[p(C,4),2],[p(E,4),2],[p(G,4),2],[p(C,4),2]] },
+      { name: 'Bass', channel: 1, program: 0, velocity: 45, notes: [[p(C,3),4],[p(C,3),4]] },
+    ],
+  };
+  const bytes = songToBytes(s);
+  writeFileSync(join(songsDir, 'tutorial.mid'), bytes);
+  console.log(`wrote tutorial.mid (${bytes.length} bytes)`);
+}
+
 writeFileSync(join(songsDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 
 const pack = {

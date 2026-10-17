@@ -10,6 +10,9 @@ import { isPlayMode, learnedSongs, markLearned, openingMode, passesSong, type Pl
 import { loopLabel, loopOf, practiceSections, trimChart, type PracticeSectionInfo } from './game/practice.ts';
 import { keyLevelOf, listKeyLevel, RATES, songStars, starsByLevel, suggestNextStep, TOP_LEVEL, unlockedLevels, UNLOCK_STARS, type LevelBest, type Suggestion } from './game/results.ts';
 import { PlaySession } from './game/session.ts';
+import {
+  FIRST_SONG_ID, initialTutorial, keyboardWindow, keysDone, shouldShowTutorial, TUTORIAL_SONG_FILE, TUTORIAL_SONG_ID, tutorialStep, type TutorialState,
+} from './game/tutorial.ts';
 import { initialSetup, lowCVerdict, setupResult, setupStep, type SetupStep } from './game/setup.ts';
 import { STUDENT_TRIAL_ID, studentTrialSettings, type TrialRate, type TrialSound } from './game/studentTrial.ts';
 import { KeyboardInput } from './input/keyboardInput.ts';
@@ -31,7 +34,7 @@ import { bestKey, bestsForSong, deleteSong, getBest, listSongs, parseBestKey, pu
 import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
 import {
-  installDropZone, setPracticeRate, setupMessage, setupStuck, showCalibration, showCalibrationOffer, showError, showExportDialog, showGate, showLearnResults, showPartPicker, showPause, showPlayHud, showSetup,
+  installDropZone, setPracticeRate, setupMessage, setupStuck, showCalibration, showCalibrationOffer, showError, showExportDialog, showGate, showLearnResults, showPartPicker, showPause, showPlayHud, showSetup, showTutorial, tutorialKeys,
   showPracticePicker, showPracticeResults, showResults, showSettings, showSongSelect, showStudentTrial, showStudentTrialResults, showUnsupported, toast,
   type PartPickerState, type PartRow, type PracticeChoice, type SongRow,
 } from './ui/screens.ts';
@@ -383,6 +386,7 @@ async function exportPack(name: string, ids: string[], unlocks: boolean): Promis
 // Screens
 // ---------------------------------------------------------------------------
 function songSelect(): void {
+  tutorial = null;
   stopBacking();
   synth?.allNotesOff(0);
   session = null;
@@ -390,7 +394,7 @@ function songSelect(): void {
   keyboard.base = settings.keyboardBase;
   renderState = null;
   gateHandler = null;
-  const rows: SongRow[] = library.map((l) => ({
+  const rows: SongRow[] = library.filter((l) => l.id !== TUTORIAL_SONG_ID).map((l) => ({
     id: l.id,
     title: l.title,
     subtitle: l.id === STUDENT_TRIAL_ID ? 'Student trial · eight melody notes with steady backing' : l.url ? 'your local song' : l.source === 'bundled' ? l.tag ?? 'built-in' : l.packName ? `pack: ${l.packName}` : 'imported',
@@ -412,6 +416,7 @@ function songSelect(): void {
         onBack: songSelect,
       }),
     onSettings: () => settingsScreen(songSelect),
+    onTutorial: runTutorial,
     onRetryMidi: midi.status === 'denied' || midi.status === 'unsupported' ? () => void requestMidi().then(songSelect) : null,
   });
   // Best scores load asynchronously and are added to the rows when known.
@@ -549,7 +554,8 @@ function calibrate(onClose: () => void): void {
   });
 }
 
-async function openSong(id: string): Promise<void> {
+/** Load a song and show its picker; `show: false` loads it for a play that starts straight away. */
+async function openSong(id: string, show = true): Promise<void> {
   const lib = library.find((l) => l.id === id);
   if (!lib) return;
   try {
@@ -584,7 +590,7 @@ async function openSong(id: string): Promise<void> {
       current.picker = { selected: new Set(['1:0']), split: 60, hands: ['L', 'R'], timing: 'normal', guideTrack: false, difficulty: 'easy', mode: 'score' };
     }
     await loadStars();
-    partPicker();
+    if (show) partPicker();
   } catch (e) {
     showError('Could not load song', e instanceof Error ? e.message : String(e), songSelect);
   }
@@ -760,11 +766,12 @@ function offerStorage(): OfferStorage | null {
  * The first play in a browser offers the tap-along timing check once (docs/FEEL.md). Returns
  * true when the offer is on screen; `then` starts the play after the check or the skip.
  */
-function offerCalibrationFirst(autoplay: boolean, then: () => void): boolean {
+function offerCalibrationFirst(autoplay: boolean, then: () => void, learn = false): boolean {
   const store = offerStorage();
   const offer = shouldOfferCalibration({
     offered: calibrationOffered(store), inputOffsetMs: settings.inputOffsetMs, audioOffsetMs: settings.audioOffsetMs,
-    trial: current?.lib.id === STUDENT_TRIAL_ID, autoplay,
+    // Learn mode judges no timing, so the check waits for the first scored play.
+    trial: current?.lib.id === STUDENT_TRIAL_ID || current?.lib.id === TUTORIAL_SONG_ID || learn, autoplay,
   });
   if (!offer) return false;
   markCalibrationOffered(store);
@@ -774,7 +781,7 @@ function offerCalibrationFirst(autoplay: boolean, then: () => void): boolean {
 
 async function startPlay(autoplay: { jitterMs: number } | null, practice: PracticeChoice | null = null): Promise<void> {
   if (!current) return;
-  if (offerCalibrationFirst(!!autoplay, () => void startPlay(autoplay, practice))) return;
+  if (offerCalibrationFirst(!!autoplay, () => void startPlay(autoplay, practice), !practice && current.picker.mode === 'learn')) return;
   const { lib, song, picker } = current;
   const sel = selectionOptions();
   if (!sel) return;
@@ -932,6 +939,12 @@ function play(): void {
       showStudentTrialResults({ result, sound: trialSound, rate: trialRate, autoplay: !!autoplay, onRetry: play, onSetup: trialSetup, onQuit: songSelect });
       return;
     }
+    if (learnRun && lib.id === TUTORIAL_SONG_ID) {
+      if (!tutorial) { songSelect(); return; }
+      tutorial = tutorialStep(tutorial, { type: 'played' });
+      tutorialScreen();
+      return;
+    }
     if (learnRun) {
       // Learn mode writes no bests or stars; reaching the end passes the song.
       const passed = passesSong('learn', result);
@@ -1047,6 +1060,99 @@ function setMix(level: number): void {
 function stopBacking(): void {
   scheduler?.stop();
   scheduler = null;
+}
+
+// ---------------------------------------------------------------------------
+// Tutorial (game/tutorial.ts)
+// ---------------------------------------------------------------------------
+let tutorial: TutorialState | null = null;
+
+function runTutorial(): void {
+  stopBacking();
+  session = null;
+  renderState = null;
+  tutorial = initialTutorial();
+  tutorialScreen();
+}
+
+function endTutorial(firstSong: boolean): void {
+  tutorial = null;
+  gateHandler = null;
+  synth?.allNotesOff(0);
+  if (firstSong && library.some((l) => l.id === FIRST_SONG_ID)) {
+    void openSong(FIRST_SONG_ID, false).then(() => {
+      if (!current) return;
+      current.picker.mode = 'learn';
+      void startPlay(null);
+    });
+  } else songSelect();
+}
+
+function tutorialScreen(): void {
+  if (!tutorial) return;
+  const t = tutorial;
+  gateHandler = null;
+  if (t.step === 'done') { endTutorial(false); return; }
+  if (t.step === 'play') { void playTutorialSong(); return; }
+  const firstSong = library.find((l) => l.id === FIRST_SONG_ID)?.title ?? 'your first song';
+  const el = showTutorial({
+    step: t.step, firstSong,
+    onNext: () => {
+      if (!tutorial) return;
+      const before = tutorial.step;
+      tutorial = tutorialStep(tutorial, { type: 'next' });
+      if (before === 'first-song') { endTutorial(true); return; }
+      tutorialScreen();
+    },
+    onSkip: () => {
+      if (!tutorial) return;
+      tutorial = tutorialStep(tutorial, { type: 'skip' });
+      endTutorial(false);
+    },
+  });
+  if (t.step !== 'keys') return;
+  // Step 1: every key lights up on the screen's keyboard and sounds, MIDI or computer keys.
+  const lowC = midi.selectedId ? lowCByPort.get(midi.selectedId) : undefined;
+  const base = lowC ?? (midi.selectedId ? 48 : keyboard.base);
+  const held = new Set<number>();
+  let last: number | null = null;
+  const draw = () => {
+    const win = keyboardWindow(last, base);
+    tutorialKeys(el, { ...win, lit: [...held], last, tried: tutorial?.pressed.length ?? 0, done: !!tutorial && keysDone(tutorial) });
+  };
+  draw();
+  gateHandler = (ev) => {
+    if (!tutorial || tutorial.step !== 'keys') return;
+    ensureAudio();
+    if (ev.type === 'on') {
+      held.add(ev.pitch);
+      last = ev.pitch;
+      if (settings.synth) synth?.noteOn(0, ev.pitch, ev.velocity, 0);
+      const wasDone = keysDone(tutorial);
+      tutorial = tutorialStep(tutorial, { type: 'key', pitch: ev.pitch });
+      // Steps past the first are skippable: the tutorial counts as seen from here.
+      if (!wasDone && keysDone(tutorial) && !settings.tutorialDone) {
+        settings.tutorialDone = true;
+        saveSettings(settings);
+      }
+    } else if (ev.type === 'off') {
+      held.delete(ev.pitch);
+      if (settings.synth) synth?.noteOff(0, ev.pitch, 0);
+    }
+    draw();
+  };
+}
+
+/** Step 2: four slow notes of the tutorial song, in learn mode. */
+async function playTutorialSong(): Promise<void> {
+  if (!library.some((l) => l.id === TUTORIAL_SONG_ID)) {
+    library.push({ id: TUTORIAL_SONG_ID, title: 'How to play', source: 'bundled', file: TUTORIAL_SONG_FILE, defaultParts: [{ track: 1, channel: 0 }], parts: [{ track: 1, channel: 0 }] });
+  }
+  await openSong(TUTORIAL_SONG_ID, false);
+  if (!current || current.lib.id !== TUTORIAL_SONG_ID) return;
+  current.picker.mode = 'learn';
+  current.picker.difficulty = 'easy';
+  await startPlay(null);
 }
 
 /** How long "Got it! That was C3." stays on screen before the game goes on. */
@@ -1313,9 +1419,10 @@ async function boot(): Promise<void> {
         return;
       }
     }
-    songSelect();
+    if (shouldShowTutorial({ tutorialDone: settings.tutorialDone, directLink: false })) runTutorial();
+    else songSelect();
     void midiReady.then(() => {
-      if (!session && !current) songSelect();
+      if (!session && !current && !tutorial) songSelect();
     });
   };
   if (!settings.firstRunDone) {

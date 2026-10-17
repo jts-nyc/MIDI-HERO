@@ -47,6 +47,8 @@ export interface Settings {
   /** computer-keyboard fallback base pitch */
   keyboardBase: number;
   firstRunDone: boolean;
+  /** the first-run tutorial was seen (game/tutorial.ts); it stays in the song list's "How to play" */
+  tutorialDone: boolean;
   /** the player chose a highway in Settings; before perspective became the default, 'flat' was saved for everyone */
   highwayPicked: boolean;
 }
@@ -79,6 +81,7 @@ export const DEFAULT_SETTINGS: Settings = {
   midiPortId: null,
   keyboardBase: 48,
   firstRunDone: false,
+  tutorialDone: false,
   highwayPicked: false,
 };
 
@@ -144,7 +147,7 @@ export function sanitize(raw: unknown, base: Settings = DEFAULT_SETTINGS): Setti
   // A saved 'flat' only counts if the player picked it; older saves stored the old default.
   if (r.highway === 'perspective' || (r.highway === 'flat' && r.highwayPicked === true)) s.highway = r.highway;
   if (r.timing === 'strict' || r.timing === 'normal' || r.timing === 'relaxed') s.timing = r.timing;
-  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'uiSounds', 'letGo', 'feedbackByLevel', 'firstRunDone', 'highwayPicked', 'practiceWait', 'practiceLadder'] as const) {
+  for (const k of ['names', 'noteNames', 'synth', 'hitSound', 'easy', 'arcade', 'effects', 'uiSounds', 'letGo', 'feedbackByLevel', 'firstRunDone', 'tutorialDone', 'highwayPicked', 'practiceWait', 'practiceLadder'] as const) {
     if (typeof r[k] === 'boolean') s[k] = r[k] as boolean;
   }
   num('speed', 100, 800);

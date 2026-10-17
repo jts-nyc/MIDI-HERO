@@ -8,6 +8,8 @@ and are scored on timing. Built for classroom use with small keyboards
 - Import any Standard MIDI File, pick the part you want to play; the rest becomes the backing band.
 - You hear your accuracy: a hit sounds the song's own note, a wrong key clunks, a miss is silent.
 - Four difficulty levels that remove notes instead of loosening timing (Easy: one note a beat).
+- A one-minute **tutorial** on first open (and under **How to play**): press keys and watch them light up on
+  the screen's keyboard, play four slow notes that wait for you, then straight into Twinkle Twinkle.
 - New songs open in **learn mode**: the song waits at each note until it is played, once through. After
   that (or a scored play of two stars or more) the song opens for a score; the other mode is one tap away.
 - Streak, multiplier, star power (sustain pedal or Space), a performance meter, scored holds.
