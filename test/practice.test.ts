@@ -9,6 +9,7 @@ import { RATES } from '../src/game/results.ts';
 import { PlaySession, type PracticeOptions, type SessionOptions } from '../src/game/session.ts';
 import { buildChart, type Chart } from '../src/midi/chart.ts';
 import { beatLines, parseSong } from '../src/midi/parse.ts';
+import { emitCallout } from '../src/render/fx.ts';
 import { end, off, on, smf, tempo } from './helpers/smf.ts';
 
 const PPQ = 480;
@@ -224,6 +225,16 @@ describe('PlaySession in practice mode', () => {
     session.resume();
     advance(1);
     expect(clicks).toHaveLength(4);
+  });
+
+  // Round 3: the last notes' call-outs (a streak, a star phrase) piled up under the pass's own.
+  it('a loop restart shows one call-out, the pass verdict', () => {
+    const { session, advance } = harness({ autoplay: { jitterMs: 0 } });
+    advance(2 + 15.5);
+    emitCallout(session.fx, '30 NOTE STREAK!', 'milestone');
+    emitCallout(session.fx, 'STAR PHRASE!', 'star');
+    advance(1);
+    expect(session.fx.callouts.filter((c) => c.active).map((c) => c.text)).toEqual(['CLEAN PASS!']);
   });
 
   it('autoplay passes are clean, and two of them step the rate up the ladder', () => {
