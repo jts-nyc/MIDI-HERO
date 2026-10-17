@@ -23,6 +23,8 @@ and are scored on timing. Built for classroom use with small keyboards
 - **HTTPS** (or `localhost`) — Web MIDI needs a secure context.
 - A USB MIDI keyboard. Firefox denies MIDI access if no device is connected when the page loads,
   so plug in first.
+- The keyboard is picked automatically: software ports ("Midi Through", IAC, loopMIDI) are skipped,
+  and the first port you play a note on is used and remembered. Settings → MIDI keyboard overrides it.
 
 ## Development
 
