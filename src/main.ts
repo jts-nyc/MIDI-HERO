@@ -1443,7 +1443,8 @@ async function boot(): Promise<void> {
         return;
       }
     }
-    if (shouldShowTutorial({ tutorialDone: settings.tutorialDone, directLink: false })) runTutorial();
+    // A direct song or file link that did not load still goes to the song list, not the tutorial.
+    if (shouldShowTutorial({ tutorialDone: settings.tutorialDone, directLink: !!(quick || filePath) })) runTutorial();
     else songSelect();
     void midiReady.then(() => {
       if (!session && !current && !tutorial) songSelect();
