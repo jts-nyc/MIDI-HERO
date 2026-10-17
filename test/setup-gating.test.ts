@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { initialSetup, lowCVerdict, setupResult, setupStep, withMidi, type SetupState } from '../src/game/setup.ts';
 
-const ready = (over: Partial<SetupState> = {}): SetupState => ({ ...initialSetup('granted', true), ...over });
+const ready = (over: Partial<SetupState> = {}): SetupState => ({ ...initialSetup('granted', true, 'oxy'), ...over });
 
 describe('first-run setup gating', () => {
   it('waits while MIDI access is pending or no keyboard is plugged in', () => {
@@ -30,11 +30,17 @@ describe('first-run setup gating', () => {
 
   it('a keyboard unplugged after its C was pressed must press a C again when it is back', () => {
     const asked = ready({ lowC: 48, kb: 25 });
-    const unplugged = withMidi(asked, 'granted', false);
+    const unplugged = withMidi(asked, 'granted', null);
     expect(unplugged.lowC).toBeNull();
     expect(setupStep(unplugged)).toBe('connect');
-    expect(setupStep(withMidi(unplugged, 'granted', true))).toBe('press');
-    expect(withMidi(asked, 'granted', true).lowC).toBe(48); // nothing changed: the C stays
+    expect(setupStep(withMidi(unplugged, 'granted', 'oxy'))).toBe('press');
+    expect(withMidi(asked, 'granted', 'oxy').lowC).toBe(48); // nothing changed: the C stays
+  });
+
+  it('a different keyboard must press its own C', () => {
+    const swapped = withMidi(ready({ lowC: 48, kb: 25 }), 'granted', 'other');
+    expect(swapped.lowC).toBeNull();
+    expect(setupStep(swapped)).toBe('press');
   });
 
   it('a blocked or missing Web MIDI says so instead of waiting forever', () => {

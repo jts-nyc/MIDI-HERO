@@ -1174,14 +1174,14 @@ const STUCK_MS = 10_000;
  * on is pressing its far-left C, which also lines up the octave for this page session.
  */
 function runSetup(onDone: (kb: KeyboardSize, soundSelf: boolean) => void): void {
-  let st = initialSetup(midi.status, !!midi.selectedId);
+  let st = initialSetup(midi.status, !!midi.selectedId, midi.selectedId);
   let shown: { step: SetupStep; midi: string } | null = null;
   let stuckTimer: ReturnType<typeof setTimeout> | undefined;
   let finished = false;
   // MIDI access and plugging in arrive without a callback of ours (main's onChange selects the port).
   const poll = setInterval(() => {
-    if (midi.status !== st.midi || !!midi.selectedId !== st.hasPort) {
-      st = withMidi(st, midi.status, !!midi.selectedId);
+    if (midi.status !== st.midi || midi.selectedId !== (st.portId ?? null)) {
+      st = withMidi(st, midi.status, midi.selectedId);
       render();
     }
   }, 300);
@@ -1207,7 +1207,7 @@ function runSetup(onDone: (kb: KeyboardSize, soundSelf: boolean) => void): void 
         st = { ...st, noKeyboard: true };
         render();
       },
-      onRetry: () => void requestMidi().then(() => { st = withMidi(st, midi.status, !!midi.selectedId); shown = null; render(); }),
+      onRetry: () => void requestMidi().then(() => { st = withMidi(st, midi.status, midi.selectedId); shown = null; render(); }),
       onKb: (kb) => { st = { ...st, kb }; render(); },
       onSound: (soundSelf) => { st = { ...st, soundSelf }; render(); },
     });
