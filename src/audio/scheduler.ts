@@ -95,25 +95,29 @@ export class BackingScheduler {
   /**
    * Strike again the notes that are on at the cursor: on before it, and either their off not yet
    * reached or held past it by the sustain pedal (CC64), which is still down at the cursor.
+   * CC120/123 end what the synth would have ended.
    */
   private resound(): void {
-    const open = new Map<string, BackingEvent>();
+    const open = new Map<string, { e: BackingEvent }>();
     const held = new Set<string>(); // keys released while the pedal was down
     const pedal = new Set<number>(); // channels with the pedal down
+    const close = (channel: number, keep: (key: string) => boolean) => {
+      for (const [k, o] of open) if (o.e.channel === channel && !keep(k)) { open.delete(k); held.delete(k); }
+    };
     for (let i = 0; i < this.cursor; i++) {
       const e = this.events[i]!;
       if (e.type === 'cc') {
         if (e.controller === 64 && e.value >= 64) pedal.add(e.channel);
         else if ((e.controller === 64 && e.value < 64) || e.controller === 121) {
           pedal.delete(e.channel);
-          for (const k of held) if (open.get(k)!.channel === e.channel) { open.delete(k); held.delete(k); }
-        }
+          close(e.channel, (k) => !held.has(k));
+        } else if (e.controller === 120 || e.controller === 123) close(e.channel, (k) => held.has(k)); // as the synth: pedal-held notes stay
         continue;
       }
       if (e.type !== 'on' && e.type !== 'off') continue;
       const key = `${e.partKey}/${e.channel}/${e.pitch}`;
       if (e.type === 'on') {
-        open.set(key, e);
+        open.set(key, { e });
         held.delete(key);
       } else if (pedal.has(e.channel) && open.has(key)) held.add(key);
       else open.delete(key);
@@ -121,7 +125,7 @@ export class BackingScheduler {
     if (open.size === 0) return;
     const when = this.clock.songTimeToContextTime(this.clock.now());
     for (const ch of pedal) this.synth.control(ch, 64, 127, when);
-    for (const [key, e] of open) {
+    for (const [key, { e }] of open) {
       // a drum hit is over long before its note-off, and a count-in click is never struck twice
       if (this.drums.has(e.channel) || e.partKey === 'count-in' || this.muted.has(e.partKey)) continue;
       this.synth.noteOn(e.channel, e.pitch, e.velocity, when);

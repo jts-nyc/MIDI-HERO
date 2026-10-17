@@ -178,6 +178,18 @@ describe('BackingScheduler', () => {
     expect(calls.slice(i).some((c) => c.method === 'noteOff' && c.args[0] === 0 && c.args[1] === 48)).toBe(true);
   });
 
+  it('after a wait, does not strike again notes that CC123 or CC120 ended', () => {
+    const h = harness([
+      ev(0.2, 'on', { pitch: 48 }), ev(3, 'off', { pitch: 48 }),
+      ev(0.2, 'on', { channel: 1, pitch: 50 }), ev(3, 'off', { channel: 1, pitch: 50 }),
+      ev(0.2, 'on', { channel: 2, pitch: 52 }), ev(3, 'off', { channel: 2, pitch: 52 }),
+      ev(0.5, 'cc', { controller: 123, value: 0, pitch: -1 }),
+      ev(0.5, 'cc', { channel: 1, controller: 120, value: 0, pitch: -1 }),
+    ].sort((a, b) => a.time - b.time));
+    const ons = waitAt(h, 1).filter((c) => c.method === 'noteOn');
+    expect(ons.map((c) => [c.args[0], c.args[1]])).toEqual([[2, 52]]);
+  });
+
   it('a plain start (pause and resume) does not strike anything again', () => {
     const { t, clock, synth, sched } = harness([ev(0, 'on', { pitch: 48 }), ev(4, 'off', { pitch: 48 })]);
     clock.start(0);
