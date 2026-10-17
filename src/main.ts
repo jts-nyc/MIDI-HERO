@@ -702,7 +702,7 @@ function sectionsOfSelection(): { sections: PracticeSectionInfo[]; barTimes: num
   const { level } = levelsOfSelection();
   const chart = buildChart(current.song, { parts: sel.parts, split: sel.split, hands: sel.hands, difficulty: level });
   const barTimes = beatLines(current.song, chart.duration).filter((l) => l.isBar).map((l) => l.time);
-  return { sections: practiceSections(barTimes, chart.duration, chart.notes), barTimes };
+  return { sections: practiceSections(barTimes, chart.duration, chart.notes, current.song.markers), barTimes };
 }
 
 /** Practice mode: pick the sections to loop, then play them. `section` preselects the one starting there. */
@@ -818,7 +818,7 @@ function play(): void {
   const lines = beatLines(song, fullChart.duration);
   const barTimes = lines.filter((l) => l.isBar).map((l) => l.time);
   // Practice mode: the chart is cut to the loop; the band, the beat lines and the display range stay the song's.
-  const sections = choice ? practiceSections(barTimes, fullChart.duration, fullChart.notes) : [];
+  const sections = choice ? practiceSections(barTimes, fullChart.duration, fullChart.notes, song.markers) : [];
   const from = choice ? Math.min(choice.from, sections.length - 1) : 0;
   const to = choice ? Math.min(choice.to, sections.length - 1) : 0;
   const loop = choice && sections.length ? loopOf(sections, from, to) : null;
@@ -876,6 +876,7 @@ function play(): void {
     relative, visibleSeconds, barSeconds, autoplay, countInBeats: sig.numerator,
     steadyBacking: trial, finishAtSongEnd: trial, disableStarPower: trial,
     barTimes,
+    markers: song.markers,
     effects: effectsOn,
     cue,
     tierText: runSettings.tierText,
