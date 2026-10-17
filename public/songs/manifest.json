@@ -180,5 +180,70 @@
     ],
     "tag": "Rhythm Basics 5 · three against two, both hands · Medium and up",
     "difficulty": "medium"
+  },
+  {
+    "id": "boss-1-straight",
+    "title": "Boss 1: The Pocket Boss (rests and eighths)",
+    "file": "boss-1-straight.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Rhythm Boss 1 · rests in the pulse, eighth notes · Medium and up",
+    "difficulty": "medium"
+  },
+  {
+    "id": "boss-2-syncopation",
+    "title": "Boss 2: The Side-Eye Boss (tresillo and pushes)",
+    "file": "boss-2-syncopation.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Rhythm Boss 2 · 3 + 3 + 2, a bar of off-beats · Medium and up",
+    "difficulty": "medium"
+  },
+  {
+    "id": "boss-3-swing",
+    "title": "Boss 3: The Shuffle Boss (swing and triplets)",
+    "file": "boss-3-swing.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Rhythm Boss 3 · swing pushes, triplet fills · Hard and up",
+    "difficulty": "hard"
+  },
+  {
+    "id": "boss-4-seven-eight",
+    "title": "Boss 4: The Missing Stair Boss (7/8, moving groups)",
+    "file": "boss-4-seven-eight.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Rhythm Boss 4 · 7/8 as 2 + 2 + 3, 3 + 2 + 2, 2 + 3 + 2 · Medium and up",
+    "difficulty": "medium"
+  },
+  {
+    "id": "boss-5-three-two",
+    "title": "Boss 5: The Double-Cross Boss (hands swap)",
+    "file": "boss-5-three-two.mid",
+    "defaultParts": [
+      {
+        "track": 1,
+        "channel": 0
+      }
+    ],
+    "tag": "Rhythm Boss 5 · 3 against 2, the hands swap · Hard and up",
+    "difficulty": "hard"
   }
 ]
