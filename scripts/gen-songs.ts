@@ -1,5 +1,6 @@
 // Generates the bundled demo songs as Standard MIDI Files, the song manifest,
-// the beginner song pack and the Rhythm Basics pack. Run with: npm run gen-songs
+// the beginner song pack, the Rhythm Basics pack and the Rhythm Bosses pack.
+// Run with: npm run gen-songs
 //
 // Existing melodies are public domain (Beethoven, traditional, Petzold).
 // First Lights is an original four-bar student-trial arrangement.
@@ -369,13 +370,17 @@ function line(events: [number, number, number][], total: number): N[] {
 const repeatBars = <T,>(pattern: [number, T][], beatsPerBar: number, bars: number, from = 0): [number, T][] =>
   Array.from({ length: bars }, (_, b) => pattern.map(([beat, v]): [number, T] => [(from + b) * beatsPerBar + beat, v])).flat();
 
+type Hit = [number, 'kick' | 'snare'];
+
 /**
  * The player part from Pocket Change hits: one line per key, each note lasting until the next
  * hit of either key (so holding a key until the next one is never an over-hold), and a final
- * kick held through the last bar.
+ * kick held through the last bar. `pattern` is one bar repeated, or a bar's pattern by its index.
  */
-function drill(pattern: [number, 'kick' | 'snare'][], beatsPerBar: number, bars: number): Voice {
-  const hits = repeatBars(pattern, beatsPerBar, bars - 1);
+function drill(pattern: Hit[] | ((bar: number) => Hit[]), beatsPerBar: number, bars: number): Voice {
+  const hits = typeof pattern === 'function'
+    ? Array.from({ length: bars - 1 }, (_, b) => pattern(b).map(([beat, d]): Hit => [b * beatsPerBar + beat, d])).flat()
+    : repeatBars(pattern, beatsPerBar, bars - 1);
   hits.push([(bars - 1) * beatsPerBar, 'kick']);
   const total = bars * beatsPerBar;
   const onsets = [...new Set(hits.map(([b]) => tk(b)))].sort((a, b) => a - b);
@@ -456,6 +461,104 @@ const rhythmSongs: RhythmSong[] = [
     id: 'rhythm-5-three-two', title: 'Rhythm 5: The Double-Cross (3 against 2)', bpm: 66, timeSig: [4, 4], packDifficulty: 'medium',
     tag: 'Rhythm Basics 5 · three against two, both hands · Medium and up',
     voices: [drill(POCKET.threeTwo!, 4, RHYTHM_BARS), click([0, 1, 2, 3], 4, RHYTHM_BARS), bassLine(straightBass, 4, RHYTHM_BARS)],
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Rhythm Bosses — one boss per Rhythm Basics round, on the same two keys (C4 low
+// drum, G4 high drum), click and bass. Each is sixteen bars in four phrases of
+// four: the round's own rhythm, two twists on it, then the boss phrase that
+// mixes them bar by bar. A boss is a little faster than its drill. Bar 16 is
+// the held C, as in the drills.
+// ---------------------------------------------------------------------------
+const BOSS_BARS = 16;
+/** Bar b's pattern from four phrases of four bars: [phrase 1, phrase 2, phrase 3, boss phrase (two bars alternating)]. */
+const phrases = (a: Hit[], b: Hit[], c: Hit[], boss: [Hit[], Hit[]]) => (bar: number): Hit[] =>
+  bar < 4 ? a : bar < 8 ? b : bar < 12 ? c : boss[bar % 2]!;
+const T1 = 1 / 3, T2 = 2 / 3; // triplet eighths
+
+const BOSS: Record<string, (bar: number) => Hit[]> = {
+  // Straight: rests in the pulse (stop-time), then eighth-note pairs, then eighths that start on the off-beat.
+  straight: phrases(
+    POCKET.straight!,
+    [[0, 'kick'], [1, 'snare'], [2, 'kick']], // beat 4 rests
+    [[0, 'kick'], [1, 'snare'], [1.5, 'snare'], [2, 'kick'], [3, 'snare'], [3.5, 'snare']],
+    [[[0, 'kick'], [0.5, 'kick'], [1, 'snare'], [2, 'kick'], [2.5, 'kick'], [3, 'snare'], [3.5, 'snare']],
+      [[0, 'kick'], [2, 'kick'], [3, 'snare']]],
+  ),
+  // Syncopation: the 3 + 3 + 2 tresillo, pushes onto the "and" of 3 and 4, then a bar with nothing on the beat.
+  syncopated: phrases(
+    POCKET.syncopated!,
+    [[0, 'kick'], [1.5, 'kick'], [3, 'snare'], [3.5, 'snare']],
+    [[0, 'kick'], [1, 'snare'], [2.5, 'kick'], [3.5, 'snare']],
+    [POCKET.syncopated!, [[0.5, 'snare'], [1.5, 'kick'], [2.5, 'snare'], [3.5, 'kick']]],
+  ),
+  // Swing: swung off-beats with the downbeat skipped, a full triplet on beat 3, then swung pushes across the bar.
+  swing: phrases(
+    POCKET.swing!,
+    [[0, 'kick'], [T2, 'snare'], [1 + T2, 'snare'], [2, 'kick'], [2 + T2, 'snare'], [3 + T2, 'kick']],
+    [[0, 'kick'], [1, 'snare'], [2, 'kick'], [2 + T1, 'snare'], [2 + T2, 'snare'], [3, 'kick']],
+    [[[0, 'kick'], [T2, 'snare'], [1 + T2, 'kick'], [2 + T2, 'snare'], [3 + T2, 'kick']],
+      [[0, 'kick'], [1, 'snare'], [1 + T2, 'snare'], [2, 'kick'], [2 + T1, 'snare'], [2 + T2, 'snare'], [3, 'kick']]],
+  ),
+  // 7/8: the groups move. 2 + 2 + 3, then 3 + 2 + 2, then 2 + 3 + 2; the boss phrase switches every bar.
+  // A kick starts each group; snares fill the other eighths named. Beats are quarter notes, a bar is 3.5.
+  sevenEight: phrases(
+    POCKET.sevenEight!,
+    [[0, 'kick'], [1, 'snare'], [1.5, 'kick'], [2.5, 'kick'], [3, 'snare']],
+    [[0, 'kick'], [0.5, 'snare'], [1, 'kick'], [2, 'snare'], [2.5, 'kick'], [3, 'snare']],
+    [POCKET.sevenEight!, [[0, 'kick'], [1, 'snare'], [1.5, 'kick'], [2.5, 'kick'], [3, 'snare']]],
+  ),
+  // 3 against 2: the drill, then the hands swap (G on the beats, C in triplets), then quarter-note
+  // triplets against half notes, and the boss phrase swaps the hands every bar.
+  threeTwo: phrases(
+    POCKET.threeTwo!,
+    [[0, 'snare'], [0, 'kick'], [T2, 'kick'], [1, 'snare'], [2 * T2, 'kick'], [2, 'snare'], [2, 'kick'], [2 + T2, 'kick'], [3, 'snare'], [2 + 2 * T2, 'kick']],
+    [[0, 'kick'], [0, 'snare'], [4 / 3, 'kick'], [2, 'snare'], [8 / 3, 'kick']],
+    [POCKET.threeTwo!, [[0, 'snare'], [0, 'kick'], [T2, 'kick'], [1, 'snare'], [2 * T2, 'kick'], [2, 'snare'], [2, 'kick'], [2 + T2, 'kick'], [3, 'snare'], [2 + 2 * T2, 'kick']]],
+  ),
+};
+
+/** 7/8 bass on the start of each group, for the grouping each bar of the 7/8 boss uses. */
+const SEVEN_GROUPS: number[][] = [[0, 1, 2], [0, 1.5, 2.5], [0, 1, 2.5]];
+const sevenBossGroups = (bar: number) => (bar < 4 ? SEVEN_GROUPS[0]! : bar < 8 ? SEVEN_GROUPS[1]! : bar < 12 ? SEVEN_GROUPS[2]! : SEVEN_GROUPS[bar % 2 ? 1 : 0]!);
+const BOSS_BLUES = ['C7', 'F7', 'C7', 'C7', 'F7', 'F7', 'C7', 'C7', 'G7', 'F7', 'C7', 'G7', 'C7', 'F7', 'G7', 'C'];
+
+const bossSongs: RhythmSong[] = [
+  {
+    id: 'boss-1-straight', title: 'Boss 1: The Pocket Boss (rests and eighths)', bpm: 92, timeSig: [4, 4], packDifficulty: 'medium',
+    tag: 'Rhythm Boss 1 · rests in the pulse, eighth notes · Medium and up',
+    voices: [drill(BOSS.straight!, 4, BOSS_BARS), click([0, 1, 2, 3], 4, BOSS_BARS), bassLine(straightBass, 4, BOSS_BARS)],
+  },
+  {
+    id: 'boss-2-syncopation', title: 'Boss 2: The Side-Eye Boss (tresillo and pushes)', bpm: 88, timeSig: [4, 4], packDifficulty: 'medium',
+    tag: 'Rhythm Boss 2 · 3 + 3 + 2, a bar of off-beats · Medium and up',
+    voices: [drill(BOSS.syncopated!, 4, BOSS_BARS), click([0, 1, 2, 3], 4, BOSS_BARS), bassLine(straightBass, 4, BOSS_BARS)],
+  },
+  {
+    id: 'boss-3-swing', title: 'Boss 3: The Shuffle Boss (swing and triplets)', bpm: 96, timeSig: [4, 4], packDifficulty: 'hard',
+    tag: 'Rhythm Boss 3 · swing pushes, triplet fills · Hard and up',
+    voices: [
+      drill(BOSS.swing!, 4, BOSS_BARS),
+      { name: 'Ride and hi-hat', channel: 9, program: 0, velocity: 46,
+        notes: line([...repeatBars(swingRide, 4, BOSS_BARS - 1).map(([b]): [number, number, number] => [b, RIDE, 0.25]), [(BOSS_BARS - 1) * 4, RIDE, 0.25]], BOSS_BARS * 4),
+        layers: [{ velocity: 40, notes: line(repeatBars([[1, 0], [3, 0]], 4, BOSS_BARS - 1).map(([b]): [number, number, number] => [b, PEDAL_HAT, 0.25]), BOSS_BARS * 4) }] },
+      bassLine((b) => WALK[BOSS_BLUES[b]!]!.map((n, i): [number, number, number] => [i, p(n, 2), 0.9]), 4, BOSS_BARS, 32),
+    ],
+  },
+  {
+    id: 'boss-4-seven-eight', title: 'Boss 4: The Missing Stair Boss (7/8, moving groups)', bpm: 76, timeSig: [7, 8], packDifficulty: 'medium',
+    tag: 'Rhythm Boss 4 · 7/8 as 2 + 2 + 3, 3 + 2 + 2, 2 + 3 + 2 · Medium and up',
+    voices: [
+      drill(BOSS.sevenEight!, 3.5, BOSS_BARS),
+      click([0, 1, 2], 3.5, BOSS_BARS),
+      bassLine((b) => sevenBossGroups(b).map((g, i, all): [number, number, number] => [g, i === 2 ? p(G, 2) : p(C, 2), ((all[i + 1] ?? 3.5) - g) * 0.75]), 3.5, BOSS_BARS),
+    ],
+  },
+  {
+    id: 'boss-5-three-two', title: 'Boss 5: The Double-Cross Boss (hands swap)', bpm: 72, timeSig: [4, 4], packDifficulty: 'hard',
+    tag: 'Rhythm Boss 5 · 3 against 2, the hands swap · Hard and up',
+    voices: [drill(BOSS.threeTwo!, 4, BOSS_BARS), click([0, 1, 2, 3], 4, BOSS_BARS), bassLine(straightBass, 4, BOSS_BARS)],
   },
 ];
 
@@ -565,6 +668,21 @@ for (const s of rhythmSongs) {
   console.log(`wrote ${file} (${bytes.length} bytes)`);
 }
 
+// Rhythm Bosses: after Rhythm Basics, in the same order, and in a pack of their own.
+const bossPackSongs: object[] = [];
+for (const s of bossSongs) {
+  const bytes = songToBytes(s);
+  const file = `${s.id}.mid`;
+  writeFileSync(join(songsDir, file), bytes);
+  const defaultParts = [{ track: 1, channel: s.voices[0]!.channel }];
+  manifest.push({ id: s.id, title: s.title, file, defaultParts, ...(s.tag ? { tag: s.tag } : {}), ...(s.packDifficulty ? { difficulty: s.packDifficulty } : {}) });
+  bossPackSongs.push({
+    id: sha256(bytes), title: s.title, midiBase64: Buffer.from(bytes).toString('base64'), defaultParts, timingPreset: 'normal',
+    ...(s.packDifficulty ? { difficulty: s.packDifficulty } : {}),
+  });
+  console.log(`wrote ${file} (${bytes.length} bytes)`);
+}
+
 writeFileSync(join(songsDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 
 const pack = {
@@ -588,3 +706,14 @@ const rhythmPack = {
 };
 writeFileSync(join(packsDir, 'rhythm-basics.midihero.json'), JSON.stringify(rhythmPack, null, 2) + '\n');
 console.log('wrote packs/rhythm-basics.midihero.json');
+
+const bossPack = {
+  format: 'midihero-pack',
+  version: 1,
+  name: 'Rhythm Bosses',
+  createdAt: '2026-10-17T00:00:00.000Z',
+  settings: { kb: 25, timing: 'normal', names: true, synth: true },
+  songs: bossPackSongs,
+};
+writeFileSync(join(packsDir, 'rhythm-bosses.midihero.json'), JSON.stringify(bossPack, null, 2) + '\n');
+console.log('wrote packs/rhythm-bosses.midihero.json');
