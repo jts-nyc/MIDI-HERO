@@ -206,6 +206,17 @@ describe('BackingScheduler', () => {
     expect(seq.filter((x) => x.startsWith('p')).at(-1)).toBe('p48');
   });
 
+  it('after a wait, strikes a default-program note with program 0 even if a change in the lookahead already reached the synth', () => {
+    const h = harness([
+      ev(0.2, 'on', { pitch: 48 }), ev(3, 'off', { pitch: 48 }), // no program change before it: program 0
+      ev(1.05, 'program', { value: 48, pitch: -1 }), // inside the lookahead at the wait
+    ]);
+    const calls = waitAt(h, 1);
+    const i = calls.findIndex((c) => c.method === 'noteOn');
+    const before = calls.slice(0, i).filter((c) => c.method === 'program' && c.args[0] === 0);
+    expect(before.at(-1)?.args[1]).toBe(0);
+  });
+
   it('a plain start (pause and resume) does not strike anything again', () => {
     const { t, clock, synth, sched } = harness([ev(0, 'on', { pitch: 48 }), ev(4, 'off', { pitch: 48 })]);
     clock.start(0);

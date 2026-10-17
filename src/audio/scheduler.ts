@@ -130,10 +130,10 @@ export class BackingScheduler {
     for (const [key, { e, program: at }] of open) {
       // a drum hit is over long before its note-off, and a count-in click is never struck twice
       if (this.drums.has(e.channel) || e.partKey === 'count-in' || this.muted.has(e.partKey)) continue;
-      const now = program.get(e.channel) ?? 0;
-      if (at !== now) this.synth.program(e.channel, at);
+      // set both explicitly: a program change within the lookahead may already be on the synth
+      this.synth.program(e.channel, at);
       this.synth.noteOn(e.channel, e.pitch, e.velocity, when);
-      if (at !== now) this.synth.program(e.channel, now);
+      this.synth.program(e.channel, program.get(e.channel) ?? 0);
       // its key is already up: hand it to the pedal, so the pedal's release ends it
       if (held.has(key)) this.synth.noteOff(e.channel, e.pitch, when);
     }
