@@ -368,7 +368,7 @@ async function exportPack(name: string, ids: string[], unlocks: boolean): Promis
   const songs = [];
   for (const id of ids) {
     const lib = library.find((l) => l.id === id);
-    if (!lib) continue;
+    if (!lib || lib.id === TUTORIAL_SONG_ID) continue;
     songs.push({ title: lib.title, bytes: await songBytes(lib), defaultParts: lib.parts, split: lib.split, timingPreset: lib.timingPreset, difficulty: lib.difficulty });
   }
   const pack = await buildPack(name, { kb: settings.kb, timing: settings.timing, names: settings.names, synth: settings.synth, unlocks }, songs);
@@ -410,7 +410,7 @@ function songSelect(): void {
     onImport: (files) => void importFiles(files),
     onExport: () =>
       showExportDialog({
-        songs: library.map((l) => ({ id: l.id, title: l.title })),
+        songs: library.filter((l) => l.id !== TUTORIAL_SONG_ID).map((l) => ({ id: l.id, title: l.title })),
         defaultName: 'Class pack',
         onExport: (name, ids, unlocks) => void exportPack(name, ids, unlocks),
         onBack: songSelect,
