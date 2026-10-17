@@ -51,6 +51,12 @@ export interface ControlEvent {
   value: number;
 }
 
+/** A marker meta event ("Verse", "Chorus", a rehearsal letter): where a part of the song starts. */
+export interface SongMarker {
+  time: number;
+  text: string;
+}
+
 export interface SongData {
   format: number;
   ppq: number;
@@ -66,6 +72,8 @@ export interface SongData {
   drumChannels: number[];
   /** end of the last real noteOff in the whole file, in seconds */
   lastNoteOffTime: number;
+  /** marker meta events of every track with text, in time order; empty when the file has none */
+  markers: SongMarker[];
 }
 
 export type PartKind = 'melodic' | 'drums' | 'sfx';
