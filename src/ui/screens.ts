@@ -63,6 +63,8 @@ export function miniKeyboard(): string {
 /** One step of first-run setup: one instruction, big. With a keyboard the way on is a key press. */
 export function showSetup(o: SetupScreenOptions): HTMLElement {
   const noKb = '<button class="link" id="no-kb">I don\'t have a keyboard</button>';
+  // shown by setupStuck() when nothing arrives: some Chromebooks only see a keyboard after a refresh
+  const stuck = '<p id="setup-stuck" hidden>Nothing yet? Check the USB cable, then <button id="refresh">Refresh the page</button></p>';
   const body: Record<SetupScreenOptions['step'], string> = {
     blocked: o.midi === 'denied'
       ? `<h1>Allow the keyboard</h1>
@@ -73,10 +75,10 @@ export function showSetup(o: SetupScreenOptions): HTMLElement {
         <div class="row" style="justify-content:center"><button class="primary big" id="no-kb">Play with the computer keys</button></div>`,
     connect: `<h1>Plug in your keyboard</h1>
         <p class="say">Connect the USB cable to the computer.</p>
-        <p class="got waiting" aria-live="polite">${o.midi === 'pending' ? 'If the browser asks, click Allow.' : 'Waiting for your keyboard…'}</p>${noKb}`,
+        <p class="got waiting" aria-live="polite">${o.midi === 'pending' ? 'If the browser asks, click Allow.' : 'Waiting for your keyboard…'}</p>${stuck}${noKb}`,
     press: `<h1>Press the C at the far left of your keyboard</h1>
         ${miniKeyboard()}
-        <p class="got waiting" id="setup-msg" aria-live="polite">Waiting for a key…</p>${noKb}`,
+        <p class="got waiting" id="setup-msg" aria-live="polite">Waiting for a key…</p>${stuck}${noKb}`,
     kb: `<h1>How many keys does your keyboard have?</h1>
         <div class="choices">
           <button class="primary" data-kb="25">25<span>small, 2 octaves</span></button>
@@ -95,9 +97,15 @@ export function showSetup(o: SetupScreenOptions): HTMLElement {
   const el = screen(`<div class="panel setup">${body[o.step]}</div>`);
   el.querySelector('#no-kb')?.addEventListener('click', o.onNoKeyboard);
   el.querySelector('#retry')?.addEventListener('click', o.onRetry);
+  el.querySelector('#refresh')?.addEventListener('click', () => location.reload());
   el.querySelectorAll<HTMLButtonElement>('[data-kb]').forEach((b) => b.addEventListener('click', () => o.onKb(Number(b.dataset.kb) as KeyboardSize)));
   el.querySelectorAll<HTMLButtonElement>('[data-sound]').forEach((b) => b.addEventListener('click', () => o.onSound(b.dataset.sound === '1')));
   return el;
+}
+
+/** Show the "check the cable, then refresh" line on a setup or gate screen. */
+export function setupStuck(el: HTMLElement): void {
+  el.querySelector<HTMLElement>('#setup-stuck')?.removeAttribute('hidden');
 }
 
 /** Live feedback for a key press on the setup or gate screen. */
@@ -540,10 +548,12 @@ export function showGate(o: { keysHint: string; onSkip: () => void }): HTMLEleme
     <h1>Press the C at the far left of your keyboard</h1>
     ${miniKeyboard()}
     <p class="got waiting" id="setup-msg" aria-live="polite">Waiting for a key…</p>
+    <p id="setup-stuck" hidden>Nothing yet? Check the USB cable, then <button id="refresh">Refresh the page</button></p>
     <p>${esc(o.keysHint)}. This lines the game up with your keyboard.</p>
     <button class="link" id="skip">I don't have a keyboard</button>
   </div>`);
   el.querySelector('#skip')!.addEventListener('click', o.onSkip);
+  el.querySelector('#refresh')!.addEventListener('click', () => location.reload());
   return el;
 }
 

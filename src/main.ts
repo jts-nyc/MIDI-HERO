@@ -30,7 +30,7 @@ import { bestKey, bestsForSong, deleteSong, getBest, listSongs, parseBestKey, pu
 import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
 import {
-  installDropZone, setPracticeRate, setupMessage, showCalibration, showCalibrationOffer, showError, showExportDialog, showGate, showPartPicker, showPause, showPlayHud, showSetup,
+  installDropZone, setPracticeRate, setupMessage, setupStuck, showCalibration, showCalibrationOffer, showError, showExportDialog, showGate, showPartPicker, showPause, showPlayHud, showSetup,
   showPracticePicker, showPracticeResults, showResults, showSettings, showSongSelect, showStudentTrial, showStudentTrialResults, showUnsupported, toast,
   type PartPickerState, type PartRow, type PracticeChoice, type SongRow,
 } from './ui/screens.ts';
@@ -1020,6 +1020,8 @@ function stopBacking(): void {
 
 /** How long "Got it! That was C3." stays on screen before the game goes on. */
 const GOT_IT_MS = 900;
+/** With no keyboard or no key for this long, offer "check the cable, then refresh". */
+const STUCK_MS = 10_000;
 
 /**
  * First-run setup (game/setup.ts): one question per screen. With a keyboard connected the way
@@ -1028,6 +1030,7 @@ const GOT_IT_MS = 900;
 function runSetup(onDone: (kb: KeyboardSize, soundSelf: boolean) => void): void {
   let st = initialSetup(midi.status, !!midi.selectedId);
   let shown: { step: SetupStep; midi: string } | null = null;
+  let stuckTimer: ReturnType<typeof setTimeout> | undefined;
   // MIDI access and plugging in arrive without a callback of ours (main's onChange selects the port).
   const poll = setInterval(() => {
     if (midi.status !== st.midi || !!midi.selectedId !== st.hasPort) {
@@ -1039,6 +1042,7 @@ function runSetup(onDone: (kb: KeyboardSize, soundSelf: boolean) => void): void 
     const step = setupStep(st);
     if (step === 'done') {
       clearInterval(poll);
+      clearTimeout(stuckTimer);
       gateHandler = null;
       const r = setupResult(st);
       onDone(r.kb, r.soundSelf);
@@ -1054,10 +1058,13 @@ function runSetup(onDone: (kb: KeyboardSize, soundSelf: boolean) => void): void 
       onSound: (soundSelf) => { st = { ...st, soundSelf }; render(); },
     });
     gateHandler = null;
+    clearTimeout(stuckTimer);
+    if (step === 'connect' || step === 'press') stuckTimer = setTimeout(() => setupStuck(el), STUCK_MS);
     if (step !== 'press') return;
     let counted = false;
     gateHandler = (ev) => {
       if (ev.type !== 'on' || ev.source !== 'midi' || counted) return;
+      clearTimeout(stuckTimer); // a key arrived: the keyboard works
       const verdict = lowCVerdict(ev.pitch);
       setupMessage(el, verdict);
       if (!verdict.ok) return;
@@ -1079,8 +1086,10 @@ function runGate(window: PitchWindow, s: PlaySession): void {
       playHud(s);
     },
   });
+  const stuck = setTimeout(() => setupStuck(el), STUCK_MS);
   const handler = (ev: InputEvent): void => {
     if (ev.type !== 'on' || ev.source !== 'midi') return;
+    clearTimeout(stuck);
     const verdict = lowCVerdict(ev.pitch);
     setupMessage(el, verdict);
     if (!verdict.ok) return;
