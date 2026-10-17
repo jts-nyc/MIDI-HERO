@@ -24,6 +24,8 @@ export interface PracticeView {
   waiting: boolean;
   /** pitches the player still has to press while `waiting`; empty otherwise */
   waitingFor: readonly number[];
+  /** learn mode: the label shown while the song waits, in place of a section and a pass count */
+  title?: string;
 }
 
 export const NO_PRACTICE: PracticeView = {

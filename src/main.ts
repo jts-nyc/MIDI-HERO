@@ -6,6 +6,7 @@ import { setDprCap } from './render/canvas.ts';
 import { FrameGovernor, frameStamp, type EffectsLevel } from './render/feel.ts';
 import { DEFAULT_JUDGE_CONFIG, OVERHOLD_COST, type JudgeConfig, type TimingPreset } from './game/judge.ts';
 import { calibrationBeats, calibrationOffered, markCalibrationOffered, shouldOfferCalibration, type OfferStorage } from './game/calibration.ts';
+import { isPlayMode, learnedSongs, markLearned, openingMode, passesSong, type PlayMode } from './game/learn.ts';
 import { loopLabel, loopOf, practiceSections, trimChart, type PracticeSectionInfo } from './game/practice.ts';
 import { keyLevelOf, listKeyLevel, RATES, songStars, starsByLevel, suggestNextStep, TOP_LEVEL, unlockedLevels, UNLOCK_STARS, type LevelBest, type Suggestion } from './game/results.ts';
 import { PlaySession } from './game/session.ts';
@@ -29,7 +30,7 @@ import { bestKey, bestsForSong, deleteSong, getBest, listSongs, parseBestKey, pu
 import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
 import {
-  gateMessage, installDropZone, setPracticeRate, showCalibration, showCalibrationOffer, showError, showExportDialog, showFirstRun, showGate, showPartPicker, showPause, showPlayHud,
+  gateMessage, installDropZone, setPracticeRate, showCalibration, showCalibrationOffer, showError, showExportDialog, showFirstRun, showGate, showLearnResults, showPartPicker, showPause, showPlayHud,
   showPracticePicker, showPracticeResults, showResults, showSettings, showSongSelect, showStudentTrial, showStudentTrialResults, showUnsupported, toast,
   type PartPickerState, type PartRow, type PracticeChoice, type SongRow,
 } from './ui/screens.ts';
@@ -126,7 +127,7 @@ let calibrating = false;
  * different windows, the keyboard stays the same.
  */
 const lowCByPort = new Map<string, number>();
-let lastPlay: { window: PitchWindow; relative: boolean; autoplay: { jitterMs: number } | null; practice: PracticeChoice | null } | null = null;
+let lastPlay: { window: PitchWindow; relative: boolean; autoplay: { jitterMs: number } | null; practice: PracticeChoice | null; learn: boolean } | null = null;
 /** the play screen's overlay, for the practice speed shown on it */
 let hudEl: HTMLElement | null = null;
 
@@ -563,16 +564,23 @@ async function openSong(id: string): Promise<void> {
     // ?part=5:4 picks a part by track:channel (for checks on a specific part)
     const urlPart = params.get('part');
     if (urlPart && keys.has(urlPart)) selected = [urlPart];
+    // A new song opens in learn mode until it has been passed once (game/learn.ts).
+    const bests = await bestsForSong(lib.id).catch(() => [] as BestScore[]);
+    const mode = openingMode({
+      learned: learnedSongs(offerStorage()).has(lib.id),
+      bestAccuracy: bests.length ? Math.max(...bests.map((b) => b.accuracy)) : null,
+      urlMode: urlMode ?? (params.get('autoplay') ? 'score' : null),
+    });
     current = {
       lib, song, parts,
       picker: {
         selected: new Set(selected), split: lib.split ?? 60, hands: lib.hands ?? ['L', 'R'], timing: lib.timingPreset ?? settings.timing, guideTrack: false,
-        difficulty: urlDifficulty ?? lib.difficulty ?? DEFAULT_DIFFICULTY,
+        difficulty: urlDifficulty ?? lib.difficulty ?? DEFAULT_DIFFICULTY, mode,
       },
       stars: null,
     };
     if (lib.id === STUDENT_TRIAL_ID) {
-      current.picker = { selected: new Set(['1:0']), split: 60, hands: ['L', 'R'], timing: 'normal', guideTrack: false, difficulty: 'easy' };
+      current.picker = { selected: new Set(['1:0']), split: 60, hands: ['L', 'R'], timing: 'normal', guideTrack: false, difficulty: 'easy', mode: 'score' };
     }
     await loadStars();
     partPicker();
@@ -590,6 +598,8 @@ function urlPractice(): PracticeChoice | null {
 }
 
 const urlDifficulty: Difficulty | null = isDifficulty(params.get('difficulty')) ? (params.get('difficulty') as Difficulty) : null;
+/** ?mode=learn or ?mode=score opens every song in that mode (autoplay checks default to score) */
+const urlMode: PlayMode | null = isPlayMode(params.get('mode')) ? (params.get('mode') as PlayMode) : null;
 
 function selectedPartIds(): PartId[] {
   if (!current) return [];
@@ -788,7 +798,8 @@ async function startPlay(autoplay: { jitterMs: number } | null, practice: Practi
   const { window, relative } = lib.id === STUDENT_TRIAL_ID
     ? { window: { low: 48, high: 72 }, relative: false }
     : windowFor(settings.kb, unfolded.notes.map((n) => n.origPitch));
-  lastPlay = { window, relative, autoplay, practice };
+  const learn = !practice && picker.mode === 'learn' && lib.id !== STUDENT_TRIAL_ID;
+  lastPlay = { window, relative, autoplay, practice, learn };
   play();
 }
 
@@ -798,7 +809,7 @@ function play(): void {
   const trial = lib.id === STUDENT_TRIAL_ID;
   const runSettings = trial ? studentTrialSettings(settings, trialSound, trialRate) : settings;
   sessionSettings = trial ? runSettings : null;
-  const { window, relative, autoplay, practice: choice } = lastPlay;
+  const { window, relative, autoplay, practice: choice, learn } = lastPlay;
   const sel = selectionOptions();
   if (!sel) return;
   const partIds = sel.parts;
@@ -821,6 +832,8 @@ function play(): void {
   const to = choice ? Math.min(choice.to, sections.length - 1) : 0;
   const loop = choice && sections.length ? loopOf(sections, from, to) : null;
   const chart = loop ? trimChart(fullChart, loop) : fullChart;
+  // Learn mode: the whole song once, held at every note until it is played (game/learn.ts).
+  const learnRun = learn ? { loop: { start: 0, end: fullChart.duration }, sections: [], current: -1, label: 'Learn mode', wait: true, ladder: false, once: true, title: 'Learn mode' } : null;
   if (chart.notes.length === 0) {
     showError('Nothing to practise', 'These bars have no notes to play.', partPicker);
     return;
@@ -829,7 +842,7 @@ function play(): void {
   const timing = picker.timing;
   const judgeConfig: JudgeConfig = {
     ...DEFAULT_JUDGE_CONFIG, preset: timing, easy: runSettings.easy, wrongNotePenalty: runSettings.wrongNotePenalty,
-    failAt: runSettings.arcade && !autoplay && !loop ? 0 : null,
+    failAt: runSettings.arcade && !autoplay && !loop && !learnRun ? 0 : null,
     overhold: runSettings.letGo ? OVERHOLD_COST[difficulty] : null,
   };
   const sig = song.timeSigs[0]!;
@@ -884,6 +897,7 @@ function play(): void {
       // the count-in clicks of the scheduler's, on the band's drum channel
       click: (accent: boolean, when: number) => backingSynth?.noteOn(9, accent ? 76 : 37, accent ? 110 : 80, when),
     } : {}),
+    ...(learnRun ? { practice: learnRun } : {}),
   });
   const s = session;
   s.onPass = () => {
@@ -917,6 +931,23 @@ function play(): void {
       showStudentTrialResults({ result, sound: trialSound, rate: trialRate, autoplay: !!autoplay, onRetry: play, onSetup: trialSetup, onQuit: songSelect });
       return;
     }
+    if (learnRun) {
+      // Learn mode writes no bests or stars; reaching the end passes the song.
+      const passed = passesSong('learn', result);
+      if (passed && !autoplay) {
+        markLearned(offerStorage(), lib.id);
+        picker.mode = 'score';
+      }
+      const c = result.counts;
+      showLearnResults({
+        title: lib.title, passed, hit: c.perfect + c.great + c.good + c.late, total: result.total,
+        onScore: () => { picker.mode = 'score'; void startPlay(null); },
+        onLearn: () => { picker.mode = 'learn'; void startPlay(null); },
+        onQuit: songSelect,
+      });
+      return;
+    }
+    if (passesSong('score', result, !!autoplay)) markLearned(offerStorage(), lib.id);
     if (result.practice) {
       // Practice never writes bests or stars.
       showPracticeResults({
@@ -996,8 +1027,8 @@ function takeSuggestion(s: Suggestion): void {
 function playHud(s: PlaySession): void {
   hudEl = showPlayHud({
     onPause: pause,
-    onSkip: !s.practice && s.chart.firstNoteTime > 8 ? () => { s.skipToFirstNote(); scheduler?.stop(); scheduler?.start(); } : null,
-    ...(s.practice ? { practice: { rate: s.rate, onStop: () => s.stopPractice() } } : {}),
+    onSkip: (!s.practice || s.opts.practice?.once) && s.chart.firstNoteTime > 8 ? () => { s.skipToFirstNote(); scheduler?.stop(); scheduler?.start(); } : null,
+    ...(s.practice ? { practice: { rate: s.rate, onStop: () => s.stopPractice(), learn: !!s.opts.practice?.once } } : {}),
   });
   // While wait mode holds the song the band stays quiet; the session starts it again.
   if (s.status === 'playing' && !s.practice?.waiting) scheduler?.start();

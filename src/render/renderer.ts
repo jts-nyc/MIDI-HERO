@@ -254,10 +254,10 @@ export class PracticeVenueVisuals {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.font = 'bold 14px system-ui';
-    ctx.fillText(section?.label ?? 'Practice', 22, 117, w - 20);
+    ctx.fillText(section?.label ?? p.title ?? 'Practice', 22, 117, w - 20);
     ctx.fillStyle = theme.text;
     ctx.font = '12px system-ui';
-    ctx.fillText(this.passes.get(p.passes), 22, 140, w - 20);
+    ctx.fillText(p.title ? 'Play the glowing key' : this.passes.get(p.passes), 22, 140, w - 20);
   }
 }
 
