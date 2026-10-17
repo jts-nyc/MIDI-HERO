@@ -41,6 +41,15 @@ describe('practice sections and loops', () => {
     expect(sections[1]!.notesPerSec).toBeCloseTo(34 / 16, 9);
   });
 
+  it('uses the file\'s markers for its sections when it has them', () => {
+    const marked = practiceSections(barTimes, fullChart.duration, fullChart.notes, [{ time: 8, text: 'A' }, { time: 24, text: 'B' }]);
+    expect(marked.map((s) => [s.label, s.start, s.end, s.notes])).toEqual([
+      ['Bars 1–4', 0, 8, 16],
+      ['A (bars 5–12)', 8, 24, 34],
+      ['B (bars 13–25)', 24, fullChart.duration, 48], // the last section runs to the end of the song
+    ]);
+  });
+
   it('loops one section or a run of adjacent ones, in either order', () => {
     expect(loopOf(sections, 1, 1)).toEqual({ start: 16, end: 32 });
     expect(loopOf(sections, 2, 0)).toEqual({ start: 0, end: 48 });
