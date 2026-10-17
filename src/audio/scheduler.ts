@@ -67,9 +67,15 @@ export class BackingScheduler {
     }
   }
 
-  start(): void {
+  /**
+   * Start scheduling from the clock's current song time. `resound`: notes of the band that were
+   * already sounding at that time (struck before it, ending after it) are struck again now, so a
+   * band that was stopped mid-note, as wait mode does, picks up with its notes instead of silence.
+   */
+  start(opts: { resound?: boolean } = {}): void {
     if (this.timer !== null) return;
     this.reset();
+    if (opts.resound) this.resound();
     this.tick();
     this.timer = this.setIntervalFn(() => this.tick(), this.intervalMs);
   }
@@ -80,6 +86,25 @@ export class BackingScheduler {
       this.timer = null;
     }
     this.synth.allNotesOff(0);
+  }
+
+  /** Strike again the notes that are on at the cursor: on before it, their off not yet reached. */
+  private resound(): void {
+    const open = new Map<string, BackingEvent>();
+    for (let i = 0; i < this.cursor; i++) {
+      const e = this.events[i]!;
+      if (e.type !== 'on' && e.type !== 'off') continue;
+      const key = `${e.partKey}/${e.channel}/${e.pitch}`;
+      if (e.type === 'on') open.set(key, e);
+      else open.delete(key);
+    }
+    if (open.size === 0) return;
+    const when = this.clock.songTimeToContextTime(this.clock.now());
+    for (const e of open.values()) {
+      // a drum hit is over long before its note-off, and a count-in click is never struck twice
+      if (e.channel === CLICK_CHANNEL || e.partKey === 'count-in' || this.muted.has(e.partKey)) continue;
+      this.synth.noteOn(e.channel, e.pitch, e.velocity, when);
+    }
   }
 
   /** Schedule everything due within the lookahead window. Public for tests. */
