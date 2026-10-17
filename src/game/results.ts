@@ -10,6 +10,8 @@ export interface Section {
   toBar: number;
   start: number;
   end: number;
+  /** the marker that starts it, when the song's markers cut the sections */
+  name?: string;
 }
 
 export interface SectionResult extends Section {
@@ -25,8 +27,14 @@ export const SECTION_BARS = 8;
 /** Playback speeds the game offers, slowest first. */
 export const RATES = [0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1] as const;
 
-/** Cut the song into windows of `bars` bars. `barTimes` are the bar-line times in seconds. */
-export function buildSections(barTimes: readonly number[], duration: number, bars = SECTION_BARS): Section[] {
+/**
+ * Cut the song into sections. `barTimes` are the bar-line times in seconds. When the file's
+ * markers cut it into parts (see markerSections) those are the sections; otherwise windows of
+ * `bars` bars.
+ */
+export function buildSections(barTimes: readonly number[], duration: number, bars = SECTION_BARS, markers: readonly { time: number; text: string }[] = []): Section[] {
+  const byMarkers = markerSections(barTimes, duration, markers);
+  if (byMarkers) return byMarkers;
   const out: Section[] = [];
   for (let i = 0; i < barTimes.length; i += bars) {
     const start = barTimes[i]!;
@@ -36,6 +44,42 @@ export function buildSections(barTimes: readonly number[], duration: number, bar
   }
   if (out.length === 0) out.push({ fromBar: 1, toBar: 1, start: 0, end: duration });
   return out;
+}
+
+/**
+ * Sections from the song's markers: each runs from the bar a marker falls in (a marker inside a
+ * bar starts that bar; the first marker in a bar names it) to the bar before the next one. Bars
+ * before the first marker are a section of their own. Null when the markers do not cut the song:
+ * none, only one at its start, or so many that a section is under two bars on average (a marker
+ * on every bar is a file's bookkeeping, not its form).
+ */
+function markerSections(barTimes: readonly number[], duration: number, markers: readonly { time: number; text: string }[]): Section[] | null {
+  const bars = barTimes.filter((t) => t < duration).length;
+  if (markers.length === 0 || bars === 0) return null;
+  const starts: { bar: number; name: string }[] = [];
+  for (const m of markers) {
+    if (m.time >= duration) break;
+    let bar = 0;
+    while (bar + 1 < bars && barTimes[bar + 1]! <= m.time + 1e-6) bar++;
+    if (starts.length && starts[starts.length - 1]!.bar === bar) continue;
+    starts.push({ bar, name: m.text });
+  }
+  if (starts.length === 0 || (starts.length === 1 && starts[0]!.bar === 0)) return null;
+  if (starts[0]!.bar > 0) starts.unshift({ bar: 0, name: '' });
+  if (starts.length > bars / 2) return null;
+  return starts.map((s, k) => {
+    const next = starts[k + 1];
+    const start = barTimes[s.bar]!;
+    const section: Section = { fromBar: s.bar + 1, toBar: next ? next.bar : bars, start, end: next ? barTimes[next.bar]! : Math.max(duration, start) };
+    if (s.name) section.name = s.name;
+    return section;
+  });
+}
+
+/** "Bars 9–16", "Bar 3", or with a marker's name "Chorus (bars 9–16)". */
+export function sectionLabel(s: Section): string {
+  const bars = s.fromBar === s.toBar ? `Bar ${s.fromBar}` : `Bars ${s.fromBar}–${s.toBar}`;
+  return s.name ? `${s.name} (${bars.toLowerCase()})` : bars;
 }
 
 /** Accuracy per section. Sections without notes are left out; unjudged notes (a failed song) do not count. */
@@ -55,7 +99,7 @@ export function sectionResults(sections: readonly Section[], notes: readonly { t
       weight += WEIGHTS[j];
       if (WEIGHTS[j] > 0) hit++;
     }
-    if (total > 0) out.push({ ...s, label: s.fromBar === s.toBar ? `Bar ${s.fromBar}` : `Bars ${s.fromBar}–${s.toBar}`, total, hit, accuracy: weight / total });
+    if (total > 0) out.push({ ...s, label: sectionLabel(s), total, hit, accuracy: weight / total });
   }
   return out;
 }
