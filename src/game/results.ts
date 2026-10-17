@@ -172,16 +172,20 @@ export interface LevelBest {
   rate: number;
   /** level name, or TOP_LEVEL */
   level: string;
+  /** the parts and split it was played on (db.ts selectionKey) */
+  selection?: string;
 }
 
 /**
- * Stars per level from a song's bests, best across parts and timing. Only full-speed plays
- * count: a level is not earned at half speed.
+ * Stars per level from a song's bests, best across timing. Only full-speed plays count: a level
+ * is not earned at half speed. With `selection`, only bests on those parts count: each part has
+ * levels of its own, so a level earned on one part does not open the next level of another.
  */
-export function starsByLevel(bests: readonly LevelBest[]): Map<string, number> {
+export function starsByLevel(bests: readonly LevelBest[], selection?: string): Map<string, number> {
   const out = new Map<string, number>();
   for (const b of bests) {
     if (!(b.rate >= 1 - 1e-9)) continue;
+    if (selection !== undefined && b.selection !== selection) continue;
     const n = starCount(b.accuracy);
     if (n > (out.get(b.level) ?? 0)) out.set(b.level, n);
   }
