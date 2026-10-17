@@ -295,7 +295,7 @@ async function startRun(entry: SimpleSong, level: SimpleLevel): Promise<void> {
     if (ev.type !== 'reoffset') return;
     toast(octaveShiftMessage(ev.delta), 6000);
     // The check runs once per page load: the next song starts from the new shift, not the old one.
-    if (flow.input === 'midi') checkC = window.low - s.octaveOffset;
+    if (flow.input === 'midi' && ev.source === 'midi') checkC = window.low - s.octaveOffset;
   };
   s.onFinished = (result) => {
     endEngine();

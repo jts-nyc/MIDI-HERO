@@ -903,7 +903,7 @@ function play(): void {
   s.onOctave = (ev) => {
     if (ev.type === 'reoffset') {
       toast(octaveShiftMessage(ev.delta), 'info', 6000);
-      if (midi.selectedId) lowCByPort.set(midi.selectedId, window.low - s.octaveOffset);
+      if (midi.selectedId && ev.source === 'midi') lowCByPort.set(midi.selectedId, window.low - s.octaveOffset);
     } else {
       toast('Your keyboard seems transposed. Check its transpose setting.', 'error');
       if (midi.selectedId) lowCByPort.delete(midi.selectedId);

@@ -1,7 +1,7 @@
 import type { GameClock } from '../audio/clock.ts';
 import type { SfxCue } from '../audio/sfx.ts';
 import { FEEDBACK_CHANNEL, FEEDBACK_CHANNELS, type Synth } from '../audio/synth.ts';
-import { ChannelFilter, OctaveTracker, type InputEvent, type OctaveEvent } from '../input/normalize.ts';
+import { ChannelFilter, OctaveTracker, type InputEvent, type InputSource, type OctaveEvent } from '../input/normalize.ts';
 import type { CarriedNote, Chart } from '../midi/chart.ts';
 import {
   createFx, emitBreak, emitCallout, emitDrop, emitHit, emitLevel, emitMilestone, emitMiss, emitSpark, emitStar, emitStreak, emitWrong, setCountdown, stepFx,
@@ -174,7 +174,8 @@ export class PlaySession {
   octaveOffset = 0;
   status: SessionStatus = 'playing';
   readonly leadIn: number;
-  onOctave: (ev: OctaveEvent) => void = () => {};
+  /** `source`: the input of the press that completed the streak (a computer-key shift is not the MIDI keyboard's) */
+  onOctave: (ev: OctaveEvent & { source: InputSource }) => void = () => {};
   onFinished: (result: PlayResult) => void = () => {};
   private autoCursor = 0;
   private autoOffs: { time: number; pitch: number }[] = [];
@@ -366,7 +367,7 @@ export class PlaySession {
         const oev = this.tracker.observe(false, delta);
         if (oev) {
           if (oev.type === 'reoffset') this.octaveOffset += oev.delta;
-          this.onOctave(oev);
+          this.onOctave({ ...oev, source: ev.source });
         }
       }
     }
