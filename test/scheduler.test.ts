@@ -105,4 +105,49 @@ describe('BackingScheduler', () => {
     sched.tick();
     expect(synth.calls.filter((c) => c.method === 'noteOn')).toHaveLength(1);
   });
+
+  // Round 3: wait mode holds the clock just past an onset (by the input offset) and stops the band;
+  // the band's notes on that onset, and longer ones still sounding, used to stay silent after it.
+  it('after a wait, strikes again the band notes sounding at the held time, and only those', () => {
+    const { t, clock, synth, sched } = harness([
+      ev(0, 'on', { pitch: 48 }), ev(4, 'off', { pitch: 48 }), // a long bass note across the wait
+      ev(1, 'on', { pitch: 60 }), ev(1.5, 'off', { pitch: 60 }), // on the held onset
+      ev(0.5, 'on', { pitch: 55 }), ev(0.8, 'off', { pitch: 55 }), // over before it
+      ev(1, 'on', { pitch: 36, channel: 9 }), ev(1.1, 'off', { pitch: 36, channel: 9 }), // a drum hit
+      ev(2, 'on', { pitch: 62 }), ev(2.5, 'off', { pitch: 62 }),
+    ].sort((a, b) => a.time - b.time));
+    clock.start(0);
+    sched.start();
+    t.perfMs = 1040;
+    sched.tick();
+    // the gate: the note at 1 s is held at 1.04 (a 40 ms input offset)
+    clock.seek(1.04);
+    clock.pause();
+    sched.stop();
+    synth.calls.length = 0;
+    t.perfMs = 9000;
+    clock.resume();
+    sched.start({ resound: true });
+    const ons = synth.calls.filter((c) => c.method === 'noteOn');
+    expect(ons.map((c) => c.args[1]).sort()).toEqual([48, 60]);
+    expect(ons.every((c) => Math.abs((c.args[3] as number) - 1.04) < 1e-6)).toBe(true);
+    // then on as usual, nothing twice
+    t.perfMs = 9000 + 1000;
+    sched.tick();
+    expect(synth.calls.filter((c) => c.method === 'noteOn').map((c) => c.args[1]).sort()).toEqual([48, 60, 62]);
+  });
+
+  it('a plain start (pause and resume) does not strike anything again', () => {
+    const { t, clock, synth, sched } = harness([ev(0, 'on', { pitch: 48 }), ev(4, 'off', { pitch: 48 })]);
+    clock.start(0);
+    sched.start();
+    t.perfMs = 500;
+    sched.tick();
+    clock.pause();
+    sched.stop();
+    synth.calls.length = 0;
+    clock.resume();
+    sched.start();
+    expect(synth.calls.filter((c) => c.method === 'noteOn')).toHaveLength(0);
+  });
 });
