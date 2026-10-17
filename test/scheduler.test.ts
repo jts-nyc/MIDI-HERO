@@ -190,6 +190,22 @@ describe('BackingScheduler', () => {
     expect(ons.map((c) => [c.args[0], c.args[1]])).toEqual([[2, 52]]);
   });
 
+  it('after a wait, strikes a note again with the program it started with, then restores the channel\'s', () => {
+    const h = harness([
+      ev(0, 'program', { value: 0, pitch: -1 }),
+      ev(0.2, 'on', { pitch: 48 }), ev(3, 'off', { pitch: 48 }), // a piano note across a change to strings
+      ev(0.5, 'program', { value: 48, pitch: -1 }),
+      ev(0.6, 'on', { pitch: 55 }), ev(3, 'off', { pitch: 55 }),
+    ].sort((a, b) => a.time - b.time));
+    const calls = waitAt(h, 1).filter((c) => c.method === 'program' || c.method === 'noteOn');
+    const seq = calls.map((c) => (c.method === 'program' ? `p${c.args[1]}` : `on${c.args[1]}`));
+    // each note sounds under its own program, and the channel ends on the current one
+    const programAt = (i: number) => { for (let j = i; j >= 0; j--) if (seq[j]!.startsWith('p')) return seq[j]; return undefined; };
+    expect(programAt(seq.indexOf('on48'))).toBe('p0');
+    expect(programAt(seq.indexOf('on55'))).toBe('p48');
+    expect(seq.filter((x) => x.startsWith('p')).at(-1)).toBe('p48');
+  });
+
   it('a plain start (pause and resume) does not strike anything again', () => {
     const { t, clock, synth, sched } = harness([ev(0, 'on', { pitch: 48 }), ev(4, 'off', { pitch: 48 })]);
     clock.start(0);

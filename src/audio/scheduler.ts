@@ -94,18 +94,20 @@ export class BackingScheduler {
 
   /**
    * Strike again the notes that are on at the cursor: on before it, and either their off not yet
-   * reached or held past it by the sustain pedal (CC64), which is still down at the cursor.
-   * CC120/123 end what the synth would have ended.
+   * reached or held past it by the sustain pedal (CC64), which is still down at the cursor. Each is
+   * struck with the program it started with; CC120/123 end what the synth would have ended.
    */
   private resound(): void {
-    const open = new Map<string, { e: BackingEvent }>();
+    const open = new Map<string, { e: BackingEvent; program: number }>();
     const held = new Set<string>(); // keys released while the pedal was down
     const pedal = new Set<number>(); // channels with the pedal down
+    const program = new Map<number, number>();
     const close = (channel: number, keep: (key: string) => boolean) => {
       for (const [k, o] of open) if (o.e.channel === channel && !keep(k)) { open.delete(k); held.delete(k); }
     };
     for (let i = 0; i < this.cursor; i++) {
       const e = this.events[i]!;
+      if (e.type === 'program') program.set(e.channel, e.value);
       if (e.type === 'cc') {
         if (e.controller === 64 && e.value >= 64) pedal.add(e.channel);
         else if ((e.controller === 64 && e.value < 64) || e.controller === 121) {
@@ -117,7 +119,7 @@ export class BackingScheduler {
       if (e.type !== 'on' && e.type !== 'off') continue;
       const key = `${e.partKey}/${e.channel}/${e.pitch}`;
       if (e.type === 'on') {
-        open.set(key, { e });
+        open.set(key, { e, program: program.get(e.channel) ?? 0 });
         held.delete(key);
       } else if (pedal.has(e.channel) && open.has(key)) held.add(key);
       else open.delete(key);
@@ -125,10 +127,13 @@ export class BackingScheduler {
     if (open.size === 0) return;
     const when = this.clock.songTimeToContextTime(this.clock.now());
     for (const ch of pedal) this.synth.control(ch, 64, 127, when);
-    for (const [key, { e }] of open) {
+    for (const [key, { e, program: at }] of open) {
       // a drum hit is over long before its note-off, and a count-in click is never struck twice
       if (this.drums.has(e.channel) || e.partKey === 'count-in' || this.muted.has(e.partKey)) continue;
+      const now = program.get(e.channel) ?? 0;
+      if (at !== now) this.synth.program(e.channel, at);
       this.synth.noteOn(e.channel, e.pitch, e.velocity, when);
+      if (at !== now) this.synth.program(e.channel, now);
       // its key is already up: hand it to the pedal, so the pedal's release ends it
       if (held.has(key)) this.synth.noteOff(e.channel, e.pitch, when);
     }
