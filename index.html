@@ -94,6 +94,26 @@
       @keyframes grow { from { width: 0; } to { width: var(--w); } }
       @keyframes land { from { transform: scale(1.25); } to { transform: none; } }
       .kbd { font-family: ui-monospace, Menlo, monospace; background: var(--panel-2); padding: 1px 6px; border-radius: 4px; }
+      /* First-run setup and the keyboard check: big words, one thing to do per screen */
+      .setup { text-align: center; }
+      .setup h1 { font-size: clamp(28px, 5vw, 44px); line-height: 1.15; margin: 4px 0 12px; }
+      .setup .say { font-size: 20px; color: var(--text); }
+      .setup .got { font-size: clamp(24px, 4vw, 36px); font-weight: 700; min-height: 1.4em; margin: 8px 0; }
+      .setup .got.ok { color: var(--good); }
+      .setup .got.no { color: var(--accent-2); font-size: 22px; }
+      .setup .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0; }
+      .setup .choices button { font-size: 22px; padding: 20px 12px; }
+      .setup .choices button span { display: block; font-size: 14px; font-weight: 400; opacity: 0.85; margin-top: 4px; }
+      .setup .waiting { animation: setup-pulse 1.4s ease-in-out infinite; }
+      @keyframes setup-pulse { 50% { opacity: 0.45; } }
+      @media (prefers-reduced-motion: reduce) { .setup .waiting { animation: none; } }
+      button.link { background: none; border: none; color: var(--muted); text-decoration: underline; font-size: 14px; padding: 6px; margin-top: 12px; }
+      .mini-kb { position: relative; display: flex; height: 96px; width: min(520px, 100%); margin: 12px auto 4px; }
+      .mini-kb .w { flex: 1; background: #e8eaf0; border: 1px solid #555; border-radius: 0 0 5px 5px; display: flex; align-items: flex-end; justify-content: center;
+        color: #333; font-size: 12px; padding-bottom: 4px; }
+      .mini-kb .w.target { background: var(--good); color: #062; font-weight: 700; }
+      .mini-kb .b { position: absolute; top: 0; height: 58%; background: #15171f; border-radius: 0 0 3px 3px; }
+      .mini-kb-arrow { font-size: 15px; color: var(--good); text-align: left; width: min(520px, 100%); margin: 0 auto; }
     </style>
   </head>
   <body>

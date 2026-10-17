@@ -9,6 +9,7 @@ import { calibrationBeats, calibrationOffered, markCalibrationOffered, shouldOff
 import { loopLabel, loopOf, practiceSections, trimChart, type PracticeSectionInfo } from './game/practice.ts';
 import { keyLevelOf, listKeyLevel, RATES, songStars, starsByLevel, suggestNextStep, TOP_LEVEL, unlockedLevels, UNLOCK_STARS, type LevelBest, type Suggestion } from './game/results.ts';
 import { PlaySession } from './game/session.ts';
+import { initialSetup, lowCVerdict, setupResult, setupStep, withMidi, type SetupStep } from './game/setup.ts';
 import { STUDENT_TRIAL_ID, studentTrialSettings, type TrialRate, type TrialSound } from './game/studentTrial.ts';
 import { KeyboardInput } from './input/keyboardInput.ts';
 import { MidiInput } from './input/midiInput.ts';
@@ -29,11 +30,11 @@ import { bestKey, bestsForSong, deleteSong, getBest, listSongs, parseBestKey, pu
 import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
 import {
-  gateMessage, installDropZone, setPracticeRate, showCalibration, showCalibrationOffer, showError, showExportDialog, showFirstRun, showGate, showPartPicker, showPause, showPlayHud,
+  installDropZone, setPracticeRate, setupMessage, setupStuck, showCalibration, showCalibrationOffer, showError, showExportDialog, showGate, showPartPicker, showPause, showPlayHud, showSetup,
   showPracticePicker, showPracticeResults, showResults, showSettings, showSongSelect, showStudentTrial, showStudentTrialResults, showUnsupported, toast,
   type PartPickerState, type PartRow, type PracticeChoice, type SongRow,
 } from './ui/screens.ts';
-import { effectiveFeedback, loadSettings, resetToClassDefaults, saveClassDefaults, saveSettings, type Settings } from './ui/settings.ts';
+import { effectiveFeedback, loadSettings, resetToClassDefaults, saveClassDefaults, saveSettings, type KeyboardSize, type Settings } from './ui/settings.ts';
 
 // ---------------------------------------------------------------------------
 // Types and state
@@ -1017,31 +1018,120 @@ function stopBacking(): void {
   scheduler = null;
 }
 
+/**
+ * "I don't have a keyboard": stop listening to the auto-picked port for this page, so later songs
+ * don't ask for a C again. Plugging a keyboard in picks a port again (midi.onChange).
+ */
+function useComputerKeys(): void {
+  if (midi.selectedId) midi.select(null);
+}
+
+/** How long "Got it! That was C3." stays on screen before the game goes on. */
+const GOT_IT_MS = 900;
+/** With no keyboard or no key for this long, offer "check the cable, then refresh". */
+const STUCK_MS = 10_000;
+
+/**
+ * First-run setup (game/setup.ts): one question per screen. With a keyboard connected the way
+ * on is pressing its far-left C, which also lines up the octave for this page session.
+ */
+function runSetup(onDone: (kb: KeyboardSize, soundSelf: boolean) => void): void {
+  let st = initialSetup(midi.status, !!midi.selectedId, midi.selectedId);
+  let shown: { step: SetupStep; midi: string } | null = null;
+  let stuckTimer: ReturnType<typeof setTimeout> | undefined;
+  let finished = false;
+  // MIDI access and plugging in arrive without a callback of ours (main's onChange selects the port).
+  const poll = setInterval(() => {
+    if (midi.status !== st.midi || midi.selectedId !== (st.portId ?? null)) {
+      st = withMidi(st, midi.status, midi.selectedId);
+      render();
+    }
+  }, 300);
+  const render = (): void => {
+    // A late callback (the "Got it!" pause, a MIDI retry) after setup is over does nothing.
+    if (finished) return;
+    const step = setupStep(st);
+    if (step === 'done') {
+      finished = true;
+      clearInterval(poll);
+      clearTimeout(stuckTimer);
+      gateHandler = null;
+      const r = setupResult(st);
+      onDone(r.kb, r.soundSelf);
+      return;
+    }
+    if (shown?.step === step && shown.midi === st.midi) return;
+    shown = { step, midi: st.midi };
+    const el = showSetup({
+      step, midi: st.midi,
+      onNoKeyboard: () => {
+        useComputerKeys();
+        st = { ...st, noKeyboard: true };
+        render();
+      },
+      onRetry: () => void requestMidi().then(() => { st = withMidi(st, midi.status, midi.selectedId); shown = null; render(); }),
+      onKb: (kb) => { st = { ...st, kb }; render(); },
+      onSound: (soundSelf) => { st = { ...st, soundSelf }; render(); },
+    });
+    gateHandler = null;
+    clearTimeout(stuckTimer);
+    if (step === 'connect' || step === 'press') stuckTimer = setTimeout(() => setupStuck(el), STUCK_MS);
+    if (step !== 'press') return;
+    let counted = false;
+    gateHandler = (ev) => {
+      if (ev.type !== 'on' || ev.source !== 'midi' || counted) return;
+      clearTimeout(stuckTimer); // a key arrived: the keyboard works
+      const verdict = lowCVerdict(ev.pitch);
+      setupMessage(el, verdict);
+      if (!verdict.ok) return;
+      counted = true;
+      if (midi.selectedId) lowCByPort.set(midi.selectedId, ev.pitch);
+      const port = midi.selectedId;
+      setTimeout(() => {
+        // Unplugged or swapped during the pause: that C no longer counts.
+        if (setupStep(st) !== 'press' || midi.selectedId !== port) return;
+        st = { ...st, lowC: ev.pitch };
+        render();
+      }, GOT_IT_MS);
+    };
+  };
+  render();
+}
+
 /** "Press your lowest C": learns the octave shift and the input channel, then resumes. */
 function runGate(window: PitchWindow, s: PlaySession): void {
   const el = showGate({
     keysHint: PlaySession.keysHint(window),
     onSkip: () => {
+      useComputerKeys();
       gateHandler = null;
       s.resume();
       playHud(s);
     },
   });
-  gateHandler = (ev) => {
+  const stuck = setTimeout(() => setupStuck(el), STUCK_MS);
+  const handler = (ev: InputEvent): void => {
     if (ev.type !== 'on' || ev.source !== 'midi') return;
-    if (ev.pitch % 12 !== 0) {
-      gateMessage(el, `That was ${['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'][ev.pitch % 12]} — press a C.`);
-      return;
-    }
+    clearTimeout(stuck);
+    const verdict = lowCVerdict(ev.pitch);
+    setupMessage(el, verdict);
+    if (!verdict.ok) return;
     const offset = window.low - ev.pitch;
     s.octaveOffset = offset;
     s.filter.lock(ev.channel);
     if (midi.selectedId) lowCByPort.set(midi.selectedId, ev.pitch);
-    gateHandler = null;
-    toast(offset === 0 ? 'Keyboard lined up.' : `Keyboard lined up (octave ${offset > 0 ? '+' : ''}${offset / 12}).`);
-    s.resume();
-    playHud(s);
+    // "Got it! That was C3." stays up a moment, so the student sees the key counted.
+    const counted = (): void => undefined;
+    gateHandler = counted;
+    setTimeout(() => {
+      if (gateHandler === counted && session === s && s.status === 'paused') {
+        gateHandler = null;
+        s.resume();
+        playHud(s);
+      }
+    }, GOT_IT_MS);
   };
+  gateHandler = handler;
 }
 
 function pause(): void {
@@ -1221,13 +1311,11 @@ async function boot(): Promise<void> {
     });
   };
   if (!settings.firstRunDone) {
-    showFirstRun({
-      onDone: (kb, soundSelf) => {
-        settings = { ...settings, kb, synth: !soundSelf, feedbackSound: soundSelf ? 'off' : 'chart', firstRunDone: true };
-        trialSound = soundSelf ? 'off' : 'press';
-        saveSettings(settings);
-        void start();
-      },
+    runSetup((kb, soundSelf) => {
+      settings = { ...settings, kb, synth: !soundSelf, feedbackSound: soundSelf ? 'off' : 'chart', firstRunDone: true };
+      trialSound = soundSelf ? 'off' : 'press';
+      saveSettings(settings);
+      void start();
     });
   } else if (!midi.supported) {
     showUnsupported({ reason: 'nomidi', onContinue: () => void start() });
