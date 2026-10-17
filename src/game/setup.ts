@@ -15,6 +15,8 @@ export interface SetupState {
   midi: MidiStatus;
   /** a MIDI keyboard is connected and selected */
   hasPort: boolean;
+  /** the selected port, so a keyboard swapped for another is noticed */
+  portId?: string | null;
   /** the pitch of the C pressed at the far left, once pressed */
   lowC: number | null;
   /** the student chose the computer keyboard */
@@ -23,16 +25,17 @@ export interface SetupState {
   soundSelf: boolean | null;
 }
 
-export const initialSetup = (midi: MidiStatus, hasPort: boolean): SetupState => ({
-  midi, hasPort, lowC: null, noKeyboard: false, kb: null, soundSelf: null,
+export const initialSetup = (midi: MidiStatus, hasPort: boolean, portId: string | null = null): SetupState => ({
+  midi, hasPort, portId, lowC: null, noKeyboard: false, kb: null, soundSelf: null,
 });
 
 /**
  * The MIDI state changed. A keyboard that went away takes its learned C with it: a reconnect may
  * have reset its octave buttons, or it may be a different keyboard.
  */
-export function withMidi(s: SetupState, midi: MidiStatus, hasPort: boolean): SetupState {
-  return { ...s, midi, hasPort, lowC: hasPort ? s.lowC : null };
+export function withMidi(s: SetupState, midi: MidiStatus, portId: string | null): SetupState {
+  const hasPort = portId !== null;
+  return { ...s, midi, hasPort, portId, lowC: hasPort && portId === (s.portId ?? null) ? s.lowC : null };
 }
 
 export function setupStep(s: SetupState): SetupStep {
