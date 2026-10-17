@@ -4,7 +4,7 @@ import { FEEDBACK_CHANNEL, FEEDBACK_CHANNELS, type Synth } from '../audio/synth.
 import { ChannelFilter, OctaveTracker, type InputEvent, type OctaveEvent } from '../input/normalize.ts';
 import type { CarriedNote, Chart } from '../midi/chart.ts';
 import {
-  createFx, emitBreak, emitCallout, emitDrop, emitHit, emitLevel, emitMilestone, emitMiss, emitSpark, emitStar, emitStreak, emitWrong, setCountdown, stepFx,
+  clearCallouts, createFx, emitBreak, emitCallout, emitDrop, emitHit, emitLevel, emitMilestone, emitMiss, emitSpark, emitStar, emitStreak, emitWrong, setCountdown, stepFx,
   type FxState,
 } from '../render/fx.ts';
 import { noteName } from '../render/layout.ts';
@@ -669,6 +669,8 @@ export class PlaySession {
     this.run = endPass(before, clean);
     view.passes = this.run.passes;
     const rate = runRate(this.run);
+    // One call-out says how the pass went: the streak and star words of its last notes go.
+    clearCallouts(this.fx);
     if (rate !== this.rate) {
       this.rate = rate;
       this.opts.clock.setRate(rate);
