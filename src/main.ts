@@ -12,6 +12,7 @@ import { PlaySession } from './game/session.ts';
 import { STUDENT_TRIAL_ID, studentTrialSettings, type TrialRate, type TrialSound } from './game/studentTrial.ts';
 import { KeyboardInput } from './input/keyboardInput.ts';
 import { MidiInput } from './input/midiInput.ts';
+import { updateKeyboardBanner } from './ui/keyboardBanner.ts';
 import type { InputEvent } from './input/normalize.ts';
 import {
   buildChart, chooseWindow, DIFFICULTY_LABEL, isDifficulty, offeredLevels, openingLevel, resolveLevel, splitNotes,
@@ -153,6 +154,7 @@ midi.onChange = () => {
   lowCByPort.clear(); // a reconnect may have reset the keyboard's octave buttons
   const id = midi.autoSelect(settings.midiPortId);
   toast(id ? `MIDI: ${midi.listPorts().find((p) => p.id === id)?.name ?? id}` : 'MIDI keyboard disconnected');
+  updateKeyboardBanner(midi);
 };
 keyboard.attach();
 
@@ -178,6 +180,7 @@ async function requestMidi(): Promise<void> {
       saveSettings(settings);
     }
   }
+  updateKeyboardBanner(midi);
 }
 
 function ensureAudio(): void {
