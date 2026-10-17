@@ -81,9 +81,11 @@ export type OctaveEvent = { type: 'reoffset'; delta: number } | { type: 'transpo
 
 /**
  * Tracks presses that are consistently off from the chart by an octave (or a
- * transposition). After `k` presses in a row with the same delta it reports:
+ * transposition). After `k` presses with the same delta it reports:
  * a multiple of 12 → 'reoffset' (the player bumped the octave button);
  * anything else → 'transposed' (the keyboard is transposed; re-run the gate).
+ * A hit or a different delta starts over; a stray key with nothing to compare
+ * (delta 0) does not, since a player who just lost the notes tries other keys.
  */
 export class OctaveTracker {
   private streakDelta = 0;
@@ -96,10 +98,11 @@ export class OctaveTracker {
    * @param delta   pending chart pitch minus played pitch when it did not match (0 if nothing was pending)
    */
   observe(matched: boolean, delta: number): OctaveEvent | null {
-    if (matched || delta === 0) {
+    if (matched) {
       this.streak = 0;
       return null;
     }
+    if (delta === 0) return null;
     if (delta === this.streakDelta) this.streak++;
     else {
       this.streakDelta = delta;
@@ -115,4 +118,10 @@ export class OctaveTracker {
   reset(): void {
     this.streak = 0;
   }
+}
+
+/** What the player is told after a re-offset; `delta` is chart pitch minus played pitch. */
+export function octaveShiftMessage(delta: number): string {
+  const n = Math.abs(delta) / 12;
+  return `Keyboard shifted ${delta < 0 ? 'up' : 'down'} ${n} octave${n === 1 ? '' : 's'}, we adjusted. Keep playing!`;
 }

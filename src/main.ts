@@ -12,7 +12,7 @@ import { PlaySession } from './game/session.ts';
 import { STUDENT_TRIAL_ID, studentTrialSettings, type TrialRate, type TrialSound } from './game/studentTrial.ts';
 import { KeyboardInput } from './input/keyboardInput.ts';
 import { MidiInput } from './input/midiInput.ts';
-import type { InputEvent } from './input/normalize.ts';
+import { octaveShiftMessage, type InputEvent } from './input/normalize.ts';
 import {
   buildChart, chooseWindow, DIFFICULTY_LABEL, isDifficulty, offeredLevels, openingLevel, resolveLevel, splitNotes,
   type Chart, type ChartOptions, type Difficulty, type Hand, type PitchWindow,
@@ -902,7 +902,7 @@ function play(): void {
   };
   s.onOctave = (ev) => {
     if (ev.type === 'reoffset') {
-      toast(`Octave adjusted (${ev.delta > 0 ? '+' : ''}${ev.delta / 12}). Keep playing.`);
+      toast(octaveShiftMessage(ev.delta), 'info', 6000);
       if (midi.selectedId) lowCByPort.set(midi.selectedId, window.low - s.octaveOffset);
     } else {
       toast('Your keyboard seems transposed. Check its transpose setting.', 'error');

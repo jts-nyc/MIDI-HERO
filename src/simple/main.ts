@@ -14,7 +14,7 @@ import { starCount } from '../game/results.ts';
 import { PlaySession } from '../game/session.ts';
 import { KeyboardInput } from '../input/keyboardInput.ts';
 import { MidiInput } from '../input/midiInput.ts';
-import type { InputEvent } from '../input/normalize.ts';
+import { octaveShiftMessage, type InputEvent } from '../input/normalize.ts';
 import { buildChart, chooseWindow, isDifficulty, offeredLevels, resolveLevel, splitNotes, type Difficulty, type PitchWindow } from '../midi/chart.ts';
 import { beatLines, parseSong, ticksToSeconds } from '../midi/parse.ts';
 import { buildParts, defaultPart } from '../midi/parts.ts';
@@ -292,7 +292,10 @@ async function startRun(entry: SimpleSong, level: SimpleLevel): Promise<void> {
   });
   if (relative && flow.input === 'midi' && checkC !== null) s.octaveOffset = window.low - checkC;
   s.onOctave = (ev) => {
-    if (ev.type === 'reoffset') toast('Octave lined up. Keep playing!');
+    if (ev.type !== 'reoffset') return;
+    toast(octaveShiftMessage(ev.delta), 6000);
+    // The check runs once per page load: the next song starts from the new shift, not the old one.
+    if (flow.input === 'midi') checkC = window.low - s.octaveOffset;
   };
   s.onFinished = (result) => {
     endEngine();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ChannelFilter, OctaveTracker, parseMessage, type InputEvent } from '../src/input/normalize.ts';
+import { ChannelFilter, OctaveTracker, octaveShiftMessage, parseMessage, type InputEvent } from '../src/input/normalize.ts';
 
 const msg = (bytes: number[], perfMs = 0) => parseMessage({ data: bytes, perfMs });
 
@@ -71,10 +71,27 @@ describe('OctaveTracker', () => {
     expect(t.observe(false, 12)).toBeNull();
   });
 
+  it('a stray key with nothing to compare does not reset the streak', () => {
+    const t = new OctaveTracker(3);
+    t.observe(false, -12);
+    t.observe(false, 0);
+    t.observe(false, -12);
+    t.observe(false, 0);
+    expect(t.observe(false, -12)).toEqual({ type: 'reoffset', delta: -12 });
+  });
+
   it('reports a transposition for a consistent non-octave delta', () => {
     const t = new OctaveTracker(3);
     t.observe(false, 5);
     t.observe(false, 5);
     expect(t.observe(false, 5)).toEqual({ type: 'transposed', delta: 5 });
+  });
+});
+
+describe('octaveShiftMessage', () => {
+  it('names the direction the keyboard moved, not the correction', () => {
+    expect(octaveShiftMessage(-12)).toBe('Keyboard shifted up 1 octave, we adjusted. Keep playing!');
+    expect(octaveShiftMessage(12)).toBe('Keyboard shifted down 1 octave, we adjusted. Keep playing!');
+    expect(octaveShiftMessage(-24)).toBe('Keyboard shifted up 2 octaves, we adjusted. Keep playing!');
   });
 });
