@@ -18,14 +18,15 @@ import {
   type Chart, type ChartOptions, type Difficulty, type Hand, type PitchWindow,
 } from './midi/chart.ts';
 import { buildPack, parsePackJson, sha256Hex, type PackSettings, type PackValidation } from './midi/pack.ts';
-import { beatLines, parseSong, ticksToSeconds } from './midi/parse.ts';
+import { beatLines, MidiParseError, parseSong, ticksToSeconds } from './midi/parse.ts';
+import { fetchSongLink } from './midi/songImport.ts';
 import { buildParts, defaultPart, notesOf } from './midi/parts.ts';
 import type { FeedbackSound } from './game/session.ts';
 import { noteName, displayRange } from './render/layout.ts';
 import { Renderer, type RenderState } from './render/renderer.ts';
 import { horizonSeconds, PerspectiveRenderer } from './render/highway3d.ts';
 import { feedbackFor } from './game/feedback.ts';
-import { bestKey, bestsForSong, deleteSong, getBest, listSongs, parseBestKey, putSong, recordBest, saveChoice, type BestScore } from './storage/db.ts';
+import { bestKey, bestsForSong, deleteSong, getBest, getSong, listSongs, parseBestKey, putSong, recordBest, saveChoice, type BestScore } from './storage/db.ts';
 import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
 import {
@@ -295,6 +296,7 @@ async function songBytes(lib: LibrarySong): Promise<Uint8Array> {
 
 async function importFiles(files: File[]): Promise<void> {
   let added = 0;
+  const songs: string[] = [];
   for (const file of files) {
     try {
       if (/\.json$/i.test(file.name)) {
@@ -303,20 +305,44 @@ async function importFiles(files: File[]): Promise<void> {
         added += await storePack(v);
         toast(`Imported pack "${v.pack.name}" (${v.songs.length} songs)`);
       } else {
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        parseSong(bytes); // validate
-        const id = await sha256Hex(bytes);
-        await putSong({ id, name: file.name.replace(/\.midi?$/i, ''), bytes, parts: [], addedAt: Date.now() });
+        songs.push(await storeMidi(new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.midi?$/i, '')));
         added++;
       }
     } catch (e) {
       toast(`${file.name}: ${e instanceof Error ? e.message : String(e)}`, 'error', 6000);
     }
   }
-  if (added) {
-    await loadLibrary();
-    songSelect();
+  if (!added) return;
+  await loadLibrary();
+  // One song dropped in opens straight away, in wait mode; packs and several files go to the list.
+  if (songs.length === 1 && added === 1) await openSong(songs[0]!, { wait: true });
+  else songSelect();
+}
+
+/**
+ * Keep a .mid file on this device (IndexedDB) and return its id. Nothing is uploaded. A song
+ * that is already here keeps its stored part choice.
+ */
+async function storeMidi(bytes: Uint8Array, name: string): Promise<string> {
+  parseSong(bytes); // validate
+  const id = await sha256Hex(bytes);
+  if (!(await getSong(id).catch(() => undefined))) await putSong({ id, name, bytes, parts: [], addedAt: Date.now() });
+  return id;
+}
+
+/** A pasted link: fetch it from the browser, keep it, open it. Returns the line to show when it didn't come in. */
+async function importLink(input: string): Promise<string | null> {
+  const got = await fetchSongLink(input);
+  if (!got.ok) return got.message;
+  let id: string;
+  try {
+    id = await storeMidi(got.bytes, got.name);
+  } catch (e) {
+    return e instanceof MidiParseError ? `That file isn't a song MIDI Hero can read: ${e.message}` : `Could not keep the song on this device: ${e instanceof Error ? e.message : String(e)}`;
   }
+  await loadLibrary();
+  await openSong(id, { wait: true });
+  return null;
 }
 
 /** Store a validated pack's songs in pack order, then apply its class settings. Returns the song count. */
@@ -402,6 +428,7 @@ function songSelect(): void {
     onPick: (id) => void openSong(id),
     onDelete: (id) => void deleteSong(id).then(loadLibrary).then(songSelect),
     onImport: (files) => void importFiles(files),
+    onImportLink: importLink,
     onExport: () =>
       showExportDialog({
         songs: library.map((l) => ({ id: l.id, title: l.title })),
@@ -547,7 +574,8 @@ function calibrate(onClose: () => void): void {
   });
 }
 
-async function openSong(id: string): Promise<void> {
+/** `wait`: a song just brought in opens on practice of the whole song with wait mode on. */
+async function openSong(id: string, opts: { wait?: boolean } = {}): Promise<void> {
   const lib = library.find((l) => l.id === id);
   if (!lib) return;
   try {
@@ -576,6 +604,7 @@ async function openSong(id: string): Promise<void> {
     }
     await loadStars();
     partPicker();
+    if (opts.wait) practicePicker(undefined, { wholeSongWait: true });
   } catch (e) {
     showError('Could not load song', e instanceof Error ? e.message : String(e), songSelect);
   }
@@ -703,8 +732,11 @@ function sectionsOfSelection(): { sections: PracticeSectionInfo[]; barTimes: num
   return { sections: practiceSections(barTimes, chart.duration, chart.notes), barTimes };
 }
 
-/** Practice mode: pick the sections to loop, then play them. `section` preselects the one starting there. */
-function practicePicker(sectionStart?: number): void {
+/**
+ * Practice mode: pick the sections to loop, then play them. `section` preselects the one starting
+ * there; `wholeSongWait` preselects every section with wait mode on (a song just imported).
+ */
+function practicePicker(sectionStart?: number, opening: { wholeSongWait?: boolean } = {}): void {
   if (!current) return;
   const found = sectionsOfSelection();
   if (!found || found.sections.length === 0) return;
@@ -718,15 +750,20 @@ function practicePicker(sectionStart?: number): void {
     from = Math.min(prev.from, last);
     to = Math.min(prev.to, last);
   }
+  if (opening.wholeSongWait) {
+    from = 0;
+    to = last;
+  }
   const { level } = levelsOfSelection();
   showPracticePicker({
     title: current.lib.title,
     level: DIFFICULTY_LABEL[level],
     sections,
     rates: RATES,
-    choice: { from, to, wait: settings.practiceWait, ladder: settings.practiceLadder, rate: prev?.rate ?? nearestRate(settings.rate) },
+    choice: { from, to, wait: opening.wholeSongWait || settings.practiceWait, ladder: settings.practiceLadder, rate: prev?.rate ?? nearestRate(settings.rate) },
     onStart: (choice) => {
-      settings.practiceWait = choice.wait;
+      // Wait mode preset for a new import is not the player's own default for other songs.
+      if (!opening.wholeSongWait) settings.practiceWait = choice.wait;
       settings.practiceLadder = choice.ladder;
       saveSettings(settings);
       void startPlay(null, choice);

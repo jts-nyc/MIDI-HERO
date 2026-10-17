@@ -36,6 +36,13 @@ npm run build
 
 Node 22.12 or newer. Vite 8, Vitest 4, TypeScript, `midi-file`; no other runtime dependencies.
 
+### Songs from outside the app
+
+Drop a `.mid` file anywhere on the song list, or paste a link to one into **Paste a link**. A link
+only works when its host lets other sites fetch the file (GitHub does); otherwise the app says to
+download the file and drop it in. Imported songs stay in that browser and are never uploaded.
+They open in practice with **Wait for me** on. See [docs/research/song-import.md](docs/research/song-import.md).
+
 ### Your own songs (local only)
 
 Drop `.mid` files into `local-songs/` and they appear in the song list under `npm run dev`.

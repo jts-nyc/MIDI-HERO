@@ -163,6 +163,8 @@ export interface SongSelectOptions {
   onPick: (id: string) => void;
   onDelete: (id: string) => void;
   onImport: (files: File[]) => void;
+  /** a pasted link to a .mid file; resolves to the line to show under the box, or null once the song is in */
+  onImportLink: (url: string) => Promise<string | null>;
   onExport: () => void;
   onSettings: () => void;
   onRetryMidi: (() => void) | null;
@@ -184,6 +186,11 @@ export function showSongSelect(o: SongSelectOptions): void {
     <div class="row" style="justify-content:space-between"><h1>MIDI Hero</h1><div class="row"><button id="import">Import .mid / pack</button><button id="export">Export class pack</button><button id="settings">Settings</button></div></div>
     <p>${esc(o.midiStatus)} ${o.onRetryMidi ? '<button id="retry-midi">Retry</button>' : ''}</p>
     <p>Drop <b>.mid</b> files or a <b>.midihero.json</b> pack anywhere on this page to add songs. Computer keyboard: <span class="kbd">Z</span>–<span class="kbd">M</span> / <span class="kbd">Q</span>–<span class="kbd">U</span> play notes, <span class="kbd">-</span>/<span class="kbd">=</span> shift octave.</p>
+    <form class="row link-import" id="link-form">
+      <input id="link" type="url" inputmode="url" placeholder="Paste a link to a .mid file" aria-label="Link to a .mid file" autocomplete="off" />
+      <button type="submit" id="link-go">Add song</button>
+    </form>
+    <p id="link-msg" class="link-msg" role="status" aria-live="polite"></p>
     ${loose.length ? `<h2>Class songs</h2><div class="list">${loose.map(row).join('')}</div>` : ''}
     ${packs.map(setlist).join('')}
     <h2>Built-in</h2><div class="list">${builtin.map(row).join('')}</div>
@@ -200,6 +207,21 @@ export function showSongSelect(o: SongSelectOptions): void {
   el.querySelector('#import')!.addEventListener('click', () => file.click());
   file.addEventListener('change', () => {
     if (file.files?.length) o.onImport([...file.files]);
+  });
+  const form = el.querySelector<HTMLFormElement>('#link-form')!;
+  const link = el.querySelector<HTMLInputElement>('#link')!;
+  const go = el.querySelector<HTMLButtonElement>('#link-go')!;
+  const msg = el.querySelector<HTMLElement>('#link-msg')!;
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!link.value.trim() || go.disabled) return;
+    go.disabled = true;
+    msg.textContent = 'Fetching…';
+    void o.onImportLink(link.value).then((line) => {
+      // A song that came in replaces this screen; a line means it stayed.
+      go.disabled = false;
+      msg.textContent = line ?? '';
+    });
   });
   el.querySelector('#export')!.addEventListener('click', o.onExport);
   el.querySelector('#settings')!.addEventListener('click', o.onSettings);
