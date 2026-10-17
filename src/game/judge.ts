@@ -199,6 +199,8 @@ export class Judge {
   private readonly great: number;
   private readonly good: number;
   private readonly miss: number;
+  /** the window half-widths in song seconds, after the preset and the rate */
+  readonly timingWindows: { readonly perfect: number; readonly great: number; readonly good: number; readonly miss: number };
   readonly events: JudgeEvent[] = [];
   readonly meter: PerformanceMeter;
 
@@ -214,6 +216,7 @@ export class Judge {
     this.great = config.great * scale;
     this.good = config.good * scale;
     this.miss = config.miss * scale;
+    this.timingWindows = { perfect: this.perfect, great: this.great, good: this.good, miss: this.miss };
     const notes = chart.notes;
     this.phraseLeft = chart.phrases.map((p) => p.last - p.first + 1);
     this.phraseSpoiled = chart.phrases.map(() => false);

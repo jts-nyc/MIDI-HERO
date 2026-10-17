@@ -10,6 +10,7 @@ import {
 import { noteName } from '../render/layout.ts';
 import { capTier, FULL_FEEDBACK, type FeedbackProfile } from './feedback.ts';
 import type { PracticeSection, PracticeView } from '../render/practice.ts';
+import { pushMark, type GuideState } from '../render/guides.ts';
 import type { Hud, KeyVisual, NoteVisual, Popup } from '../render/renderer.ts';
 import { theme } from '../render/renderer.ts';
 import { Judge, TIMING_SCALE, type Counts, type JudgeConfig, type Judgment } from './judge.ts';
@@ -59,11 +60,16 @@ export type FeedbackSound = 'chart' | 'press' | 'off';
  */
 export type TierText = 'all' | 'perfect' | 'off';
 
-/** The word a hit of this tier shows, or null to hit silently. */
-export function tierWord(judgment: Judgment, tierText: TierText): string | null {
+/**
+ * The word a hit of this tier shows, or null to hit silently. The 'late' tier is any hit just
+ * outside the Good window, either side: `delta` (press minus note time) says which, so a press
+ * that came too early says "Early", not "Late".
+ */
+export function tierWord(judgment: Judgment, tierText: TierText, delta = 0): string | null {
   if (judgment === 'miss') return JUDGMENT_LABEL.miss;
-  if (tierText === 'all') return JUDGMENT_LABEL[judgment];
-  if (tierText === 'perfect' && (judgment === 'perfect' || judgment === 'late')) return JUDGMENT_LABEL[judgment];
+  const label = judgment === 'late' && delta < 0 ? 'Early' : JUDGMENT_LABEL[judgment];
+  if (tierText === 'all') return label;
+  if (tierText === 'perfect' && (judgment === 'perfect' || judgment === 'late')) return label;
   return null;
 }
 
@@ -116,6 +122,8 @@ export interface SessionOptions {
   click?: (accent: boolean, when: number) => void;
   /** a short cue for a game moment: star power, a milestone, a level-up, a long streak broken (audio/sfx.ts) */
   cue?: (cue: SfxCue) => void;
+  /** timing guides on the highway: strike zone, landing pads, early/late (render/guides.ts); default off */
+  timingGuides?: boolean;
 }
 
 export interface PlayResult {
@@ -167,6 +175,8 @@ export class PlaySession {
   readonly popups: Popup[] = [];
   /** effects and meters for the renderer */
   readonly fx: FxState = createFx();
+  /** timing guides for the renderer: the judge's windows and the last hits; undefined when off */
+  readonly guides: GuideState | undefined;
   readonly profile: FeedbackProfile;
   readonly filter = new ChannelFilter();
   readonly tracker = new OctaveTracker(3);
@@ -216,6 +226,10 @@ export class PlaySession {
       opts.chart.notes.forEach((n, i) => n.star && this.starNotes.push(i));
     }
     this.judge = new Judge(opts.chart, opts.judgeConfig, this.rate);
+    if (opts.timingGuides) {
+      this.guides = { perfect: 0, great: 0, good: 0, miss: 0, marks: [] };
+      this.syncGuides();
+    }
     this.fx.enabled = opts.effects ?? true;
     this.fx.meters.canFail = (opts.judgeConfig.failAt ?? null) !== null;
     this.syncMeters();
@@ -350,7 +364,8 @@ export class PlaySession {
         : { state: 'hit', hitTime: this.now(), judgment: result.judgment };
       this.keyVisuals.set(pitch, { kind: result.judgment, since: t });
       // Wait mode has no timing judgment: a hit is a hit, shown by its particles alone.
-      const word = tierWord(result.judgment, this.opts.practice?.wait ? 'off' : capTier(this.opts.tierText ?? 'perfect', this.profile));
+      const word = tierWord(result.judgment, this.opts.practice?.wait ? 'off' : capTier(this.opts.tierText ?? 'perfect', this.profile), result.delta);
+      if (this.guides && !this.opts.practice?.wait) pushMark(this.guides.marks, { pitch, delta: result.delta, time: this.now() });
       if (word && (result.judgment !== 'miss' || this.profile.missWord)) {
         this.popups.push({ text: word, pitch, time: this.now(), color: JUDGMENT_COLOR[result.judgment] });
       }
@@ -532,6 +547,16 @@ export class PlaySession {
     }
   }
 
+  /** The guides show the judge's windows, which move with the practice ladder's rate. */
+  private syncGuides(): void {
+    const g = this.guides!;
+    const w = this.judge.timingWindows;
+    g.perfect = w.perfect;
+    g.great = w.great;
+    g.good = w.good;
+    g.miss = w.miss;
+  }
+
   private syncMeters(): void {
     const j = this.judge;
     const m = this.fx.meters;
@@ -668,6 +693,10 @@ export class PlaySession {
     } else emitCallout(this.fx, clean ? 'CLEAN PASS!' : `PASS ${this.run.passes}`, clean ? 'star' : 'milestone', 1.2);
     for (const i of this.starNotes) this.chart.notes[i]!.star = true; // a phrase spoiled last pass is a star phrase again
     this.judge = new Judge(this.chart, this.opts.judgeConfig, this.rate);
+    if (this.guides) {
+      this.guides.marks.length = 0;
+      this.syncGuides();
+    }
     for (let i = 0; i < this.noteVisuals.length; i++) {
       const v = this.noteVisuals[i]!;
       v.state = 'pending';

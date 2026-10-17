@@ -15,6 +15,7 @@ fx: FxState   // effects and meters, filled by the session every frame (src/rend
 feedback?: FeedbackProfile   // how much to show besides the notes (src/game/feedback.ts); absent = everything
 reduceMotion?: boolean       // keep still: no swells, drifts, sway or beat pulses; absent = follow prefers-reduced-motion
 lowFx?: boolean              // the frame-time fallback is at its lowest level: skip venue, charge light, rails and fog
+guides?: GuideState          // timing guides (src/render/guides.ts): judge windows in song seconds and the last hits; absent = off
 ```
 
 `time` is the song time of the frame's `requestAnimationFrame` timestamp, not of the moment the
@@ -24,6 +25,15 @@ Most of the profile is applied by the session before the state reaches the rende
 streak counter, milestone, glow or shatter when the profile says not to, and `fx.intensity` scales
 the particle bursts). A renderer reads only `feedback.sway`: false keeps the perspective highway
 still on bar lines.
+
+## Timing guides
+
+When `guides` is set (Settings → Timing guides, `?guides=1`), a renderer:
+- draws beat lines at `GUIDES.beatAlpha` and bar lines at `GUIDES.barAlpha`, `GUIDES.barWidth` px, and never sways;
+- draws the strike zone above the hit line (`TimingGuides.drawZone`), sized by `perfect` and `good`;
+- holds a pending note whose onset has passed on the hit line (`landedRow`) and lights its lane's pad (`note`, then `drawPads`);
+- draws the early/late tags and the timing meter from `marks`.
+Background and reasoning: docs/research/highway-legibility.md.
 
 ## Perspective
 

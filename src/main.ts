@@ -878,6 +878,7 @@ function play(): void {
     cue,
     tierText: runSettings.tierText,
     feedback: feedbackProfile,
+    timingGuides: runSettings.guides,
     hint: trial ? `First Lights · ${trialRate * 100} BPM · C4, E4, G4` : relative ? PlaySession.keysHint(window) : partName,
     ...(loop && choice ? {
       practice: { loop, sections, current: from, label: loopLabel(sections, from, to), wait: choice.wait, ladder: choice.ladder },
@@ -961,6 +962,7 @@ function play(): void {
     feedback: feedbackProfile,
     reduceMotion: !effectsOn,
     ...(s.practice ? { practice: s.practice } : {}),
+    ...(s.guides ? { guides: s.guides } : {}),
   };
   runEffects = effectsOn;
   governor.reset();
