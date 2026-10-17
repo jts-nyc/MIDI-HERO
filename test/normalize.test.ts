@@ -71,13 +71,21 @@ describe('OctaveTracker', () => {
     expect(t.observe(false, 12)).toBeNull();
   });
 
-  it('a stray key with nothing to compare does not reset the streak', () => {
+  it('a key pressed while nothing is due does not reset the streak', () => {
     const t = new OctaveTracker(3);
     t.observe(false, -12);
-    t.observe(false, 0);
+    t.observe(false, null);
+    t.observe(false, -12);
+    t.observe(false, null);
+    expect(t.observe(false, -12)).toEqual({ type: 'reoffset', delta: -12 });
+  });
+
+  it('an unrelated wrong key while a note is due resets the streak', () => {
+    const t = new OctaveTracker(3);
+    t.observe(false, -12);
     t.observe(false, -12);
     t.observe(false, 0);
-    expect(t.observe(false, -12)).toEqual({ type: 'reoffset', delta: -12 });
+    expect(t.observe(false, -12)).toBeNull();
   });
 
   it('reports a transposition for a consistent non-octave delta', () => {

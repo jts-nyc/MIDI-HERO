@@ -427,16 +427,17 @@ export class PlaySession {
     this.sounding.length = kept;
   }
 
-  /** If a pending note of the same pitch class is due now, its pitch minus the played pitch; else 0. */
-  private pendingOctaveDelta(pitch: number, t: number): number {
+  /** If a pending note of the same pitch class is due now, its pitch minus the played pitch; else 0, or null when nothing is due. */
+  private pendingOctaveDelta(pitch: number, t: number): number | null {
     const notes = this.chart.notes;
-    let best = 0;
+    let best: number | null = null;
     let bestAbs = Infinity;
     for (let i = 0; i < notes.length; i++) {
       const n = notes[i]!;
       if (n.time < t - 0.3) continue;
       if (n.time > t + 0.3) break;
       if (this.judge.states[i] !== 'pending') continue;
+      best ??= 0;
       if (((n.pitch - pitch) % 12 + 12) % 12 !== 0 || n.pitch === pitch) continue;
       const d = Math.abs(n.time - t);
       if (d < bestAbs) {

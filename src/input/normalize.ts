@@ -84,8 +84,9 @@ export type OctaveEvent = { type: 'reoffset'; delta: number } | { type: 'transpo
  * transposition). After `k` presses with the same delta it reports:
  * a multiple of 12 → 'reoffset' (the player bumped the octave button);
  * anything else → 'transposed' (the keyboard is transposed; re-run the gate).
- * A hit or a different delta starts over; a stray key with nothing to compare
- * (delta 0) does not, since a player who just lost the notes tries other keys.
+ * A hit, a different delta, or a wrong key while a note is due (delta 0) starts
+ * over; a key pressed while nothing is due (delta null) is ignored, since a
+ * player who just lost the notes tries keys between them.
  */
 export class OctaveTracker {
   private streakDelta = 0;
@@ -95,14 +96,15 @@ export class OctaveTracker {
 
   /**
    * @param matched true when the press hit a chart note
-   * @param delta   pending chart pitch minus played pitch when it did not match (0 if nothing was pending)
+   * @param delta   pending chart pitch minus played pitch when it did not match (0 if no pending note
+   *                is an octave off the press; null if nothing was pending)
    */
-  observe(matched: boolean, delta: number): OctaveEvent | null {
-    if (matched) {
+  observe(matched: boolean, delta: number | null): OctaveEvent | null {
+    if (!matched && delta === null) return null;
+    if (matched || !delta) {
       this.streak = 0;
       return null;
     }
-    if (delta === 0) return null;
     if (delta === this.streakDelta) this.streak++;
     else {
       this.streakDelta = delta;
