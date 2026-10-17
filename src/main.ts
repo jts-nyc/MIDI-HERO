@@ -1081,7 +1081,8 @@ function endTutorial(firstSong: boolean): void {
   synth?.allNotesOff(0);
   if (firstSong && library.some((l) => l.id === FIRST_SONG_ID)) {
     void openSong(FIRST_SONG_ID, false).then(() => {
-      if (!current) return;
+      // a song that would not load leaves its error on screen, and `current` on the tutorial song
+      if (current?.lib.id !== FIRST_SONG_ID) return;
       current.picker.mode = 'learn';
       void startPlay(null);
     });
