@@ -865,6 +865,7 @@ function play(): void {
     }
     // In practice the session counts in before every pass itself.
     scheduler = new BackingScheduler(chart.backing, backingSynth, clock, {
+      drumChannels: song.drumChannels,
       mutedParts: muted,
       countIn: loop ? null : { beats: sig.numerator, beatSeconds: barSeconds / sig.numerator },
     });

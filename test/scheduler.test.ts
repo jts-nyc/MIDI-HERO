@@ -137,6 +137,29 @@ describe('BackingScheduler', () => {
     expect(synth.calls.filter((c) => c.method === 'noteOn').map((c) => c.args[1]).sort()).toEqual([48, 60, 62]);
   });
 
+  /** Play to `at`, then stop and restart the way a wait release does; returns the calls after the restart. */
+  function waitAt(h: ReturnType<typeof harness>, at: number) {
+    h.clock.start(0);
+    h.sched.start();
+    h.t.perfMs = at * 1000;
+    h.sched.tick();
+    h.clock.pause();
+    h.sched.stop();
+    h.synth.calls.length = 0;
+    h.clock.resume();
+    h.sched.start({ resound: true });
+    return h.synth.calls;
+  }
+
+  it('after a wait, does not strike again drum hits on GS/XG rhythm channels other than 10', () => {
+    const h = harness([
+      ev(0.9, 'on', { pitch: 36, channel: 10 }), ev(1.5, 'off', { pitch: 36, channel: 10 }), // a kick on a rhythm part
+      ev(0.9, 'on', { pitch: 48 }), ev(1.5, 'off', { pitch: 48 }),
+    ].sort((a, b) => a.time - b.time), { drumChannels: [10] });
+    const ons = waitAt(h, 1).filter((c) => c.method === 'noteOn');
+    expect(ons.map((c) => [c.args[0], c.args[1]])).toEqual([[0, 48]]);
+  });
+
   it('a plain start (pause and resume) does not strike anything again', () => {
     const { t, clock, synth, sched } = harness([ev(0, 'on', { pitch: 48 }), ev(4, 'off', { pitch: 48 })]);
     clock.start(0);

@@ -273,7 +273,7 @@ async function startRun(entry: SimpleSong, level: SimpleLevel): Promise<void> {
     backingSynth.setDrumChannels(song.drumChannels);
     backingSynth.setChannelGroupGain('drums', 1);
     backingSynth.setChannelGroupGain('pads', 1);
-    scheduler = new BackingScheduler(chart.backing, backingSynth, clock, { countIn: { beats: sig.numerator, beatSeconds: barSeconds / sig.numerator } });
+    scheduler = new BackingScheduler(chart.backing, backingSynth, clock, { countIn: { beats: sig.numerator, beatSeconds: barSeconds / sig.numerator }, drumChannels: song.drumChannels });
   }
   const s = new PlaySession({
     chart, clock, judgeConfig, rate: settings.rate, inputOffsetMs: settings.inputOffsetMs,

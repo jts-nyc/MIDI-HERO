@@ -9,6 +9,8 @@ export interface SchedulerOptions {
   mutedParts?: Set<string>;
   /** count-in: `beats` clicks, one every `beatSeconds`, ending at song time 0 */
   countIn?: { beats: number; beatSeconds: number } | null;
+  /** rhythm channels besides 9 (GS/XG), as in `SongData.drumChannels` */
+  drumChannels?: number[];
   setIntervalFn?: (fn: () => void, ms: number) => unknown;
   clearIntervalFn?: (id: unknown) => void;
 }
@@ -29,6 +31,7 @@ export class BackingScheduler {
   private readonly intervalMs: number;
   private readonly lookahead: number;
   private readonly muted: Set<string>;
+  private readonly drums: Set<number>;
   private readonly setIntervalFn: (fn: () => void, ms: number) => unknown;
   private readonly clearIntervalFn: (id: unknown) => void;
 
@@ -36,6 +39,7 @@ export class BackingScheduler {
     this.intervalMs = opts.intervalMs ?? 25;
     this.lookahead = opts.lookaheadSeconds ?? 0.12;
     this.muted = opts.mutedParts ?? new Set();
+    this.drums = new Set([CLICK_CHANNEL, ...(opts.drumChannels ?? [])]);
     this.setIntervalFn = opts.setIntervalFn ?? ((fn, ms) => setInterval(fn, ms));
     this.clearIntervalFn = opts.clearIntervalFn ?? ((id) => clearInterval(id as number));
     this.events = opts.countIn ? [...countInEvents(opts.countIn), ...events] : events;
@@ -102,7 +106,7 @@ export class BackingScheduler {
     const when = this.clock.songTimeToContextTime(this.clock.now());
     for (const e of open.values()) {
       // a drum hit is over long before its note-off, and a count-in click is never struck twice
-      if (e.channel === CLICK_CHANNEL || e.partKey === 'count-in' || this.muted.has(e.partKey)) continue;
+      if (this.drums.has(e.channel) || e.partKey === 'count-in' || this.muted.has(e.partKey)) continue;
       this.synth.noteOn(e.channel, e.pitch, e.velocity, when);
     }
   }
