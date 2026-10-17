@@ -1224,7 +1224,13 @@ function runSetup(onDone: (kb: KeyboardSize, soundSelf: boolean) => void): void 
       if (!verdict.ok) return;
       counted = true;
       if (midi.selectedId) lowCByPort.set(midi.selectedId, ev.pitch);
-      setTimeout(() => { st = { ...st, lowC: ev.pitch }; render(); }, GOT_IT_MS);
+      const port = midi.selectedId;
+      setTimeout(() => {
+        // Unplugged or swapped during the pause: that C no longer counts.
+        if (setupStep(st) !== 'press' || midi.selectedId !== port) return;
+        st = { ...st, lowC: ev.pitch };
+        render();
+      }, GOT_IT_MS);
     };
   };
   render();
