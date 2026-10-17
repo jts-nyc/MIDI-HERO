@@ -1,5 +1,5 @@
 import { parseMidi, type MidiEvent } from 'midi-file';
-import type { ControlEvent, ProgramChange, SongData, SongNote, TempoEntry, TimeSigEntry } from '../types.ts';
+import type { ControlEvent, ProgramChange, SongData, SongMarker, SongNote, TempoEntry, TimeSigEntry } from '../types.ts';
 
 export class MidiParseError extends Error {}
 
@@ -96,6 +96,7 @@ export function parseSong(bytes: Uint8Array): SongData {
 
   const rawTempos: { tick: number; usPerBeat: number }[] = [];
   const rawSigs: { tick: number; numerator: number; denominator: number }[] = [];
+  const rawMarkers: { tick: number; text: string }[] = [];
   const trackNames: string[] = [];
   const trackEndTicks: number[] = [];
   const drumSet = new Set<number>();
@@ -121,6 +122,11 @@ export function parseSong(bytes: Uint8Array): SongData {
         case 'timeSignature':
           rawSigs.push({ tick, numerator: ev.numerator, denominator: ev.denominator });
           break;
+        case 'marker': {
+          const text = ev.text.trim();
+          if (text) rawMarkers.push({ tick, text });
+          break;
+        }
         case 'sysEx': {
           const gs = gsRhythmChannel(ev.data);
           if (gs) {
@@ -189,6 +195,7 @@ export function parseSong(bytes: Uint8Array): SongData {
   }
   for (const p of programs) p.time = toSec(p.tick);
   for (const c of controls) c.time = toSec(c.tick);
+  const markers: SongMarker[] = rawMarkers.sort((a, b) => a.tick - b.tick).map((m) => ({ time: toSec(m.tick), text: m.text }));
 
   notes.sort((a, b) => a.time - b.time || a.pitch - b.pitch);
   programs.sort((a, b) => a.tick - b.tick);
@@ -217,6 +224,7 @@ export function parseSong(bytes: Uint8Array): SongData {
     controls,
     drumChannels: [...drumSet].sort((a, b) => a - b),
     lastNoteOffTime,
+    markers,
   };
 }
 

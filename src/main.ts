@@ -25,7 +25,7 @@ import { noteName, displayRange } from './render/layout.ts';
 import { Renderer, type RenderState } from './render/renderer.ts';
 import { horizonSeconds, PerspectiveRenderer } from './render/highway3d.ts';
 import { feedbackFor } from './game/feedback.ts';
-import { bestKey, bestsForSong, deleteSong, getBest, listSongs, parseBestKey, putSong, recordBest, saveChoice, type BestScore } from './storage/db.ts';
+import { bestKey, bestsForSong, deleteSong, getBest, listSongs, parseBestKey, putSong, recordBest, saveChoice, selectionKey, type BestScore } from './storage/db.ts';
 import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
 import {
@@ -91,8 +91,8 @@ interface Current {
   song: SongData;
   parts: Part[];
   picker: PartPickerState;
-  /** stars per level on this machine, when the song's pack unlocks levels in order */
-  stars: Map<string, number> | null;
+  /** the song's bests on this machine, when its pack unlocks levels in order (stars per level of a selection) */
+  levelBests: LevelBest[] | null;
 }
 
 const base = import.meta.env.BASE_URL;
@@ -459,15 +459,15 @@ async function levelBests(songId: string): Promise<LevelBest[]> {
   const bests: BestScore[] = await bestsForSong(songId);
   return bests.map((b) => {
     const k = parseBestKey(b.key);
-    return { accuracy: b.accuracy, rate: k.rate, level: b.level ?? k.level ?? TOP_LEVEL };
+    return { accuracy: b.accuracy, rate: k.rate, level: b.level ?? k.level ?? TOP_LEVEL, selection: k.selection };
   });
 }
 
-/** Stars per level of the current song, when its pack unlocks levels in order. */
+/** The current song's bests, for its stars per level, when its pack unlocks levels in order. */
 async function loadStars(): Promise<void> {
   if (!current) return;
   const c = current;
-  c.stars = c.lib.unlocks ? starsByLevel(await levelBests(c.lib.id).catch(() => [])) : null;
+  c.levelBests = c.lib.unlocks ? await levelBests(c.lib.id).catch(() => []) : null;
 }
 
 function settingsScreen(onClose: () => void): void {
@@ -569,7 +569,7 @@ async function openSong(id: string): Promise<void> {
         selected: new Set(selected), split: lib.split ?? 60, hands: lib.hands ?? ['L', 'R'], timing: lib.timingPreset ?? settings.timing, guideTrack: false,
         difficulty: urlDifficulty ?? lib.difficulty ?? DEFAULT_DIFFICULTY,
       },
-      stars: null,
+      levelBests: null,
     };
     if (lib.id === STUDENT_TRIAL_ID) {
       current.picker = { selected: new Set(['1:0']), split: 60, hands: ['L', 'R'], timing: 'normal', guideTrack: false, difficulty: 'easy' };
@@ -617,8 +617,10 @@ function levelsOfSelection(): { offered: ReturnType<typeof offeredLevels>; level
   const sel = selectionOptions();
   const offered = sel && current ? offeredLevels(splitNotes(current.song, sel).player, current.song) : [];
   const names = offered.map((l) => l.level);
-  // A pack that unlocks levels in order offers the next one once the one below has its stars.
-  const open = unlockedLevels(names, current?.stars ?? new Map(), !!current?.lib.unlocks);
+  // A pack that unlocks levels in order offers the next one once the one below has its stars,
+  // earned on these parts: another part's levels are its own.
+  const stars = sel && current?.levelBests ? starsByLevel(current.levelBests, selectionKey(sel.parts, sel.split)) : new Map<string, number>();
+  const open = unlockedLevels(names, stars, !!current?.lib.unlocks);
   const level = resolveLevel(current?.picker.difficulty ?? DEFAULT_DIFFICULTY, open);
   return { offered, level, keyLevel: keyLevelOf(level, names).keyLevel, locked: names.filter((n) => !open.includes(n)) };
 }
@@ -700,7 +702,7 @@ function sectionsOfSelection(): { sections: PracticeSectionInfo[]; barTimes: num
   const { level } = levelsOfSelection();
   const chart = buildChart(current.song, { parts: sel.parts, split: sel.split, hands: sel.hands, difficulty: level });
   const barTimes = beatLines(current.song, chart.duration).filter((l) => l.isBar).map((l) => l.time);
-  return { sections: practiceSections(barTimes, chart.duration, chart.notes), barTimes };
+  return { sections: practiceSections(barTimes, chart.duration, chart.notes, current.song.markers), barTimes };
 }
 
 /** Practice mode: pick the sections to loop, then play them. `section` preselects the one starting there. */
@@ -816,7 +818,7 @@ function play(): void {
   const lines = beatLines(song, fullChart.duration);
   const barTimes = lines.filter((l) => l.isBar).map((l) => l.time);
   // Practice mode: the chart is cut to the loop; the band, the beat lines and the display range stay the song's.
-  const sections = choice ? practiceSections(barTimes, fullChart.duration, fullChart.notes) : [];
+  const sections = choice ? practiceSections(barTimes, fullChart.duration, fullChart.notes, song.markers) : [];
   const from = choice ? Math.min(choice.from, sections.length - 1) : 0;
   const to = choice ? Math.min(choice.to, sections.length - 1) : 0;
   const loop = choice && sections.length ? loopOf(sections, from, to) : null;
@@ -863,6 +865,7 @@ function play(): void {
     }
     // In practice the session counts in before every pass itself.
     scheduler = new BackingScheduler(chart.backing, backingSynth, clock, {
+      drumChannels: song.drumChannels,
       mutedParts: muted,
       countIn: loop ? null : { beats: sig.numerator, beatSeconds: barSeconds / sig.numerator },
     });
@@ -874,6 +877,7 @@ function play(): void {
     relative, visibleSeconds, barSeconds, autoplay, countInBeats: sig.numerator,
     steadyBacking: trial, finishAtSongEnd: trial, disableStarPower: trial,
     barTimes,
+    markers: song.markers,
     effects: effectsOn,
     cue,
     tierText: runSettings.tierText,
@@ -895,10 +899,11 @@ function play(): void {
     if (hudEl) setPracticeRate(hudEl, s.rate);
   };
   s.onWait = (waiting) => {
-    // Wait mode: the band is silent while the song is held, and picks up where it left off.
+    // Wait mode: the band is silent while the song is held, and picks up where it left off,
+    // with the notes that were sounding at the held onset (those on it included) struck again.
     if (!scheduler || s.status !== 'playing') return;
     if (waiting) scheduler.stop();
-    else scheduler.start();
+    else scheduler.start({ resound: true });
   };
   s.onOctave = (ev) => {
     if (ev.type === 'reoffset') {

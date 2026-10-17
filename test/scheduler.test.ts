@@ -105,4 +105,137 @@ describe('BackingScheduler', () => {
     sched.tick();
     expect(synth.calls.filter((c) => c.method === 'noteOn')).toHaveLength(1);
   });
+
+  // Round 3: wait mode holds the clock just past an onset (by the input offset) and stops the band;
+  // the band's notes on that onset, and longer ones still sounding, used to stay silent after it.
+  it('after a wait, strikes again the band notes sounding at the held time, and only those', () => {
+    const { t, clock, synth, sched } = harness([
+      ev(0, 'on', { pitch: 48 }), ev(4, 'off', { pitch: 48 }), // a long bass note across the wait
+      ev(1, 'on', { pitch: 60 }), ev(1.5, 'off', { pitch: 60 }), // on the held onset
+      ev(0.5, 'on', { pitch: 55 }), ev(0.8, 'off', { pitch: 55 }), // over before it
+      ev(1, 'on', { pitch: 36, channel: 9 }), ev(1.1, 'off', { pitch: 36, channel: 9 }), // a drum hit
+      ev(2, 'on', { pitch: 62 }), ev(2.5, 'off', { pitch: 62 }),
+    ].sort((a, b) => a.time - b.time));
+    clock.start(0);
+    sched.start();
+    t.perfMs = 1040;
+    sched.tick();
+    // the gate: the note at 1 s is held at 1.04 (a 40 ms input offset)
+    clock.seek(1.04);
+    clock.pause();
+    sched.stop();
+    synth.calls.length = 0;
+    t.perfMs = 9000;
+    clock.resume();
+    sched.start({ resound: true });
+    const ons = synth.calls.filter((c) => c.method === 'noteOn');
+    expect(ons.map((c) => c.args[1]).sort()).toEqual([48, 60]);
+    expect(ons.every((c) => Math.abs((c.args[3] as number) - 1.04) < 1e-6)).toBe(true);
+    // then on as usual, nothing twice
+    t.perfMs = 9000 + 1000;
+    sched.tick();
+    expect(synth.calls.filter((c) => c.method === 'noteOn').map((c) => c.args[1]).sort()).toEqual([48, 60, 62]);
+  });
+
+  /** Play to `at`, then stop and restart the way a wait release does; returns the calls after the restart. */
+  function waitAt(h: ReturnType<typeof harness>, at: number) {
+    h.clock.start(0);
+    h.sched.start();
+    h.t.perfMs = at * 1000;
+    h.sched.tick();
+    h.clock.pause();
+    h.sched.stop();
+    h.synth.calls.length = 0;
+    h.clock.resume();
+    h.sched.start({ resound: true });
+    return h.synth.calls;
+  }
+
+  it('after a wait, does not strike again drum hits on GS/XG rhythm channels other than 10', () => {
+    const h = harness([
+      ev(0.9, 'on', { pitch: 36, channel: 10 }), ev(1.5, 'off', { pitch: 36, channel: 10 }), // a kick on a rhythm part
+      ev(0.9, 'on', { pitch: 48 }), ev(1.5, 'off', { pitch: 48 }),
+    ].sort((a, b) => a.time - b.time), { drumChannels: [10] });
+    const ons = waitAt(h, 1).filter((c) => c.method === 'noteOn');
+    expect(ons.map((c) => [c.args[0], c.args[1]])).toEqual([[0, 48]]);
+  });
+
+  it('after a wait, strikes again the notes the sustain pedal still holds, and the pedal ends them', () => {
+    const h = harness([
+      ev(0, 'cc', { controller: 64, value: 127, pitch: -1 }),
+      ev(0.2, 'on', { pitch: 48 }), ev(0.5, 'off', { pitch: 48 }), // key up, but the pedal holds it
+      ev(0.3, 'cc', { channel: 1, controller: 64, value: 127, pitch: -1 }),
+      ev(0.4, 'cc', { channel: 1, controller: 64, value: 0, pitch: -1 }),
+      ev(0.4, 'on', { channel: 1, pitch: 50 }), ev(0.6, 'off', { channel: 1, pitch: 50 }), // pedal up on channel 1: over
+      ev(2, 'cc', { controller: 64, value: 0, pitch: -1 }),
+    ].sort((a, b) => a.time - b.time));
+    const calls = waitAt(h, 1);
+    const ons = calls.filter((c) => c.method === 'noteOn');
+    expect(ons.map((c) => [c.args[0], c.args[1]])).toEqual([[0, 48]]);
+    // the pedal is down again and the key is up, so the release at 2 s ends the note
+    const i = calls.findIndex((c) => c.method === 'noteOn');
+    expect(calls.slice(0, i).some((c) => c.method === 'control' && c.args[0] === 0 && c.args[1] === 64 && (c.args[2] as number) >= 64)).toBe(true);
+    expect(calls.slice(i).some((c) => c.method === 'noteOff' && c.args[0] === 0 && c.args[1] === 48)).toBe(true);
+  });
+
+  it('after a wait, does not strike again notes that CC123 or CC120 ended', () => {
+    const h = harness([
+      ev(0.2, 'on', { pitch: 48 }), ev(3, 'off', { pitch: 48 }),
+      ev(0.2, 'on', { channel: 1, pitch: 50 }), ev(3, 'off', { channel: 1, pitch: 50 }),
+      ev(0.2, 'on', { channel: 2, pitch: 52 }), ev(3, 'off', { channel: 2, pitch: 52 }),
+      ev(0.5, 'cc', { controller: 123, value: 0, pitch: -1 }),
+      ev(0.5, 'cc', { channel: 1, controller: 120, value: 0, pitch: -1 }),
+    ].sort((a, b) => a.time - b.time));
+    const ons = waitAt(h, 1).filter((c) => c.method === 'noteOn');
+    expect(ons.map((c) => [c.args[0], c.args[1]])).toEqual([[2, 52]]);
+  });
+
+  it('after a wait, strikes a note again with the program it started with, then restores the channel\'s', () => {
+    const h = harness([
+      ev(0, 'program', { value: 0, pitch: -1 }),
+      ev(0.2, 'on', { pitch: 48 }), ev(3, 'off', { pitch: 48 }), // a piano note across a change to strings
+      ev(0.5, 'program', { value: 48, pitch: -1 }),
+      ev(0.6, 'on', { pitch: 55 }), ev(3, 'off', { pitch: 55 }),
+    ].sort((a, b) => a.time - b.time));
+    const calls = waitAt(h, 1).filter((c) => c.method === 'program' || c.method === 'noteOn');
+    const seq = calls.map((c) => (c.method === 'program' ? `p${c.args[1]}` : `on${c.args[1]}`));
+    // each note sounds under its own program, and the channel ends on the current one
+    const programAt = (i: number) => { for (let j = i; j >= 0; j--) if (seq[j]!.startsWith('p')) return seq[j]; return undefined; };
+    expect(programAt(seq.indexOf('on48'))).toBe('p0');
+    expect(programAt(seq.indexOf('on55'))).toBe('p48');
+    expect(seq.filter((x) => x.startsWith('p')).at(-1)).toBe('p48');
+  });
+
+  it('after a wait, strikes a default-program note with program 0 even if a change in the lookahead already reached the synth', () => {
+    const h = harness([
+      ev(0.2, 'on', { pitch: 48 }), ev(3, 'off', { pitch: 48 }), // no program change before it: program 0
+      ev(1.05, 'program', { value: 48, pitch: -1 }), // inside the lookahead at the wait
+    ]);
+    const calls = waitAt(h, 1);
+    const i = calls.findIndex((c) => c.method === 'noteOn');
+    const before = calls.slice(0, i).filter((c) => c.method === 'program' && c.args[0] === 0);
+    expect(before.at(-1)?.args[1]).toBe(0);
+  });
+
+  it('after a wait, does not strike again a note another track on its channel and pitch ended', () => {
+    const h = harness([
+      ev(0.2, 'on', { pitch: 48, partKey: '1:0' }), ev(3, 'off', { pitch: 48, partKey: '1:0' }),
+      ev(0.4, 'on', { pitch: 48, partKey: '2:0', track: 2 }), ev(0.6, 'off', { pitch: 48, partKey: '2:0', track: 2 }), // the synth's one voice ends here
+    ].sort((x, y) => x.time - y.time));
+    expect(waitAt(h, 1).filter((c) => c.method === 'noteOn')).toHaveLength(0);
+  });
+
+  it('a plain start (pause and resume) does not strike anything again', () => {
+    const { t, clock, synth, sched } = harness([ev(0, 'on', { pitch: 48 }), ev(4, 'off', { pitch: 48 })]);
+    clock.start(0);
+    sched.start();
+    t.perfMs = 500;
+    sched.tick();
+    clock.pause();
+    sched.stop();
+    synth.calls.length = 0;
+    clock.resume();
+    sched.start();
+    expect(synth.calls.filter((c) => c.method === 'noteOn')).toHaveLength(0);
+  });
 });

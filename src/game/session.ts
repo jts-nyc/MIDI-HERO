@@ -4,7 +4,7 @@ import { FEEDBACK_CHANNEL, FEEDBACK_CHANNELS, type Synth } from '../audio/synth.
 import { ChannelFilter, OctaveTracker, type InputEvent, type OctaveEvent } from '../input/normalize.ts';
 import type { CarriedNote, Chart } from '../midi/chart.ts';
 import {
-  createFx, emitBreak, emitCallout, emitDrop, emitHit, emitLevel, emitMilestone, emitMiss, emitSpark, emitStar, emitStreak, emitWrong, setCountdown, stepFx,
+  clearCallouts, createFx, emitBreak, emitCallout, emitDrop, emitHit, emitLevel, emitMilestone, emitMiss, emitSpark, emitStar, emitStreak, emitWrong, setCountdown, stepFx,
   type FxState,
 } from '../render/fx.ts';
 import { noteName } from '../render/layout.ts';
@@ -102,6 +102,8 @@ export interface SessionOptions {
   hint: string;
   /** bar-line times in seconds, for the per-section accuracy of the result */
   barTimes?: readonly number[];
+  /** the song's markers: when they cut it into parts, the result's sections are those parts */
+  markers?: readonly { time: number; text: string }[];
   /** clicks of the count-in, for the countdown on screen; default 4 */
   countInBeats?: number;
   /** particles and other moving effects; default on. Meters and counters always show. */
@@ -249,6 +251,14 @@ export class PlaySession {
     const beats = this.opts.countInBeats ?? 4;
     this.clicks.length = 0;
     for (let i = 0; i < beats; i++) this.clicks.push(loop.start - ((beats - i) * this.opts.barSeconds) / beats);
+  }
+
+  /** The count-in clicks of this pass from song time `from` on (a pause silenced the ones scheduled). */
+  private rearmClicks(from: number): void {
+    const loop = this.opts.practice!.loop;
+    if (from >= loop.start) return;
+    this.armCountIn();
+    while (this.clicks.length && this.clicks[0]! < from) this.clicks.shift();
   }
 
   /** Sound the count-in clicks that fall due, at their exact time on the audio clock. */
@@ -661,6 +671,8 @@ export class PlaySession {
     this.run = endPass(before, clean);
     view.passes = this.run.passes;
     const rate = runRate(this.run);
+    // One call-out says how the pass went: the streak and star words of its last notes go.
+    clearCallouts(this.fx);
     if (rate !== this.rate) {
       this.rate = rate;
       this.opts.clock.setRate(rate);
@@ -743,6 +755,9 @@ export class PlaySession {
     this.heldKeys.clear();
     this.opts.clock.pause();
     this.status = 'paused';
+    // Clicks already handed to the synth but not yet heard are silenced with the band; count
+    // them in again so the pass still gets its full count-in when the song resumes.
+    if (this.practice) this.rearmClicks(this.now());
     this.sounding.length = 0;
     this.earned.length = 0;
     this.opts.synth?.allNotesOff(0);
@@ -779,7 +794,7 @@ export class PlaySession {
       score: j.score, accuracy: j.accuracy, maxCombo: j.maxCombo, counts: { ...j.counts }, total: j.total, judged: j.judged,
       failed: j.failed, progress: Math.min(1, Math.max(0, this.now() / this.chart.duration)),
       overholdLoss: j.overholdLoss,
-      sections: sectionResults(buildSections(this.opts.barTimes ?? [], this.chart.duration), this.chart.notes, j.judgments),
+      sections: sectionResults(buildSections(this.opts.barTimes ?? [], this.chart.duration, undefined, this.opts.markers), this.chart.notes, j.judgments),
       ...(this.run && this.opts.practice ? { practice: this.practiceResult() } : {}),
     };
   }

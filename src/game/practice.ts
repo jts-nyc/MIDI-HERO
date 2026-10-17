@@ -7,7 +7,7 @@
 import type { Chart, ChartNote, Phrase } from '../midi/chart.ts';
 import type { PracticeSection } from '../render/practice.ts';
 import type { Counts, NoteState } from './judge.ts';
-import { buildSections, RATES } from './results.ts';
+import { buildSections, RATES, sectionLabel } from './results.ts';
 
 export interface Loop {
   start: number;
@@ -25,16 +25,19 @@ export interface PracticeSectionInfo extends PracticeSection {
 /** In the loop: starts at or after A and before B. The last section runs to the end of the song. */
 export const inLoop = (time: number, loop: Loop): boolean => time >= loop.start && time < loop.end;
 
-/** The 8-bar sections of a song that have notes to play, with their note counts, in song order. */
-export function practiceSections(barTimes: readonly number[], duration: number, notes: readonly { time: number }[]): PracticeSectionInfo[] {
-  const sections = buildSections(barTimes, duration);
+/**
+ * The sections of a song that have notes to play, with their note counts, in song order: the
+ * file's markers when it has them, 8-bar windows otherwise (results.ts buildSections).
+ */
+export function practiceSections(barTimes: readonly number[], duration: number, notes: readonly { time: number }[], markers: readonly { time: number; text: string }[] = []): PracticeSectionInfo[] {
+  const sections = buildSections(barTimes, duration, undefined, markers);
   const out: PracticeSectionInfo[] = [];
   sections.forEach((s, i) => {
     const end = i === sections.length - 1 ? Math.max(s.end, duration) + 1 : s.end;
     let count = 0;
     for (const n of notes) if (n.time >= s.start && n.time < end) count++;
     if (count === 0) return;
-    const label = s.fromBar === s.toBar ? `Bar ${s.fromBar}` : `Bars ${s.fromBar}–${s.toBar}`;
+    const label = sectionLabel(s);
     out.push({ start: s.start, end: s.end, label, fromBar: s.fromBar, toBar: s.toBar, notes: count, notesPerSec: s.end > s.start ? count / (s.end - s.start) : 0 });
   });
   return out;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { GameClock } from '../src/audio/clock.ts';
 import { DEFAULT_JUDGE_CONFIG, type Judgment } from '../src/game/judge.ts';
-import { bestDelta, buildSections, sectionResults, starCount, suggestNextStep, type SectionResult, type SuggestionInput } from '../src/game/results.ts';
+import { bestDelta, buildSections, sectionLabel, sectionResults, starCount, suggestNextStep, type SectionResult, type SuggestionInput } from '../src/game/results.ts';
 import { PlaySession } from '../src/game/session.ts';
 import { buildChart } from '../src/midi/chart.ts';
 import { beatLines, parseSong } from '../src/midi/parse.ts';
@@ -53,6 +53,27 @@ describe('sections', () => {
     expect(buildSections(bars, 42).map((s) => [s.fromBar, s.toBar, s.start, s.end])).toEqual([[1, 8, 0, 16], [9, 16, 16, 32], [17, 20, 32, 42]]);
     expect(buildSections([], 10)).toEqual([{ fromBar: 1, toBar: 1, start: 0, end: 10 }]);
     expect(buildSections(bars, 10).map((s) => s.fromBar)).toEqual([1]);
+  });
+
+  // Round 3: practice and results sections followed 8-bar windows even when the file names its parts.
+  it('follows the file\'s markers when they cut the song into parts', () => {
+    const m = (time: number, text: string) => ({ time, text });
+    // a marker inside bar 9 (at 17 s) starts bar 9; bars before the first marker are their own section
+    const s = buildSections(bars, 40, undefined, [m(8, 'Verse'), m(17, 'Chorus'), m(17.5, 'ignored: same bar'), m(32, 'Outro')]);
+    expect(s.map((x) => [x.name, x.fromBar, x.toBar, x.start, x.end])).toEqual([
+      [undefined, 1, 4, 0, 8], ['Verse', 5, 8, 8, 16], ['Chorus', 9, 16, 16, 32], ['Outro', 17, 20, 32, 40],
+    ]);
+    expect(s.map(sectionLabel)).toEqual(['Bars 1–4', 'Verse (bars 5–8)', 'Chorus (bars 9–16)', 'Outro (bars 17–20)']);
+  });
+
+  it('keeps 8-bar windows when the markers do not cut the song', () => {
+    const m = (time: number, text: string) => ({ time, text });
+    const windows = buildSections(bars, 40).map((x) => x.fromBar);
+    expect(buildSections(bars, 40, undefined, []).map((x) => x.fromBar)).toEqual(windows);
+    expect(buildSections(bars, 40, undefined, [m(0, 'Start')]).map((x) => x.fromBar)).toEqual(windows);
+    expect(buildSections(bars, 40, undefined, [m(45, 'after the end')]).map((x) => x.fromBar)).toEqual(windows);
+    // one on every bar is bookkeeping, not form
+    expect(buildSections(bars, 40, undefined, bars.map((t, i) => m(t, `Bar ${i + 1}`))).map((x) => x.fromBar)).toEqual(windows);
   });
 
   it('weighs accuracy per section and skips sections without notes', () => {

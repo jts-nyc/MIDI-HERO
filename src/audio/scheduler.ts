@@ -9,6 +9,8 @@ export interface SchedulerOptions {
   mutedParts?: Set<string>;
   /** count-in: `beats` clicks, one every `beatSeconds`, ending at song time 0 */
   countIn?: { beats: number; beatSeconds: number } | null;
+  /** rhythm channels besides 9 (GS/XG), as in `SongData.drumChannels` */
+  drumChannels?: number[];
   setIntervalFn?: (fn: () => void, ms: number) => unknown;
   clearIntervalFn?: (id: unknown) => void;
 }
@@ -29,6 +31,7 @@ export class BackingScheduler {
   private readonly intervalMs: number;
   private readonly lookahead: number;
   private readonly muted: Set<string>;
+  private readonly drums: Set<number>;
   private readonly setIntervalFn: (fn: () => void, ms: number) => unknown;
   private readonly clearIntervalFn: (id: unknown) => void;
 
@@ -36,6 +39,7 @@ export class BackingScheduler {
     this.intervalMs = opts.intervalMs ?? 25;
     this.lookahead = opts.lookaheadSeconds ?? 0.12;
     this.muted = opts.mutedParts ?? new Set();
+    this.drums = new Set([CLICK_CHANNEL, ...(opts.drumChannels ?? [])]);
     this.setIntervalFn = opts.setIntervalFn ?? ((fn, ms) => setInterval(fn, ms));
     this.clearIntervalFn = opts.clearIntervalFn ?? ((id) => clearInterval(id as number));
     this.events = opts.countIn ? [...countInEvents(opts.countIn), ...events] : events;
@@ -67,9 +71,15 @@ export class BackingScheduler {
     }
   }
 
-  start(): void {
+  /**
+   * Start scheduling from the clock's current song time. `resound`: notes of the band that were
+   * already sounding at that time (struck before it, ending after it) are struck again now, so a
+   * band that was stopped mid-note, as wait mode does, picks up with its notes instead of silence.
+   */
+  start(opts: { resound?: boolean } = {}): void {
     if (this.timer !== null) return;
     this.reset();
+    if (opts.resound) this.resound();
     this.tick();
     this.timer = this.setIntervalFn(() => this.tick(), this.intervalMs);
   }
@@ -80,6 +90,55 @@ export class BackingScheduler {
       this.timer = null;
     }
     this.synth.allNotesOff(0);
+  }
+
+  /**
+   * Strike again the notes that are on at the cursor: on before it, and either their off not yet
+   * reached or held past it by the sustain pedal (CC64), which is still down at the cursor. Each is
+   * struck with the program it started with; CC120/123 end what the synth would have ended.
+   */
+  private resound(): void {
+    const open = new Map<string, { e: BackingEvent; program: number }>();
+    const held = new Set<string>(); // keys released while the pedal was down
+    const pedal = new Set<number>(); // channels with the pedal down
+    const program = new Map<number, number>();
+    const close = (channel: number, keep: (key: string) => boolean) => {
+      for (const [k, o] of open) if (o.e.channel === channel && !keep(k)) { open.delete(k); held.delete(k); }
+    };
+    for (let i = 0; i < this.cursor; i++) {
+      const e = this.events[i]!;
+      if (e.type === 'program') program.set(e.channel, e.value);
+      if (e.type === 'cc') {
+        if (e.controller === 64 && e.value >= 64) pedal.add(e.channel);
+        else if ((e.controller === 64 && e.value < 64) || e.controller === 121) {
+          pedal.delete(e.channel);
+          close(e.channel, (k) => !held.has(k));
+        } else if (e.controller === 120 || e.controller === 123) close(e.channel, (k) => held.has(k)); // as the synth: pedal-held notes stay
+        continue;
+      }
+      // only what reached the synth, keyed as the synth keys its voices: by channel and pitch, so a
+      // note-off from another track with the same channel and pitch ends the note
+      if ((e.type !== 'on' && e.type !== 'off') || this.muted.has(e.partKey)) continue;
+      const key = `${e.channel}/${e.pitch}`;
+      if (e.type === 'on') {
+        open.set(key, { e, program: program.get(e.channel) ?? 0 });
+        held.delete(key);
+      } else if (pedal.has(e.channel) && open.has(key)) held.add(key);
+      else open.delete(key);
+    }
+    if (open.size === 0) return;
+    const when = this.clock.songTimeToContextTime(this.clock.now());
+    for (const ch of pedal) this.synth.control(ch, 64, 127, when);
+    for (const [key, { e, program: at }] of open) {
+      // a drum hit is over long before its note-off, and a count-in click is never struck twice
+      if (this.drums.has(e.channel) || e.partKey === 'count-in' || this.muted.has(e.partKey)) continue;
+      // set both explicitly: a program change within the lookahead may already be on the synth
+      this.synth.program(e.channel, at);
+      this.synth.noteOn(e.channel, e.pitch, e.velocity, when);
+      this.synth.program(e.channel, program.get(e.channel) ?? 0);
+      // its key is already up: hand it to the pedal, so the pedal's release ends it
+      if (held.has(key)) this.synth.noteOff(e.channel, e.pitch, when);
+    }
   }
 
   /** Schedule everything due within the lookahead window. Public for tests. */
