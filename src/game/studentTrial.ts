@@ -13,6 +13,6 @@ export function studentTrialSettings(saved: Settings, sound: TrialSound, rate: T
     easy: false, arcade: false, letGo: false, hitSound: false,
     practiceWait: false, practiceLadder: false, rate,
     foldMode: 'drop', wrongNotePenalty: 'combo',
-    names: true, noteNames: true, tierText: 'off', backingVolume: 0.65, speed: 300,
+    names: true, noteNames: true, tierText: 'off', guides: false, backingVolume: 0.65, speed: 300,
   };
 }
