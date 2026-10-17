@@ -91,14 +91,24 @@ export const deleteSong = (id: string): Promise<undefined> => tx('songs', 'readw
  */
 export function bestKey(songId: string, parts: PartId[], split: number | undefined, preset: string, rate: number, easy: boolean, difficulty = 'expert'): string {
   const rateBucket = Math.round(rate * 10) / 10;
-  const key = [songId, selectionKey(parts, split), preset, rateBucket, easy ? 'easy' : 'exact'];
+  // parts in the order picked, as before: changing it would lose stored bests (selectionKey compares in a stable order)
+  const key = [songId, parts.map((p) => `${p.track}:${p.channel}`).join('+'), split ?? '-', preset, rateBucket, easy ? 'easy' : 'exact'];
   if (difficulty !== 'expert') key.push(difficulty);
   return key.join('|');
 }
 
-/** The parts and hand split of a best-score key, as one string: which chart of the song was played. */
+/**
+ * The parts and hand split of a best-score key, as one string: which chart of the song was played.
+ * Parts in track, then channel order, so the same parts picked in another order are the same chart.
+ */
 export function selectionKey(parts: PartId[], split: number | undefined): string {
-  return `${parts.map((p) => `${p.track}:${p.channel}`).join('+')}|${split ?? '-'}`;
+  return `${canonicalParts(parts.map((p) => `${p.track}:${p.channel}`).join('+'))}|${split ?? '-'}`;
+}
+
+/** "track:channel+track:channel…" in track, then channel order. */
+function canonicalParts(parts: string): string {
+  const num = (s: string) => s.split(':').map(Number) as [number, number];
+  return parts.split('+').sort((a, b) => num(a)[0] - num(b)[0] || num(a)[1] - num(b)[1]).join('+');
 }
 
 /**
@@ -107,7 +117,7 @@ export function selectionKey(parts: PartId[], split: number | undefined): string
  */
 export function parseBestKey(key: string): { songId: string; selection: string; rate: number; level: string | null } {
   const parts = key.split('|');
-  return { songId: parts[0] ?? '', selection: `${parts[1] ?? ''}|${parts[2] ?? ''}`, rate: Number(parts[4]), level: parts[6] ?? null };
+  return { songId: parts[0] ?? '', selection: `${canonicalParts(parts[1] ?? '')}|${parts[2] ?? ''}`, rate: Number(parts[4]), level: parts[6] ?? null };
 }
 
 /** Every best score of a song, across parts, levels and settings. */

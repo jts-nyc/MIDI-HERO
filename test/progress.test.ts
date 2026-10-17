@@ -51,6 +51,14 @@ describe('unlocks', () => {
   });
 
   // Round 3: bests were pooled across parts, so 4 stars on the left hand opened Medium on the right.
+  it('matches a best on the same parts picked in another order, and keeps stored keys as they were', () => {
+    const a = { track: 1, channel: 0 }, b = { track: 2, channel: 0 };
+    const stored = bestKey('song', [b, a], undefined, 'normal', 1, false, 'easy');
+    expect(stored).toBe('song|2:0+1:0|-|normal|1|exact|easy'); // the key format bests are saved under
+    const bests: LevelBest[] = [{ level: 'easy', accuracy: 0.9, rate: 1, selection: parseBestKey(stored).selection }];
+    expect(unlockedLevels(levels, starsByLevel(bests, selectionKey([a, b], undefined)), true)).toEqual(['easy', 'medium']);
+  });
+
   it('counts only the bests on the selected parts', () => {
     const left = selectionKey([{ track: 1, channel: 0 }], undefined);
     const right = selectionKey([{ track: 2, channel: 0 }], undefined);
