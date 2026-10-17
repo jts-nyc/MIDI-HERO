@@ -251,6 +251,14 @@ export class PlaySession {
     for (let i = 0; i < beats; i++) this.clicks.push(loop.start - ((beats - i) * this.opts.barSeconds) / beats);
   }
 
+  /** The count-in clicks of this pass from song time `from` on (a pause silenced the ones scheduled). */
+  private rearmClicks(from: number): void {
+    const loop = this.opts.practice!.loop;
+    if (from >= loop.start) return;
+    this.armCountIn();
+    while (this.clicks.length && this.clicks[0]! < from) this.clicks.shift();
+  }
+
   /** Sound the count-in clicks that fall due, at their exact time on the audio clock. */
   private playClicks(now: number): void {
     const click = this.opts.click;
@@ -743,6 +751,9 @@ export class PlaySession {
     this.heldKeys.clear();
     this.opts.clock.pause();
     this.status = 'paused';
+    // Clicks already handed to the synth but not yet heard are silenced with the band; count
+    // them in again so the pass still gets its full count-in when the song resumes.
+    if (this.practice) this.rearmClicks(this.now());
     this.sounding.length = 0;
     this.earned.length = 0;
     this.opts.synth?.allNotesOff(0);
