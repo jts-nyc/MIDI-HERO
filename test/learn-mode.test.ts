@@ -46,6 +46,11 @@ describe('passing a song', () => {
     expect(passesSong('score', { ...r, accuracy: 0.6, failed: true })).toBe(false);
   });
 
+  it('a practice loop never passes the song, however clean', () => {
+    const loop = { label: 'Bars 1–8', passes: 0, cleanPasses: 0, rate: 1, wait: false };
+    expect(passesSong('score', { ...r, accuracy: 1, practice: loop })).toBe(false);
+  });
+
   it('autoplay and empty charts never pass a song', () => {
     expect(passesSong('learn', r, true)).toBe(false);
     expect(passesSong('learn', { ...r, total: 0, judged: 0 })).toBe(false);

@@ -51,10 +51,12 @@ export function openingMode(o: { learned: boolean; bestAccuracy: number | null; 
 
 /**
  * Whether a finished play passes the song. Learn mode: every note played, which in wait mode
- * means reaching the end rather than pressing Stop. Score mode: not failed, at PASS_ACCURACY.
+ * means reaching the end, or pressing Stop only after the last note. Score mode: a whole-song
+ * play, not failed, at PASS_ACCURACY.
  */
-export function passesSong(mode: PlayMode, r: { total: number; judged: number; accuracy: number; failed: boolean }, autoplay = false): boolean {
+export function passesSong(mode: PlayMode, r: { total: number; judged: number; accuracy: number; failed: boolean; practice?: unknown }, autoplay = false): boolean {
   if (autoplay || r.total === 0) return false;
   if (mode === 'learn') return r.judged >= r.total;
-  return !r.failed && r.judged >= r.total && r.accuracy >= PASS_ACCURACY;
+  // A practice loop is a few bars of the song: it never passes the whole song.
+  return !r.practice && !r.failed && r.judged >= r.total && r.accuracy >= PASS_ACCURACY;
 }
