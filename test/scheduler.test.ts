@@ -217,6 +217,14 @@ describe('BackingScheduler', () => {
     expect(before.at(-1)?.args[1]).toBe(0);
   });
 
+  it('after a wait, does not strike again a note another track on its channel and pitch ended', () => {
+    const h = harness([
+      ev(0.2, 'on', { pitch: 48, partKey: '1:0' }), ev(3, 'off', { pitch: 48, partKey: '1:0' }),
+      ev(0.4, 'on', { pitch: 48, partKey: '2:0', track: 2 }), ev(0.6, 'off', { pitch: 48, partKey: '2:0', track: 2 }), // the synth's one voice ends here
+    ].sort((x, y) => x.time - y.time));
+    expect(waitAt(h, 1).filter((c) => c.method === 'noteOn')).toHaveLength(0);
+  });
+
   it('a plain start (pause and resume) does not strike anything again', () => {
     const { t, clock, synth, sched } = harness([ev(0, 'on', { pitch: 48 }), ev(4, 'off', { pitch: 48 })]);
     clock.start(0);

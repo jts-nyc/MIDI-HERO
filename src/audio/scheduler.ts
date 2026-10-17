@@ -116,8 +116,10 @@ export class BackingScheduler {
         } else if (e.controller === 120 || e.controller === 123) close(e.channel, (k) => held.has(k)); // as the synth: pedal-held notes stay
         continue;
       }
-      if (e.type !== 'on' && e.type !== 'off') continue;
-      const key = `${e.partKey}/${e.channel}/${e.pitch}`;
+      // only what reached the synth, keyed as the synth keys its voices: by channel and pitch, so a
+      // note-off from another track with the same channel and pitch ends the note
+      if ((e.type !== 'on' && e.type !== 'off') || this.muted.has(e.partKey)) continue;
+      const key = `${e.channel}/${e.pitch}`;
       if (e.type === 'on') {
         open.set(key, { e, program: program.get(e.channel) ?? 0 });
         held.delete(key);
