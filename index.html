@@ -94,6 +94,41 @@
       @keyframes grow { from { width: 0; } to { width: var(--w); } }
       @keyframes land { from { transform: scale(1.25); } to { transform: none; } }
       .kbd { font-family: ui-monospace, Menlo, monospace; background: var(--panel-2); padding: 1px 6px; border-radius: 4px; }
+      /* First-run setup and the keyboard check: big words, one thing to do per screen */
+      .setup { text-align: center; }
+      .setup h1 { font-size: clamp(28px, 5vw, 44px); line-height: 1.15; margin: 4px 0 12px; }
+      .setup .say { font-size: 20px; color: var(--text); }
+      .setup .got { font-size: clamp(24px, 4vw, 36px); font-weight: 700; min-height: 1.4em; margin: 8px 0; }
+      .setup .got.ok { color: var(--good); }
+      .setup .got.no { color: var(--accent-2); font-size: 22px; }
+      .setup .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0; }
+      .setup .choices button { font-size: 22px; padding: 20px 12px; }
+      .setup .choices button span { display: block; font-size: 14px; font-weight: 400; opacity: 0.85; margin-top: 4px; }
+      .setup .waiting { animation: setup-pulse 1.4s ease-in-out infinite; }
+      @keyframes setup-pulse { 50% { opacity: 0.45; } }
+      @media (prefers-reduced-motion: reduce) { .setup .waiting { animation: none; } }
+      button.link { background: none; border: none; color: var(--muted); text-decoration: underline; font-size: 14px; padding: 6px; margin-top: 12px; }
+      .mini-kb { position: relative; display: flex; height: 96px; width: min(520px, 100%); margin: 12px auto 4px; }
+      .mini-kb .w { flex: 1; background: #e8eaf0; border: 1px solid #555; border-radius: 0 0 5px 5px; display: flex; align-items: flex-end; justify-content: center;
+        color: #333; font-size: 12px; padding-bottom: 4px; }
+      .mini-kb .w.target { background: var(--good); color: #062; font-weight: 700; }
+      .mini-kb .b { position: absolute; top: 0; height: 58%; background: #15171f; border-radius: 0 0 3px 3px; }
+      .mini-kb-arrow { font-size: 15px; color: var(--good); text-align: left; width: min(520px, 100%); margin: 0 auto; }
+      /* Tutorial */
+      .tut-kb { position: relative; display: flex; height: 110px; width: min(620px, 100%); margin: 16px auto 4px; }
+      .tut-kb .w { flex: 1; background: #e8eaf0; border: 1px solid #555; border-radius: 0 0 5px 5px; display: flex; align-items: flex-end;
+        justify-content: center; color: #555; font-size: 11px; padding-bottom: 4px; transition: background 0.1s; }
+      .tut-kb .b { position: absolute; top: 0; height: 58%; background: #15171f; border-radius: 0 0 3px 3px; transition: background 0.1s; }
+      .tut-kb .lit { background: var(--accent) !important; color: #fff; font-weight: 700; }
+      .tut-demo { position: relative; width: 180px; height: 170px; margin: 12px auto; border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+      .tut-demo .line { position: absolute; left: 0; right: 0; top: 118px; height: 3px; background: #54e4e8; }
+      .tut-demo .fall { position: absolute; left: 70px; width: 40px; height: 30px; top: 0; border-radius: 4px; background: #ffd23f;
+        animation: tut-fall 2.4s ease-in infinite; }
+      .tut-demo .key { position: absolute; left: 66px; top: 124px; width: 48px; height: 44px; border-radius: 0 0 5px 5px; background: #e8eaf0;
+        animation: tut-key 2.4s infinite; }
+      @keyframes tut-fall { 0% { top: -10px; opacity: 1; } 55%, 75% { top: 88px; opacity: 1; } 76%, 100% { top: 88px; opacity: 0; } }
+      @keyframes tut-key { 0%, 54% { background: #e8eaf0; } 55%, 75% { background: #54e4e8; } 76%, 100% { background: var(--good); } }
+      @media (prefers-reduced-motion: reduce) { .tut-demo .fall { animation: none; top: 88px; } .tut-demo .key { animation: none; background: #54e4e8; } }
     </style>
   </head>
   <body>

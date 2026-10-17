@@ -9,8 +9,11 @@ Chrome. Plug the keyboard in **before** loading the page.
 
 ## 1. Oxygen 25 on a Mac or PC (8 min)
 
-- [ ] First run: the keyboard is found; "Press the lowest C on your keyboard" lines the window
-      up with the octave buttons. Press an octave button and repeat: it still lines up.
+- [ ] First run (private window): "Plug in your keyboard" moves on by itself when the keyboard
+      is found. "Press the C at the far left" names any key you press ("That was E3…") and only
+      moves on for a C ("Got it! That was C3."). Then one question per screen: keys, speakers.
+- [ ] Reload, play a song: the same "Press the C at the far left" check lines the window up with
+      the octave buttons. Press an octave button and repeat: it still lines up.
 - [ ] Settings → Keyboard size 25, Sound of my notes "the song's part when I play it right".
 - [ ] Settings → calibrate timing: tap the 8 clicks, then the visual test. Note both numbers:
       input ____ ms, visual ____ ms.
