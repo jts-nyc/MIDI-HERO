@@ -46,6 +46,13 @@ describe('keyboard plugged in after the page loaded', () => {
     expect(needsKeyboardBanner(midi)).toBe(true);
   });
 
+  it('keeps the banner while a through port is the selected one, even with a keyboard connected', () => {
+    const ports = [{ id: 't', name: 'Midi Through Port-0', state: 'connected' }, { id: 'k', name: 'Oxygen 25', state: 'connected' }];
+    expect(needsKeyboardBanner({ status: 'granted', selectedId: 't', listPorts: () => ports })).toBe(true);
+    expect(needsKeyboardBanner({ status: 'granted', selectedId: null, listPorts: () => ports })).toBe(true);
+    expect(needsKeyboardBanner({ status: 'granted', selectedId: 'k', listPorts: () => ports })).toBe(false);
+  });
+
   it('shows the banner again after an unplug', async () => {
     const access = new FakeAccess([['oxy', 'Oxygen 25']]);
     const { midi } = await page(access);

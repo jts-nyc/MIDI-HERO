@@ -6,6 +6,7 @@ export const BANNER_TEXT = 'Plug in your keyboard, then refresh the page.';
 
 interface MidiState {
   status: MidiStatus;
+  readonly selectedId: string | null;
   listPorts(): MidiPort[];
 }
 
@@ -15,12 +16,13 @@ export function hasKeyboard(ports: readonly MidiPort[]): boolean {
 }
 
 /**
- * Only once MIDI is allowed: an unsupported or blocked browser has its own message. Chrome often
- * reports a keyboard plugged in later (the banner then goes away by itself), but not on every
- * system, hence "refresh".
+ * Only once MIDI is allowed: an unsupported or blocked browser has its own message. The banner
+ * stays until a real keyboard is the selected port, not merely connected: a selected "Midi
+ * Through" still plays nothing. Chrome often reports a keyboard plugged in later (the banner then
+ * goes away by itself), but not on every system, hence "refresh".
  */
 export function needsKeyboardBanner(midi: MidiState): boolean {
-  return midi.status === 'granted' && !hasKeyboard(midi.listPorts());
+  return midi.status === 'granted' && !hasKeyboard(midi.listPorts().filter((p) => p.id === midi.selectedId));
 }
 
 let el: HTMLElement | null = null;
