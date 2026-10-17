@@ -1018,6 +1018,14 @@ function stopBacking(): void {
   scheduler = null;
 }
 
+/**
+ * "I don't have a keyboard": stop listening to the auto-picked port for this page, so later songs
+ * don't ask for a C again. Plugging a keyboard in picks a port again (midi.onChange).
+ */
+function useComputerKeys(): void {
+  if (midi.selectedId) midi.select(null);
+}
+
 /** How long "Got it! That was C3." stays on screen before the game goes on. */
 const GOT_IT_MS = 900;
 /** With no keyboard or no key for this long, offer "check the cable, then refresh". */
@@ -1031,6 +1039,7 @@ function runSetup(onDone: (kb: KeyboardSize, soundSelf: boolean) => void): void 
   let st = initialSetup(midi.status, !!midi.selectedId);
   let shown: { step: SetupStep; midi: string } | null = null;
   let stuckTimer: ReturnType<typeof setTimeout> | undefined;
+  let finished = false;
   // MIDI access and plugging in arrive without a callback of ours (main's onChange selects the port).
   const poll = setInterval(() => {
     if (midi.status !== st.midi || !!midi.selectedId !== st.hasPort) {
@@ -1039,8 +1048,11 @@ function runSetup(onDone: (kb: KeyboardSize, soundSelf: boolean) => void): void 
     }
   }, 300);
   const render = (): void => {
+    // A late callback (the "Got it!" pause, a MIDI retry) after setup is over does nothing.
+    if (finished) return;
     const step = setupStep(st);
     if (step === 'done') {
+      finished = true;
       clearInterval(poll);
       clearTimeout(stuckTimer);
       gateHandler = null;
@@ -1052,7 +1064,11 @@ function runSetup(onDone: (kb: KeyboardSize, soundSelf: boolean) => void): void 
     shown = { step, midi: st.midi };
     const el = showSetup({
       step, midi: st.midi,
-      onNoKeyboard: () => { st = { ...st, noKeyboard: true }; render(); },
+      onNoKeyboard: () => {
+        useComputerKeys();
+        st = { ...st, noKeyboard: true };
+        render();
+      },
       onRetry: () => void requestMidi().then(() => { st = { ...st, midi: midi.status, hasPort: !!midi.selectedId }; shown = null; render(); }),
       onKb: (kb) => { st = { ...st, kb }; render(); },
       onSound: (soundSelf) => { st = { ...st, soundSelf }; render(); },
@@ -1081,6 +1097,7 @@ function runGate(window: PitchWindow, s: PlaySession): void {
   const el = showGate({
     keysHint: PlaySession.keysHint(window),
     onSkip: () => {
+      useComputerKeys();
       gateHandler = null;
       s.resume();
       playHud(s);
