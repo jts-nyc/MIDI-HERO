@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseMidi } from 'midi-file';
 import { beatLines, buildTempoMap, MidiParseError, parseSong, secondsToTicks, ticksToSeconds } from '../src/midi/parse.ts';
-import { cc, end, gsRhythm, name, off, on, program, smf, tempo, timeSig } from './helpers/smf.ts';
+import { cc, end, gsRhythm, marker, name, off, on, program, smf, tempo, timeSig } from './helpers/smf.ts';
 
 const PPQ = 480;
 
@@ -139,6 +139,20 @@ describe('time signatures and beat lines', () => {
     const bars = lines.filter((l) => l.isBar).map((l) => l.time);
     // 4/4 bars at 0, 2 s (beats 0, 4); 3/4 from beat 6 (3 s): bars at 3, 4.5, 6
     expect(bars.map((t) => +t.toFixed(3))).toEqual([0, 2, 3, 4.5, 6]);
+  });
+});
+
+describe('markers', () => {
+  it('reads marker events from every track, in time order, trimmed, without empty ones', () => {
+    const bytes = smf([
+      [tempo(0, 120), marker(PPQ * 8, ' Chorus '), marker(PPQ * 12, ''), end(PPQ * 16)],
+      [name('lead'), marker(0, 'Verse'), on(0, 60), off(PPQ, 60), end(PPQ * 16)],
+    ]);
+    expect(parseSong(bytes).markers).toEqual([{ time: 0, text: 'Verse' }, { time: 4, text: 'Chorus' }]);
+  });
+
+  it('a file without markers has none', () => {
+    expect(parseSong(smf([[on(0, 60), off(PPQ, 60), end(PPQ)]])).markers).toEqual([]);
   });
 });
 

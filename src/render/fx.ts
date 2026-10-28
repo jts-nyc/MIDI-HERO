@@ -330,6 +330,11 @@ export function emitCallout(fx: FxState, text: string, kind: CalloutKind, life =
   c.life = life;
 }
 
+/** Take every call-out off the screen: a new moment (a practice pass starting over) replaces them. */
+export function clearCallouts(fx: FxState): void {
+  for (const c of fx.callouts) c.active = false;
+}
+
 export function emitMilestone(fx: FxState, streak: number): void {
   emitCallout(fx, `${streak} NOTE STREAK!`, 'milestone');
   if (fx.enabled) surge(fx, Tint.good);

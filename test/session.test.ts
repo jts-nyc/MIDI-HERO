@@ -105,6 +105,34 @@ describe('PlaySession', () => {
     expect(session.judge.counts.perfect).toBe(1);
   });
 
+  it('re-offsets after an octave-up button press even with stray keys in between', () => {
+    const chart = makeChart([[1, 60], [2, 62], [3, 64], [4, 65], [5, 67], [6, 69]], { low: 60, high: 84 });
+    const { session, press, goTo } = harness({ chart, relative: true });
+    const deltas: number[] = [];
+    const sources: string[] = [];
+    session.onOctave = (e) => { deltas.push(e.delta); sources.push(e.source); };
+    goTo(1); press(72); // the player pressed OCTAVE UP: every key plays an octave high
+    goTo(1.5); press(80); // lost, tries another key: nothing due
+    goTo(2); press(74);
+    goTo(3); press(76);
+    expect(deltas).toEqual([-12]);
+    expect(sources).toEqual(['midi']); // so the page may keep it as the MIDI keyboard's shift
+    expect(session.octaveOffset).toBe(-12);
+    goTo(4); press(77); // judged as 65
+    expect(session.judge.counts.perfect).toBe(1);
+  });
+
+  it('reports computer-key re-offsets as such', () => {
+    const chart = makeChart([[1, 60], [2, 62], [3, 64]], { low: 60, high: 84 });
+    const { session, press, goTo } = harness({ chart, relative: true });
+    const sources: string[] = [];
+    session.onOctave = (e) => sources.push(e.source);
+    goTo(1); press(72, 'keyboard');
+    goTo(2); press(74, 'keyboard');
+    goTo(3); press(76, 'keyboard');
+    expect(sources).toEqual(['keyboard']);
+  });
+
   it('pause freezes time and resume continues', () => {
     const { session, advance } = harness();
     advance(1);

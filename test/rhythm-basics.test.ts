@@ -30,8 +30,11 @@ const offBeat = (tick: number, ppq: number) => inBeat(tick, ppq) > 1e-6;
 describe('Rhythm Basics songs', () => {
   it('are listed after the other bundled songs, in teaching order, with their level in the tag', () => {
     const manifest = JSON.parse(readFileSync(join(songsDir, 'manifest.json'), 'utf8')) as { id: string; tag?: string; defaultParts: unknown }[];
-    expect(manifest.slice(-5).map((m) => m.id)).toEqual(ORDER);
-    for (const m of manifest.slice(-5)) {
+    // the Rhythm Bosses (test/rhythm-bosses.test.ts) come after them
+    const basics = manifest.filter((m) => m.id.startsWith('rhythm-'));
+    expect(basics.map((m) => m.id)).toEqual(ORDER);
+    expect(manifest.slice(-10, -5).map((m) => m.id)).toEqual(ORDER);
+    for (const m of basics) {
       expect(m.defaultParts).toEqual([{ track: 1, channel: 0 }]);
       expect(m.tag).toContain(OPENS_AT[m.id] ? 'Medium and up' : 'Easy and up');
     }
@@ -39,7 +42,7 @@ describe('Rhythm Basics songs', () => {
 
   it('open at their level in the plain song list: Medium for the drills Easy would strip, Easy otherwise', () => {
     const manifest = JSON.parse(readFileSync(join(songsDir, 'manifest.json'), 'utf8')) as { id: string; difficulty?: string }[];
-    for (const m of manifest) expect(m.difficulty, m.id).toBe(OPENS_AT[m.id]);
+    for (const m of manifest) if (!m.id.startsWith('boss-')) expect(m.difficulty, m.id).toBe(OPENS_AT[m.id]);
     // The player's own last pick still wins; with none, the manifest's level; with neither, the game default.
     expect(openingLevel(undefined, 'medium')).toBe('medium');
     expect(openingLevel('easy', 'medium')).toBe('easy');

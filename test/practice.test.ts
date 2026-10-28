@@ -9,6 +9,7 @@ import { RATES } from '../src/game/results.ts';
 import { PlaySession, type PracticeOptions, type SessionOptions } from '../src/game/session.ts';
 import { buildChart, type Chart } from '../src/midi/chart.ts';
 import { beatLines, parseSong } from '../src/midi/parse.ts';
+import { emitCallout } from '../src/render/fx.ts';
 import { end, off, on, smf, tempo } from './helpers/smf.ts';
 
 const PPQ = 480;
@@ -38,6 +39,15 @@ describe('practice sections and loops', () => {
       ['Bars 17–24', 32, 48, 32],
     ]);
     expect(sections[1]!.notesPerSec).toBeCloseTo(34 / 16, 9);
+  });
+
+  it('uses the file\'s markers for its sections when it has them', () => {
+    const marked = practiceSections(barTimes, fullChart.duration, fullChart.notes, [{ time: 8, text: 'A' }, { time: 24, text: 'B' }]);
+    expect(marked.map((s) => [s.label, s.start, s.end, s.notes])).toEqual([
+      ['Bars 1–4', 0, 8, 16],
+      ['A (bars 5–12)', 8, 24, 34],
+      ['B (bars 13–25)', 24, fullChart.duration, 48], // the last section runs to the end of the song
+    ]);
   });
 
   it('loops one section or a run of adjacent ones, in either order', () => {
@@ -200,6 +210,40 @@ describe('PlaySession in practice mode', () => {
     expect(session.result().practice).toMatchObject({ passes: 1, cleanPasses: 0, rate: 1, label: 'Bars 9–16' });
     advance(2.1);
     expect(clicks.length).toBe(8); // counted in again
+  });
+
+  // Round 3: a click handed to the synth just before a pause was silenced with the band and lost.
+  it('a pause during the count-in sounds the clicks it silenced again after the resume', () => {
+    const { session, clicks, advance, t } = harness();
+    advance(0.47); // song time loop.start − 1.53: the second click (−1.5) is already scheduled
+    expect(clicks).toHaveLength(2);
+    session.pause();
+    t.perfMs += 5000;
+    session.resume();
+    advance(1.6);
+    expect(clicks.map((c) => c.accent)).toEqual([true, false, false, false, false]);
+    // the second click again (no audio here: `when` is song time), then the third and fourth
+    expect(clicks.slice(1).map((c) => c.when - clicks[0]!.when)).toEqual([0.5, 0.5, 1, 1.5]);
+  });
+
+  it('a pause after the count-in adds no clicks', () => {
+    const { session, clicks, advance, t } = harness();
+    advance(2.2);
+    session.pause();
+    t.perfMs += 5000;
+    session.resume();
+    advance(1);
+    expect(clicks).toHaveLength(4);
+  });
+
+  // Round 3: the last notes' call-outs (a streak, a star phrase) piled up under the pass's own.
+  it('a loop restart shows one call-out, the pass verdict', () => {
+    const { session, advance } = harness({ autoplay: { jitterMs: 0 } });
+    advance(2 + 15.5);
+    emitCallout(session.fx, '30 NOTE STREAK!', 'milestone');
+    emitCallout(session.fx, 'STAR PHRASE!', 'star');
+    advance(1);
+    expect(session.fx.callouts.filter((c) => c.active).map((c) => c.text)).toEqual(['CLEAN PASS!']);
   });
 
   it('autoplay passes are clean, and two of them step the rate up the ladder', () => {

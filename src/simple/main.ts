@@ -14,7 +14,8 @@ import { starCount } from '../game/results.ts';
 import { PlaySession } from '../game/session.ts';
 import { KeyboardInput } from '../input/keyboardInput.ts';
 import { MidiInput } from '../input/midiInput.ts';
-import type { InputEvent } from '../input/normalize.ts';
+import { updateKeyboardBanner } from '../ui/keyboardBanner.ts';
+import { octaveShiftMessage, type InputEvent } from '../input/normalize.ts';
 import { buildChart, chooseWindow, isDifficulty, offeredLevels, resolveLevel, splitNotes, type Difficulty, type PitchWindow } from '../midi/chart.ts';
 import { beatLines, parseSong, ticksToSeconds } from '../midi/parse.ts';
 import { buildParts, defaultPart } from '../midi/parts.ts';
@@ -167,6 +168,7 @@ midi.onChange = () => {
   if (!id) dispatch({ type: 'disconnected' }, false);
   toast(id ? `Keyboard: ${midi.listPorts().find((p) => p.id === id)?.name ?? 'connected'}` : 'Music keyboard unplugged');
   if (flow.screen === 'songs') render();
+  updateKeyboardBanner(midi);
 };
 
 function midiStatus(): string {
@@ -273,7 +275,7 @@ async function startRun(entry: SimpleSong, level: SimpleLevel): Promise<void> {
     backingSynth.setDrumChannels(song.drumChannels);
     backingSynth.setChannelGroupGain('drums', 1);
     backingSynth.setChannelGroupGain('pads', 1);
-    scheduler = new BackingScheduler(chart.backing, backingSynth, clock, { countIn: { beats: sig.numerator, beatSeconds: barSeconds / sig.numerator } });
+    scheduler = new BackingScheduler(chart.backing, backingSynth, clock, { countIn: { beats: sig.numerator, beatSeconds: barSeconds / sig.numerator }, drumChannels: song.drumChannels });
   }
   const s = new PlaySession({
     chart, clock, judgeConfig, rate: settings.rate, inputOffsetMs: settings.inputOffsetMs,
@@ -292,7 +294,10 @@ async function startRun(entry: SimpleSong, level: SimpleLevel): Promise<void> {
   });
   if (relative && flow.input === 'midi' && checkC !== null) s.octaveOffset = window.low - checkC;
   s.onOctave = (ev) => {
-    if (ev.type === 'reoffset') toast('Octave lined up. Keep playing!');
+    if (ev.type !== 'reoffset') return;
+    toast(octaveShiftMessage(ev.delta), 6000);
+    // The check runs once per page load: the next song starts from the new shift, not the old one.
+    if (flow.input === 'midi' && ev.source === 'midi') checkC = window.low - s.octaveOffset;
   };
   s.onFinished = (result) => {
     endEngine();
@@ -527,6 +532,7 @@ if (params.get('teacher') === '1') {
   requestAnimationFrame(frame);
   void midi.request().then((status) => {
     if (status === 'granted') midi.autoSelect(saved.midiPortId);
+    updateKeyboardBanner(midi);
     if (flow.screen === 'songs') render();
   });
   render();

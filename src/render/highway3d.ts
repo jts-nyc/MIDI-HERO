@@ -3,7 +3,8 @@ import type { BeatLine } from '../midi/parse.ts';
 import type { FxState } from './fx.ts';
 import { canvasDpr, fitCanvas } from './canvas.ts';
 import { layoutKeys, noteName, type KeyColumn, type KeyboardLayout } from './layout.ts';
-import { PracticeVenueVisuals, supersededPopup, theme, type NoteVisual, type Popup, type RenderState } from './renderer.ts';
+import { GUIDE_BAR, GUIDE_BEAT, PracticeVenueVisuals, supersededPopup, theme, type NoteVisual, type Popup, type RenderState } from './renderer.ts';
+import { GUIDES, landedRow, TimingGuides } from './guides.ts';
 import { HitFeel } from './hitFeel.ts';
 
 /** Width of the highway at the horizon relative to the keyboard; also how far away the horizon is. */
@@ -81,6 +82,7 @@ export class PerspectiveRenderer {
   private ctx: CanvasRenderingContext2D;
   private practiceVenue = new PracticeVenueVisuals();
   private feel = new HitFeel();
+  private guides = new TimingGuides();
   private keyWhite = new Float32Array(128);
   private low = false;
   private colOf = (pitch: number) => this.byPitch[pitch];
@@ -232,7 +234,9 @@ export class PerspectiveRenderer {
     const hitY = this.hitY;
     const width = this.width;
     const visibleSec = horizonSeconds(hitY, s.pixelsPerSecond);
-    const sways = s.feedback?.sway !== false && !this.low;
+    const guides = s.guides;
+    // The timing guides keep the grid locked to the music: no sway.
+    const sways = s.feedback?.sway !== false && !this.low && !guides;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.globalAlpha = 1;
     ctx.fillStyle = theme.bg;
@@ -292,19 +296,22 @@ export class PerspectiveRenderer {
       if (b.time > s.time + visibleSec) break;
       if (b.time < s.time) continue;
       const y = this.yAt(b.time, s);
-      ctx.lineWidth = b.isBar ? 2 : 1;
-      ctx.strokeStyle = b.isBar ? theme.bar : theme.beat;
+      ctx.lineWidth = b.isBar ? (guides ? GUIDES.barWidth * this.rowScale(y) : 2) : 1;
+      ctx.strokeStyle = b.isBar ? (guides ? GUIDE_BAR : theme.bar) : guides ? GUIDE_BEAT : theme.beat;
       ctx.beginPath();
       ctx.moveTo(this.xAt(0, y), y);
       ctx.lineTo(this.xAt(width, y), y);
       ctx.stroke();
     }
+    ctx.lineWidth = 1;
+    if (guides) this.guides.drawZone(ctx, guides, width, (dt) => depthY(dt, hitY, s.pixelsPerSecond));
     const notes = s.chart.notes;
     const earliest = s.time - s.chart.maxDuration - 1;
     if (this.chart !== s.chart || earliest < this.cursorTime) this.cursor = 0;
     this.chart = s.chart;
     while (this.cursor < notes.length && notes[this.cursor]!.time < earliest) this.cursor++;
     this.cursorTime = earliest;
+    this.guides.begin();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     for (let i = this.cursor; i < notes.length; i++) {
@@ -313,6 +320,7 @@ export class PerspectiveRenderer {
       const vis = s.noteVisuals[i];
       const col = this.byPitch[n.pitch];
       if (!col || (vis?.state === 'hit' && vis.hold !== 'holding' && vis.hold !== 'released' && s.time - (vis.holdEnd ?? vis.hitTime) > HIT_FADE) || n.time + n.duration < s.time - 0.5) continue;
+      if (guides && vis?.state === 'pending') this.guides.note(n.pitch, n.time - s.time, n.hand === 'L');
       this.drawNote(n, col, vis, s);
     }
     this.feel.drawBeams(ctx, s.fx, this.colOf, hitY, this.project);
@@ -324,12 +332,15 @@ export class PerspectiveRenderer {
     this.drawHitLine(s.fx, this.layout!, width, hitY, s.fx.meters.starActive, s.practice?.waiting === true);
     // The hit line swells on every beat, more on a bar line, and on each click of the count-in.
     this.feel.drawLinePulse(ctx, width, hitY, s.fx.meters.starActive ? theme.star : '#9fc0ff');
+    if (guides) this.guides.drawPads(ctx, this.colOf, hitY);
     this.drawKeyboard(s);
     this.drawPassing(s);
     this.drawEffects(s.fx, this.layout!, hitY);
     this.drawPopups(s);
+    if (guides) this.guides.drawTags(ctx, guides, s.time, this.xOf, hitY);
     this.drawGlow(s.fx, width, this.height);
     this.drawHud(s, width, hitY);
+    if (guides) this.guides.drawMeter(ctx, guides, s.time, width);
     this.practiceVenue.drawHud(ctx, s, width);
     this.drawCallouts(s.fx, width, hitY);
     this.drawCountdown(s.fx, width, hitY);
@@ -365,7 +376,8 @@ export class PerspectiveRenderer {
       this.drawHold(n, col, vis, s, gold);
       return;
     }
-    const bottom = this.yAt(n.time, s);
+    // With the guides on, a note that is due sits on the hit line until it is played or missed.
+    const bottom = landedRow(this.yAt(n.time, s), this.hitY, s.guides !== undefined && (!vis || vis.state === 'pending'));
     // The far end of the note is projected on its own; a short note still shows a few rows.
     const top = Math.min(this.yAt(n.time + n.duration, s), bottom - 6 * this.rowScale(bottom));
     const h = bottom - top;

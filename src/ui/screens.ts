@@ -1,13 +1,16 @@
 import { CALIBRATION_BEATS, TapCalibrator, visualOffset, type CalibrationResult } from '../game/calibration.ts';
 import { bestDelta, starCount, type Suggestion } from '../game/results.ts';
+import type { PlayMode } from '../game/learn.ts';
+import { KEYS_TO_TRY, type TutorialStep } from '../game/tutorial.ts';
 import type { PracticeSectionInfo } from '../game/practice.ts';
 import type { PlayResult, PracticeResult } from '../game/session.ts';
 import type { TrialRate, TrialSound } from '../game/studentTrial.ts';
 import type { TimingPreset } from '../game/judge.ts';
-import type { MidiPort } from '../input/midiInput.ts';
+import type { KeyVerdict, SetupStep } from '../game/setup.ts';
+import type { MidiPort, MidiStatus } from '../input/midiInput.ts';
 import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Hand, type LevelStats } from '../midi/chart.ts';
 import type { Part } from '../types.ts';
-import { noteName } from '../render/layout.ts';
+import { isBlackKey, noteName } from '../render/layout.ts';
 import { effectiveFeedback, type KeyboardSize, type Settings } from './settings.ts';
 import './feel.css';
 
@@ -39,34 +42,80 @@ const fmtTime = (s: number): string => `${Math.floor(s / 60)}:${String(Math.floo
 // ---------------------------------------------------------------------------
 // First run
 // ---------------------------------------------------------------------------
-export function showFirstRun(o: { onDone: (kb: KeyboardSize, soundSelf: boolean) => void }): void {
-  const el = screen(`<div class="panel">
-    <h1>Welcome to MIDI Hero</h1>
-    <h2>How many keys does your keyboard have?</h2>
-    <div class="row" id="kb">
-      <button data-kb="25" class="primary">25</button><button data-kb="49">49</button><button data-kb="61">61</button><button data-kb="88">88</button>
-    </div>
-    <h2>Does your keyboard make sound by itself?</h2>
-    <div class="row" id="sound">
-      <button data-sound="0" class="primary">No, play sound from the computer</button><button data-sound="1">Yes, it has speakers</button>
-    </div>
-    <p>You can change these later in Settings.</p>
-    <div class="row"><button class="primary big" id="done">Continue</button></div>
-  </div>`);
-  let kb: KeyboardSize = 25;
-  let soundSelf = false;
-  const pick = (group: string, attr: string, cb: (v: string) => void) => {
-    el.querySelectorAll<HTMLButtonElement>(`#${group} button`).forEach((b) =>
-      b.addEventListener('click', () => {
-        el.querySelectorAll(`#${group} button`).forEach((x) => x.classList.remove('primary'));
-        b.classList.add('primary');
-        cb(b.dataset[attr]!);
-      }),
-    );
+export interface SetupScreenOptions {
+  step: Exclude<SetupStep, 'done'>;
+  /** 'blocked': why MIDI is unavailable */
+  midi: MidiStatus;
+  onNoKeyboard: () => void;
+  onRetry: () => void;
+  onKb: (kb: KeyboardSize) => void;
+  onSound: (soundSelf: boolean) => void;
+}
+
+/** A picture of two octaves of a keyboard with the C at the far left lit. */
+export function miniKeyboard(): string {
+  const whites = 15;
+  const w = Array.from({ length: whites }, (_, i) => `<div class="w${i === 0 ? ' target' : ''}">${i === 0 ? 'C' : ''}</div>`).join('');
+  const b = Array.from({ length: whites - 1 }, (_, i) => i)
+    .filter((i) => [0, 1, 3, 4, 5].includes(i % 7))
+    .map((i) => `<div class="b" style="left:calc(${((i + 1) / whites) * 100}% - ${(0.3 * 100) / whites}%);width:${(0.6 * 100) / whites}%"></div>`).join('');
+  return `<div class="mini-kb" aria-hidden="true">${w}${b}</div><div class="mini-kb-arrow">↑ this one: the C at the far left</div>`;
+}
+
+/** One step of first-run setup: one instruction, big. With a keyboard the way on is a key press. */
+export function showSetup(o: SetupScreenOptions): HTMLElement {
+  const noKb = '<button class="link" id="no-kb">I don\'t have a keyboard</button>';
+  // shown by setupStuck() when nothing arrives: some Chromebooks only see a keyboard after a refresh
+  const stuck = '<p id="setup-stuck" hidden>Nothing yet? Check the USB cable, then <button id="refresh">Refresh the page</button></p>';
+  const body: Record<SetupScreenOptions['step'], string> = {
+    blocked: o.midi === 'denied'
+      ? `<h1>Allow the keyboard</h1>
+        <p class="say">The browser blocked MIDI. Click the icon left of the web address, set MIDI to <b>Allow</b>, then press Try again.</p>
+        <div class="row" style="justify-content:center"><button class="primary big" id="retry">Try again</button></div>${noKb}`
+      : `<h1>This browser can't use a keyboard</h1>
+        <p class="say">Use <b>Chrome</b> or <b>Edge</b> on a Chromebook, Mac or Windows computer.</p>
+        <div class="row" style="justify-content:center"><button class="primary big" id="no-kb">Play with the computer keys</button></div>`,
+    connect: `<h1>Plug in your keyboard</h1>
+        <p class="say">Connect the USB cable to the computer.</p>
+        <p class="got waiting" aria-live="polite">${o.midi === 'pending' ? 'If the browser asks, click Allow.' : 'Waiting for your keyboard…'}</p>${stuck}${noKb}`,
+    press: `<h1>Press the C at the far left of your keyboard</h1>
+        ${miniKeyboard()}
+        <p class="got waiting" id="setup-msg" aria-live="polite">Waiting for a key…</p>${stuck}${noKb}`,
+    kb: `<h1>How many keys does your keyboard have?</h1>
+        <div class="choices">
+          <button class="primary" data-kb="25">25<span>small, 2 octaves</span></button>
+          <button data-kb="49">49<span>4 octaves</span></button>
+          <button data-kb="61">61<span>5 octaves</span></button>
+          <button data-kb="88">88<span>a full piano</span></button>
+        </div>
+        <p>Not sure? Choose 25.</p>`,
+    sound: `<h1>Does your keyboard have its own speakers?</h1>
+        <div class="choices">
+          <button class="primary" data-sound="0">No<span>the computer plays the sound</span></button>
+          <button data-sound="1">Yes<span>I hear it from the keyboard</span></button>
+        </div>
+        <p>Not sure? Choose No.</p>`,
   };
-  pick('kb', 'kb', (v) => (kb = Number(v) as KeyboardSize));
-  pick('sound', 'sound', (v) => (soundSelf = v === '1'));
-  el.querySelector('#done')!.addEventListener('click', () => o.onDone(kb, soundSelf));
+  const el = screen(`<div class="panel setup">${body[o.step]}</div>`);
+  el.querySelector('#no-kb')?.addEventListener('click', o.onNoKeyboard);
+  el.querySelector('#retry')?.addEventListener('click', o.onRetry);
+  el.querySelector('#refresh')?.addEventListener('click', () => location.reload());
+  el.querySelectorAll<HTMLButtonElement>('[data-kb]').forEach((b) => b.addEventListener('click', () => o.onKb(Number(b.dataset.kb) as KeyboardSize)));
+  el.querySelectorAll<HTMLButtonElement>('[data-sound]').forEach((b) => b.addEventListener('click', () => o.onSound(b.dataset.sound === '1')));
+  return el;
+}
+
+/** Show the "check the cable, then refresh" line on a setup or gate screen. */
+export function setupStuck(el: HTMLElement): void {
+  el.querySelector<HTMLElement>('#setup-stuck')?.removeAttribute('hidden');
+}
+
+/** Live feedback for a key press on the setup or gate screen. */
+export function setupMessage(el: HTMLElement, v: KeyVerdict): void {
+  const m = el.querySelector('#setup-msg');
+  if (!m) return;
+  m.textContent = v.text;
+  m.className = `got ${v.ok ? 'ok' : 'no'}`;
 }
 
 /** A deliberately small, fixed musical task; regular song settings remain separate. */
@@ -163,8 +212,12 @@ export interface SongSelectOptions {
   onPick: (id: string) => void;
   onDelete: (id: string) => void;
   onImport: (files: File[]) => void;
+  /** a pasted link to a .mid file; resolves to the line to show under the box, or null once the song is in */
+  onImportLink: (url: string) => Promise<string | null>;
   onExport: () => void;
   onSettings: () => void;
+  /** the tutorial, again */
+  onTutorial: () => void;
   onRetryMidi: (() => void) | null;
 }
 
@@ -181,9 +234,14 @@ export function showSongSelect(o: SongSelectOptions): void {
   const setlist = (name: string) =>
     `<h2>${esc(name)}</h2><div class="list">${cls.filter((s) => s.pack === name).sort((a, b) => (a.packIndex ?? 0) - (b.packIndex ?? 0)).map(row).join('')}</div>`;
   const el = screen(`<div class="panel">
-    <div class="row" style="justify-content:space-between"><h1>MIDI Hero</h1><div class="row"><button id="import">Import .mid / pack</button><button id="export">Export class pack</button><button id="settings">Settings</button></div></div>
+    <div class="row" style="justify-content:space-between"><h1>MIDI Hero</h1><div class="row"><button id="tutorial">How to play</button><button id="import">Import .mid / pack</button><button id="export">Export class pack</button><button id="settings">Settings</button></div></div>
     <p>${esc(o.midiStatus)} ${o.onRetryMidi ? '<button id="retry-midi">Retry</button>' : ''}</p>
     <p>Drop <b>.mid</b> files or a <b>.midihero.json</b> pack anywhere on this page to add songs. Computer keyboard: <span class="kbd">Z</span>–<span class="kbd">M</span> / <span class="kbd">Q</span>–<span class="kbd">U</span> play notes, <span class="kbd">-</span>/<span class="kbd">=</span> shift octave.</p>
+    <form class="row link-import" id="link-form">
+      <input id="link" type="text" inputmode="url" spellcheck="false" placeholder="Paste a link to a .mid file" aria-label="Link to a .mid file" autocomplete="off" />
+      <button type="submit" id="link-go">Add song</button>
+    </form>
+    <p id="link-msg" class="link-msg" role="status" aria-live="polite"></p>
     ${loose.length ? `<h2>Class songs</h2><div class="list">${loose.map(row).join('')}</div>` : ''}
     ${packs.map(setlist).join('')}
     <h2>Built-in</h2><div class="list">${builtin.map(row).join('')}</div>
@@ -201,8 +259,24 @@ export function showSongSelect(o: SongSelectOptions): void {
   file.addEventListener('change', () => {
     if (file.files?.length) o.onImport([...file.files]);
   });
+  const form = el.querySelector<HTMLFormElement>('#link-form')!;
+  const link = el.querySelector<HTMLInputElement>('#link')!;
+  const go = el.querySelector<HTMLButtonElement>('#link-go')!;
+  const msg = el.querySelector<HTMLElement>('#link-msg')!;
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!link.value.trim() || go.disabled) return;
+    go.disabled = true;
+    msg.textContent = 'Fetching…';
+    void o.onImportLink(link.value).then((line) => {
+      // A song that came in replaces this screen; a line means it stayed.
+      go.disabled = false;
+      msg.textContent = line ?? '';
+    });
+  });
   el.querySelector('#export')!.addEventListener('click', o.onExport);
   el.querySelector('#settings')!.addEventListener('click', o.onSettings);
+  el.querySelector('#tutorial')!.addEventListener('click', o.onTutorial);
   el.querySelector('#retry-midi')?.addEventListener('click', () => o.onRetryMidi?.());
 }
 
@@ -265,6 +339,8 @@ export interface PartPickerState {
   /** keep a duplicate of the player's part audible in the backing */
   guideTrack: boolean;
   difficulty: Difficulty;
+  /** learn: the song waits at every note; score: a normal scored play */
+  mode: PlayMode;
 }
 
 export interface PartPickerOptions {
@@ -282,6 +358,7 @@ export interface PartPickerOptions {
   kb: KeyboardSize;
   /** true when the single selected part spans more than two octaves */
   onChange: (state: PartPickerState) => void;
+  /** start in the picker's mode; the other mode's button sets `state.mode` first */
   onPlay: () => void;
   /** open practice mode on the selection */
   onPractise: () => void;
@@ -348,9 +425,14 @@ export function showPartPicker(o: PartPickerOptions): void {
       </select></label>
       <span style="flex:1"></span>
       <button id="back">Back</button>
-      <button class="big" id="practise" ${st.selected.size ? '' : 'disabled'} title="Loop a few bars, slower, until they are clean">Practise…</button>
-      <button class="primary big" id="play" ${st.selected.size ? '' : 'disabled'}>Play</button>
+      <button id="practise" ${st.selected.size ? '' : 'disabled'} title="Loop a few bars, slower, until they are clean">Practise…</button>
+      ${st.mode === 'learn'
+        ? `<button class="big" id="other" ${st.selected.size ? '' : 'disabled'} title="A normal play with a score">Play for score</button>
+      <button class="primary big" id="play" ${st.selected.size ? '' : 'disabled'} title="The song waits at every note until you play it">Learn it ▶</button>`
+        : `<button class="big" id="other" ${st.selected.size ? '' : 'disabled'} title="The song waits at every note until you play it">Learn mode</button>
+      <button class="primary big" id="play" ${st.selected.size ? '' : 'disabled'}>Play</button>`}
     </div>
+    ${st.mode === 'learn' ? '<p class="levels-note" style="text-align:right">New song: the notes wait for you. Play it through once, then go for a score.</p>' : ''}
   </div>`);
   el.querySelector<HTMLDetailsElement>('#parts')!.addEventListener('toggle', (e) => {
     if (st.selected.size) partsOpen = (e.target as HTMLDetailsElement).open;
@@ -389,6 +471,10 @@ export function showPartPicker(o: PartPickerOptions): void {
   });
   el.querySelector('#back')!.addEventListener('click', o.onBack);
   el.querySelector('#play')!.addEventListener('click', o.onPlay);
+  el.querySelector('#other')!.addEventListener('click', () => {
+    st.mode = st.mode === 'learn' ? 'score' : 'learn';
+    o.onPlay();
+  });
   el.querySelector('#practise')!.addEventListener('click', o.onPractise);
 }
 
@@ -493,32 +579,112 @@ export function showPracticeResults(o: PracticeResultsOptions): void {
   el.querySelector('#quit')!.addEventListener('click', o.onQuit);
 }
 
+/** After a learn-mode run: passed, go for a score; stopped early, learn again. */
+export function showLearnResults(o: { title: string; passed: boolean; hit: number; total: number; onScore: () => void; onLearn: () => void; onQuit: () => void }): void {
+  const el = screen(`<div class="panel results still" style="text-align:center">
+    <h2>${esc(o.title)}</h2>
+    ${o.passed
+      ? `<div class="accuracy">You did it!</div><p>You played all ${o.total} notes. Now try it with the music not waiting: play for a score.</p>`
+      : `<div class="accuracy" style="font-size:40px">Good start</div><p>You played ${o.hit} of ${o.total} notes. Play it to the end once and the song is yours.</p>`}
+    <div class="row" style="justify-content:center">
+      ${o.passed
+        ? '<button class="primary big" id="score">Play for score ▶</button><button id="learn">Learn mode again</button>'
+        : '<button class="primary big" id="learn">Learn mode again ▶</button><button id="score">Play for score</button>'}
+      <button id="quit">Song select</button>
+    </div>
+  </div>`);
+  el.querySelector('#score')!.addEventListener('click', o.onScore);
+  el.querySelector('#learn')!.addEventListener('click', o.onLearn);
+  el.querySelector('#quit')!.addEventListener('click', o.onQuit);
+}
+
+// ---------------------------------------------------------------------------
+// Tutorial
+// ---------------------------------------------------------------------------
+/** The screen's keyboard from `low` to `high`, with the `lit` keys lit and named. */
+export function screenKeyboard(low: number, high: number, lit: readonly number[]): string {
+  const whites: number[] = [];
+  for (let p = low; p <= high; p++) if (!isBlackKey(p)) whites.push(p);
+  const n = whites.length;
+  const w = whites.map((p) => `<div class="w${lit.includes(p) ? ' lit' : ''}">${lit.includes(p) || p % 12 === 0 ? noteName(p) : ''}</div>`).join('');
+  const b = whites.slice(0, -1).flatMap((p, i) => (isBlackKey(p + 1) && p + 1 <= high
+    ? [`<div class="b${lit.includes(p + 1) ? ' lit' : ''}" style="left:calc(${((i + 1) / n) * 100}% - ${30 / n}%);width:${60 / n}%"></div>`]
+    : [])).join('');
+  return `${w}${b}`;
+}
+
+export interface TutorialScreenOptions {
+  step: Exclude<TutorialStep, 'play' | 'done'>;
+  firstSong: string;
+  onNext: () => void;
+  onSkip: () => void;
+}
+
+/** One step of the tutorial. Step 1 ('keys') has no skip; its Next appears once keys were pressed. */
+export function showTutorial(o: TutorialScreenOptions): HTMLElement {
+  const skip = '<button class="link" id="tut-skip">Skip the tutorial</button>';
+  const body: Record<TutorialScreenOptions['step'], string> = {
+    keys: `<h1>This is your keyboard, on the screen</h1>
+      <p class="say">Press any key on your keyboard. Watch it light up here.</p>
+      <div class="tut-kb" id="tut-kb" aria-hidden="true"></div>
+      <p class="got waiting" id="tut-msg" aria-live="polite">Press a key…</p>
+      <p id="tut-count">0 of ${KEYS_TO_TRY} keys</p>
+      <div class="row" style="justify-content:center"><button class="primary big" id="tut-next" hidden>Next ▶</button></div>`,
+    notes: `<h1>Notes fall down to the keyboard</h1>
+      <div class="tut-demo" aria-hidden="true"><div class="fall"></div><div class="line"></div><div class="key"></div></div>
+      <p class="say">When a note reaches the line, press the key that glows. The music waits for you.</p>
+      <div class="row" style="justify-content:center"><button class="primary big" id="tut-next">Try it ▶</button></div>${skip}`,
+    'first-song': `<h1>You did it!</h1>
+      <p class="say">Now your first song: <b>${esc(o.firstSong)}</b>. It waits for you too.</p>
+      <div class="row" style="justify-content:center"><button class="primary big" id="tut-next">Play ${esc(o.firstSong)} ▶</button></div>
+      <button class="link" id="tut-skip">Go to the song list</button>`,
+  };
+  const el = screen(`<div class="panel setup">${body[o.step]}</div>`);
+  el.querySelector('#tut-next')!.addEventListener('click', o.onNext);
+  el.querySelector('#tut-skip')?.addEventListener('click', o.onSkip);
+  return el;
+}
+
+/** Step 1's live part: light the pressed key and count the keys tried. */
+export function tutorialKeys(el: HTMLElement, o: { low: number; high: number; lit: readonly number[]; last: number | null; tried: number; done: boolean }): void {
+  const kb = el.querySelector('#tut-kb');
+  if (kb) kb.innerHTML = screenKeyboard(o.low, o.high, o.lit);
+  const msg = el.querySelector('#tut-msg');
+  if (msg && o.last !== null) {
+    msg.textContent = o.done ? `That's ${noteName(o.last)}! You've got it.` : `That's ${noteName(o.last)}! Try another key.`;
+    msg.className = 'got ok';
+  }
+  const count = el.querySelector('#tut-count');
+  if (count) count.textContent = `${Math.min(o.tried, KEYS_TO_TRY)} of ${KEYS_TO_TRY} keys`;
+  if (o.done) el.querySelector('#tut-next')?.removeAttribute('hidden');
+}
+
 // ---------------------------------------------------------------------------
 // Gate: press your lowest C
 // ---------------------------------------------------------------------------
 export function showGate(o: { keysHint: string; onSkip: () => void }): HTMLElement {
-  const el = screen(`<div class="panel" style="text-align:center">
-    <h2>Press the lowest C on your keyboard</h2>
-    <p>${esc(o.keysHint)}. This tells the game where your keyboard's octave buttons are set.</p>
-    <p id="gate-msg"></p>
-    <div class="row" style="justify-content:center"><button id="skip">Skip (computer keyboard)</button></div>
+  const el = screen(`<div class="panel setup">
+    <h1>Press the C at the far left of your keyboard</h1>
+    ${miniKeyboard()}
+    <p class="got waiting" id="setup-msg" aria-live="polite">Waiting for a key…</p>
+    <p id="setup-stuck" hidden>Nothing yet? Check the USB cable, then <button id="refresh">Refresh the page</button></p>
+    <p>${esc(o.keysHint)}. This lines the game up with your keyboard.</p>
+    <button class="link" id="skip">I don't have a keyboard</button>
   </div>`);
   el.querySelector('#skip')!.addEventListener('click', o.onSkip);
+  el.querySelector('#refresh')!.addEventListener('click', () => location.reload());
   return el;
 }
 
-export function gateMessage(el: HTMLElement, msg: string): void {
-  const m = el.querySelector('#gate-msg');
-  if (m) m.textContent = msg;
-}
 
 // ---------------------------------------------------------------------------
 // Play HUD, pause, results
 // ---------------------------------------------------------------------------
-export function showPlayHud(o: { onPause: () => void; onSkip: (() => void) | null; practice?: { rate: number; onStop: () => void } }): HTMLElement {
+export function showPlayHud(o: { onPause: () => void; onSkip: (() => void) | null; practice?: { rate: number; onStop: () => void; learn?: boolean } }): HTMLElement {
   const el = screen(`<div class="hud-hint">
       ${o.onSkip ? '<button id="skip">Skip to my part ⏩</button>' : ''}
-      ${o.practice ? `<span class="badge" id="practice-rate" aria-live="polite">${Math.round(o.practice.rate * 100)}% speed</span><button id="stop">Stop practice</button>` : ''}
+      ${o.practice?.learn ? '<span class="badge">Learn mode: the song waits for you</span><button id="stop">Stop</button>' : ''}
+      ${o.practice && !o.practice.learn ? `<span class="badge" id="practice-rate" aria-live="polite">${Math.round(o.practice.rate * 100)}% speed</span><button id="stop">Stop practice</button>` : ''}
       <button id="pause">Pause</button>
     </div>`, true);
   el.querySelector('#pause')!.addEventListener('click', o.onPause);
@@ -712,6 +878,7 @@ export function showSettings(o: SettingsScreenOptions): void {
     ${chk('effects', 'Hit effects and motion (turn off on a slow computer, or for a still highway)')}
     ${chk('uiSounds', 'Menu, star power and streak sounds')}
     ${chk('feedbackByLevel', 'Calmer highway on Easy and Medium: fewer words, counters and flashes over the notes')}
+    ${chk('guides', 'Timing guides: a strike zone, notes that land on the line, early/late marks and a steady grid')}
     <label class="field">Timing words over hits <select id="tierText">${opt('perfect', 'Perfect only', s.tierText)}${opt('all', 'Perfect, Great, Good', s.tierText)}${opt('off', 'none (misses still show)', s.tierText)}</select></label>
     ${chk('letGo', 'Keys held after their note is over bonk and cost points (Medium and up)')}
     <label class="field">Wrong notes <select id="wrongNotePenalty">${opt('combo', 'reset combo', s.wrongNotePenalty)}${opt('none', 'ignore', s.wrongNotePenalty)}${opt('score', 'reset combo and lose points', s.wrongNotePenalty)}</select></label>
@@ -744,6 +911,7 @@ export function showSettings(o: SettingsScreenOptions): void {
       uiSounds: get<HTMLInputElement>('uiSounds').checked,
       tierText: get<HTMLSelectElement>('tierText').value as Settings['tierText'],
       feedbackByLevel: get<HTMLInputElement>('feedbackByLevel').checked,
+      guides: get<HTMLInputElement>('guides').checked,
       letGo: get<HTMLInputElement>('letGo').checked,
       wrongNotePenalty: get<HTMLSelectElement>('wrongNotePenalty').value as Settings['wrongNotePenalty'],
       foldMode: get<HTMLSelectElement>('foldMode').value as Settings['foldMode'],

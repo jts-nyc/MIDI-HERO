@@ -6,34 +6,41 @@ import { setDprCap } from './render/canvas.ts';
 import { FrameGovernor, frameStamp, type EffectsLevel } from './render/feel.ts';
 import { DEFAULT_JUDGE_CONFIG, OVERHOLD_COST, type JudgeConfig, type TimingPreset } from './game/judge.ts';
 import { calibrationBeats, calibrationOffered, markCalibrationOffered, shouldOfferCalibration, type OfferStorage } from './game/calibration.ts';
+import { isPlayMode, learnedSongs, markLearned, openingMode, passesSong, type PlayMode } from './game/learn.ts';
 import { loopLabel, loopOf, practiceSections, trimChart, type PracticeSectionInfo } from './game/practice.ts';
 import { keyLevelOf, listKeyLevel, RATES, songStars, starsByLevel, suggestNextStep, TOP_LEVEL, unlockedLevels, UNLOCK_STARS, type LevelBest, type Suggestion } from './game/results.ts';
 import { PlaySession } from './game/session.ts';
+import {
+  FIRST_SONG_ID, initialTutorial, keyboardWindow, keysDone, shouldShowTutorial, TUTORIAL_SONG_FILE, TUTORIAL_SONG_ID, tutorialStep, type TutorialState,
+} from './game/tutorial.ts';
+import { initialSetup, lowCVerdict, setupResult, setupStep, withMidi, type SetupStep } from './game/setup.ts';
 import { STUDENT_TRIAL_ID, studentTrialSettings, type TrialRate, type TrialSound } from './game/studentTrial.ts';
 import { KeyboardInput } from './input/keyboardInput.ts';
 import { MidiInput } from './input/midiInput.ts';
-import type { InputEvent } from './input/normalize.ts';
+import { updateKeyboardBanner } from './ui/keyboardBanner.ts';
+import { octaveShiftMessage, type InputEvent } from './input/normalize.ts';
 import {
   buildChart, chooseWindow, DIFFICULTY_LABEL, isDifficulty, offeredLevels, openingLevel, resolveLevel, splitNotes,
   type Chart, type ChartOptions, type Difficulty, type Hand, type PitchWindow,
 } from './midi/chart.ts';
 import { buildPack, parsePackJson, sha256Hex, type PackSettings, type PackValidation } from './midi/pack.ts';
-import { beatLines, parseSong, ticksToSeconds } from './midi/parse.ts';
+import { beatLines, MidiParseError, parseSong, ticksToSeconds } from './midi/parse.ts';
+import { fetchSongLink } from './midi/songImport.ts';
 import { buildParts, defaultPart, notesOf } from './midi/parts.ts';
 import type { FeedbackSound } from './game/session.ts';
 import { noteName, displayRange } from './render/layout.ts';
 import { Renderer, type RenderState } from './render/renderer.ts';
 import { horizonSeconds, PerspectiveRenderer } from './render/highway3d.ts';
 import { feedbackFor } from './game/feedback.ts';
-import { bestKey, bestsForSong, deleteSong, getBest, listSongs, parseBestKey, putSong, recordBest, saveChoice, type BestScore } from './storage/db.ts';
+import { bestKey, bestsForSong, deleteSong, getBest, getSong, listSongs, parseBestKey, putSong, recordBest, saveChoice, selectionKey, type BestScore } from './storage/db.ts';
 import type { Part, PartId, SongData } from './types.ts';
 import { partKey } from './types.ts';
 import {
-  gateMessage, installDropZone, setPracticeRate, showCalibration, showCalibrationOffer, showError, showExportDialog, showFirstRun, showGate, showPartPicker, showPause, showPlayHud,
+  installDropZone, setPracticeRate, setupMessage, setupStuck, showCalibration, showCalibrationOffer, showError, showExportDialog, showGate, showLearnResults, showPartPicker, showPause, showPlayHud, showSetup, showTutorial, tutorialKeys,
   showPracticePicker, showPracticeResults, showResults, showSettings, showSongSelect, showStudentTrial, showStudentTrialResults, showUnsupported, toast,
   type PartPickerState, type PartRow, type PracticeChoice, type SongRow,
 } from './ui/screens.ts';
-import { effectiveFeedback, loadSettings, resetToClassDefaults, saveClassDefaults, saveSettings, type Settings } from './ui/settings.ts';
+import { effectiveFeedback, loadSettings, resetToClassDefaults, saveClassDefaults, saveSettings, type KeyboardSize, type Settings } from './ui/settings.ts';
 
 // ---------------------------------------------------------------------------
 // Types and state
@@ -91,8 +98,8 @@ interface Current {
   song: SongData;
   parts: Part[];
   picker: PartPickerState;
-  /** stars per level on this machine, when the song's pack unlocks levels in order */
-  stars: Map<string, number> | null;
+  /** the song's bests on this machine, when its pack unlocks levels in order (stars per level of a selection) */
+  levelBests: LevelBest[] | null;
 }
 
 const base = import.meta.env.BASE_URL;
@@ -126,7 +133,7 @@ let calibrating = false;
  * different windows, the keyboard stays the same.
  */
 const lowCByPort = new Map<string, number>();
-let lastPlay: { window: PitchWindow; relative: boolean; autoplay: { jitterMs: number } | null; practice: PracticeChoice | null } | null = null;
+let lastPlay: { window: PitchWindow; relative: boolean; autoplay: { jitterMs: number } | null; practice: PracticeChoice | null; learn: boolean } | null = null;
 /** the play screen's overlay, for the practice speed shown on it */
 let hudEl: HTMLElement | null = null;
 
@@ -153,6 +160,7 @@ midi.onChange = () => {
   lowCByPort.clear(); // a reconnect may have reset the keyboard's octave buttons
   const id = midi.autoSelect(settings.midiPortId);
   toast(id ? `MIDI: ${midi.listPorts().find((p) => p.id === id)?.name ?? id}` : 'MIDI keyboard disconnected');
+  updateKeyboardBanner(midi);
 };
 keyboard.attach();
 
@@ -178,6 +186,7 @@ async function requestMidi(): Promise<void> {
       saveSettings(settings);
     }
   }
+  updateKeyboardBanner(midi);
 }
 
 function ensureAudio(): void {
@@ -295,6 +304,7 @@ async function songBytes(lib: LibrarySong): Promise<Uint8Array> {
 
 async function importFiles(files: File[]): Promise<void> {
   let added = 0;
+  const songs: string[] = [];
   for (const file of files) {
     try {
       if (/\.json$/i.test(file.name)) {
@@ -303,20 +313,44 @@ async function importFiles(files: File[]): Promise<void> {
         added += await storePack(v);
         toast(`Imported pack "${v.pack.name}" (${v.songs.length} songs)`);
       } else {
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        parseSong(bytes); // validate
-        const id = await sha256Hex(bytes);
-        await putSong({ id, name: file.name.replace(/\.midi?$/i, ''), bytes, parts: [], addedAt: Date.now() });
+        songs.push(await storeMidi(new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.midi?$/i, '')));
         added++;
       }
     } catch (e) {
       toast(`${file.name}: ${e instanceof Error ? e.message : String(e)}`, 'error', 6000);
     }
   }
-  if (added) {
-    await loadLibrary();
-    songSelect();
+  if (!added) return;
+  await loadLibrary();
+  // One song dropped in opens straight away, in wait mode; packs and several files go to the list.
+  if (songs.length === 1 && added === 1) await openSong(songs[0]!, { wait: true });
+  else songSelect();
+}
+
+/**
+ * Keep a .mid file on this device (IndexedDB) and return its id. Nothing is uploaded. A song
+ * that is already here keeps its stored part choice.
+ */
+async function storeMidi(bytes: Uint8Array, name: string): Promise<string> {
+  parseSong(bytes); // validate
+  const id = await sha256Hex(bytes);
+  if (!(await getSong(id).catch(() => undefined))) await putSong({ id, name, bytes, parts: [], addedAt: Date.now() });
+  return id;
+}
+
+/** A pasted link: fetch it from the browser, keep it, open it. Returns the line to show when it didn't come in. */
+async function importLink(input: string): Promise<string | null> {
+  const got = await fetchSongLink(input);
+  if (!got.ok) return got.message;
+  let id: string;
+  try {
+    id = await storeMidi(got.bytes, got.name);
+  } catch (e) {
+    return e instanceof MidiParseError ? `That file isn't a song MIDI Hero can read: ${e.message}` : `Could not keep the song on this device: ${e instanceof Error ? e.message : String(e)}`;
   }
+  await loadLibrary();
+  await openSong(id, { wait: true });
+  return null;
 }
 
 /** Store a validated pack's songs in pack order, then apply its class settings. Returns the song count. */
@@ -363,7 +397,7 @@ async function exportPack(name: string, ids: string[], unlocks: boolean): Promis
   const songs = [];
   for (const id of ids) {
     const lib = library.find((l) => l.id === id);
-    if (!lib) continue;
+    if (!lib || lib.id === TUTORIAL_SONG_ID) continue;
     songs.push({ title: lib.title, bytes: await songBytes(lib), defaultParts: lib.parts, split: lib.split, timingPreset: lib.timingPreset, difficulty: lib.difficulty });
   }
   const pack = await buildPack(name, { kb: settings.kb, timing: settings.timing, names: settings.names, synth: settings.synth, unlocks }, songs);
@@ -381,6 +415,7 @@ async function exportPack(name: string, ids: string[], unlocks: boolean): Promis
 // Screens
 // ---------------------------------------------------------------------------
 function songSelect(): void {
+  tutorial = null;
   stopBacking();
   synth?.allNotesOff(0);
   session = null;
@@ -388,7 +423,7 @@ function songSelect(): void {
   keyboard.base = settings.keyboardBase;
   renderState = null;
   gateHandler = null;
-  const rows: SongRow[] = library.map((l) => ({
+  const rows: SongRow[] = library.filter((l) => l.id !== TUTORIAL_SONG_ID).map((l) => ({
     id: l.id,
     title: l.title,
     subtitle: l.id === STUDENT_TRIAL_ID ? 'Student trial · eight melody notes with steady backing' : l.url ? 'your local song' : l.source === 'bundled' ? l.tag ?? 'built-in' : l.packName ? `pack: ${l.packName}` : 'imported',
@@ -402,14 +437,16 @@ function songSelect(): void {
     onPick: (id) => void openSong(id),
     onDelete: (id) => void deleteSong(id).then(loadLibrary).then(songSelect),
     onImport: (files) => void importFiles(files),
+    onImportLink: importLink,
     onExport: () =>
       showExportDialog({
-        songs: library.map((l) => ({ id: l.id, title: l.title })),
+        songs: library.filter((l) => l.id !== TUTORIAL_SONG_ID).map((l) => ({ id: l.id, title: l.title })),
         defaultName: 'Class pack',
         onExport: (name, ids, unlocks) => void exportPack(name, ids, unlocks),
         onBack: songSelect,
       }),
     onSettings: () => settingsScreen(songSelect),
+    onTutorial: runTutorial,
     onRetryMidi: midi.status === 'denied' || midi.status === 'unsupported' ? () => void requestMidi().then(songSelect) : null,
   });
   // Best scores load asynchronously and are added to the rows when known.
@@ -459,15 +496,15 @@ async function levelBests(songId: string): Promise<LevelBest[]> {
   const bests: BestScore[] = await bestsForSong(songId);
   return bests.map((b) => {
     const k = parseBestKey(b.key);
-    return { accuracy: b.accuracy, rate: k.rate, level: b.level ?? k.level ?? TOP_LEVEL };
+    return { accuracy: b.accuracy, rate: k.rate, level: b.level ?? k.level ?? TOP_LEVEL, selection: k.selection };
   });
 }
 
-/** Stars per level of the current song, when its pack unlocks levels in order. */
+/** The current song's bests, for its stars per level, when its pack unlocks levels in order. */
 async function loadStars(): Promise<void> {
   if (!current) return;
   const c = current;
-  c.stars = c.lib.unlocks ? starsByLevel(await levelBests(c.lib.id).catch(() => [])) : null;
+  c.levelBests = c.lib.unlocks ? await levelBests(c.lib.id).catch(() => []) : null;
 }
 
 function settingsScreen(onClose: () => void): void {
@@ -547,7 +584,8 @@ function calibrate(onClose: () => void): void {
   });
 }
 
-async function openSong(id: string): Promise<void> {
+/** Load a song; imports can open whole-song wait practice, tutorials can suppress the picker. */
+async function openSong(id: string, opts: { wait?: boolean; show?: boolean } = {}): Promise<void> {
   const lib = library.find((l) => l.id === id);
   if (!lib) return;
   try {
@@ -563,19 +601,27 @@ async function openSong(id: string): Promise<void> {
     // ?part=5:4 picks a part by track:channel (for checks on a specific part)
     const urlPart = params.get('part');
     if (urlPart && keys.has(urlPart)) selected = [urlPart];
+    // A new song opens in learn mode until it has been passed once (game/learn.ts).
+    const bests = await bestsForSong(lib.id).catch(() => [] as BestScore[]);
+    const mode = openingMode({
+      learned: learnedSongs(offerStorage()).has(lib.id),
+      bestAccuracy: bests.length ? Math.max(...bests.map((b) => b.accuracy)) : null,
+      urlMode: urlMode ?? (params.get('autoplay') ? 'score' : null),
+    });
     current = {
       lib, song, parts,
       picker: {
         selected: new Set(selected), split: lib.split ?? 60, hands: lib.hands ?? ['L', 'R'], timing: lib.timingPreset ?? settings.timing, guideTrack: false,
-        difficulty: urlDifficulty ?? lib.difficulty ?? DEFAULT_DIFFICULTY,
+        difficulty: urlDifficulty ?? lib.difficulty ?? DEFAULT_DIFFICULTY, mode,
       },
-      stars: null,
+      levelBests: null,
     };
     if (lib.id === STUDENT_TRIAL_ID) {
-      current.picker = { selected: new Set(['1:0']), split: 60, hands: ['L', 'R'], timing: 'normal', guideTrack: false, difficulty: 'easy' };
+      current.picker = { selected: new Set(['1:0']), split: 60, hands: ['L', 'R'], timing: 'normal', guideTrack: false, difficulty: 'easy', mode: 'score' };
     }
     await loadStars();
-    partPicker();
+    if (opts.show !== false) partPicker();
+    if (opts.wait) practicePicker(undefined, { wholeSongWait: true });
   } catch (e) {
     showError('Could not load song', e instanceof Error ? e.message : String(e), songSelect);
   }
@@ -590,6 +636,8 @@ function urlPractice(): PracticeChoice | null {
 }
 
 const urlDifficulty: Difficulty | null = isDifficulty(params.get('difficulty')) ? (params.get('difficulty') as Difficulty) : null;
+/** ?mode=learn or ?mode=score opens every song in that mode (autoplay checks default to score) */
+const urlMode: PlayMode | null = isPlayMode(params.get('mode')) ? (params.get('mode') as PlayMode) : null;
 
 function selectedPartIds(): PartId[] {
   if (!current) return [];
@@ -617,8 +665,10 @@ function levelsOfSelection(): { offered: ReturnType<typeof offeredLevels>; level
   const sel = selectionOptions();
   const offered = sel && current ? offeredLevels(splitNotes(current.song, sel).player, current.song) : [];
   const names = offered.map((l) => l.level);
-  // A pack that unlocks levels in order offers the next one once the one below has its stars.
-  const open = unlockedLevels(names, current?.stars ?? new Map(), !!current?.lib.unlocks);
+  // A pack that unlocks levels in order offers the next one once the one below has its stars,
+  // earned on these parts: another part's levels are its own.
+  const stars = sel && current?.levelBests ? starsByLevel(current.levelBests, selectionKey(sel.parts, sel.split)) : new Map<string, number>();
+  const open = unlockedLevels(names, stars, !!current?.lib.unlocks);
   const level = resolveLevel(current?.picker.difficulty ?? DEFAULT_DIFFICULTY, open);
   return { offered, level, keyLevel: keyLevelOf(level, names).keyLevel, locked: names.filter((n) => !open.includes(n)) };
 }
@@ -700,11 +750,14 @@ function sectionsOfSelection(): { sections: PracticeSectionInfo[]; barTimes: num
   const { level } = levelsOfSelection();
   const chart = buildChart(current.song, { parts: sel.parts, split: sel.split, hands: sel.hands, difficulty: level });
   const barTimes = beatLines(current.song, chart.duration).filter((l) => l.isBar).map((l) => l.time);
-  return { sections: practiceSections(barTimes, chart.duration, chart.notes), barTimes };
+  return { sections: practiceSections(barTimes, chart.duration, chart.notes, current.song.markers), barTimes };
 }
 
-/** Practice mode: pick the sections to loop, then play them. `section` preselects the one starting there. */
-function practicePicker(sectionStart?: number): void {
+/**
+ * Practice mode: pick the sections to loop, then play them. `section` preselects the one starting
+ * there; `wholeSongWait` preselects every section with wait mode on (a song just imported).
+ */
+function practicePicker(sectionStart?: number, opening: { wholeSongWait?: boolean } = {}): void {
   if (!current) return;
   const found = sectionsOfSelection();
   if (!found || found.sections.length === 0) return;
@@ -718,15 +771,20 @@ function practicePicker(sectionStart?: number): void {
     from = Math.min(prev.from, last);
     to = Math.min(prev.to, last);
   }
+  if (opening.wholeSongWait) {
+    from = 0;
+    to = last;
+  }
   const { level } = levelsOfSelection();
   showPracticePicker({
     title: current.lib.title,
     level: DIFFICULTY_LABEL[level],
     sections,
     rates: RATES,
-    choice: { from, to, wait: settings.practiceWait, ladder: settings.practiceLadder, rate: prev?.rate ?? nearestRate(settings.rate) },
+    choice: { from, to, wait: opening.wholeSongWait || settings.practiceWait, ladder: settings.practiceLadder, rate: prev?.rate ?? nearestRate(settings.rate) },
     onStart: (choice) => {
-      settings.practiceWait = choice.wait;
+      // Wait mode preset for a new import is not the player's own default for other songs.
+      if (!opening.wholeSongWait) settings.practiceWait = choice.wait;
       settings.practiceLadder = choice.ladder;
       saveSettings(settings);
       void startPlay(null, choice);
@@ -749,11 +807,12 @@ function offerStorage(): OfferStorage | null {
  * The first play in a browser offers the tap-along timing check once (docs/FEEL.md). Returns
  * true when the offer is on screen; `then` starts the play after the check or the skip.
  */
-function offerCalibrationFirst(autoplay: boolean, then: () => void): boolean {
+function offerCalibrationFirst(autoplay: boolean, then: () => void, learn = false): boolean {
   const store = offerStorage();
   const offer = shouldOfferCalibration({
     offered: calibrationOffered(store), inputOffsetMs: settings.inputOffsetMs, audioOffsetMs: settings.audioOffsetMs,
-    trial: current?.lib.id === STUDENT_TRIAL_ID, autoplay,
+    // Learn mode judges no timing, so the check waits for the first scored play.
+    trial: current?.lib.id === STUDENT_TRIAL_ID || current?.lib.id === TUTORIAL_SONG_ID || learn, autoplay,
   });
   if (!offer) return false;
   markCalibrationOffered(store);
@@ -763,7 +822,7 @@ function offerCalibrationFirst(autoplay: boolean, then: () => void): boolean {
 
 async function startPlay(autoplay: { jitterMs: number } | null, practice: PracticeChoice | null = null): Promise<void> {
   if (!current) return;
-  if (offerCalibrationFirst(!!autoplay, () => void startPlay(autoplay, practice))) return;
+  if (offerCalibrationFirst(!!autoplay, () => void startPlay(autoplay, practice), !practice && current.picker.mode === 'learn')) return;
   const { lib, song, picker } = current;
   const sel = selectionOptions();
   if (!sel) return;
@@ -788,7 +847,8 @@ async function startPlay(autoplay: { jitterMs: number } | null, practice: Practi
   const { window, relative } = lib.id === STUDENT_TRIAL_ID
     ? { window: { low: 48, high: 72 }, relative: false }
     : windowFor(settings.kb, unfolded.notes.map((n) => n.origPitch));
-  lastPlay = { window, relative, autoplay, practice };
+  const learn = !practice && picker.mode === 'learn' && lib.id !== STUDENT_TRIAL_ID;
+  lastPlay = { window, relative, autoplay, practice, learn };
   play();
 }
 
@@ -798,7 +858,7 @@ function play(): void {
   const trial = lib.id === STUDENT_TRIAL_ID;
   const runSettings = trial ? studentTrialSettings(settings, trialSound, trialRate) : settings;
   sessionSettings = trial ? runSettings : null;
-  const { window, relative, autoplay, practice: choice } = lastPlay;
+  const { window, relative, autoplay, practice: choice, learn } = lastPlay;
   const sel = selectionOptions();
   if (!sel) return;
   const partIds = sel.parts;
@@ -816,11 +876,13 @@ function play(): void {
   const lines = beatLines(song, fullChart.duration);
   const barTimes = lines.filter((l) => l.isBar).map((l) => l.time);
   // Practice mode: the chart is cut to the loop; the band, the beat lines and the display range stay the song's.
-  const sections = choice ? practiceSections(barTimes, fullChart.duration, fullChart.notes) : [];
+  const sections = choice ? practiceSections(barTimes, fullChart.duration, fullChart.notes, song.markers) : [];
   const from = choice ? Math.min(choice.from, sections.length - 1) : 0;
   const to = choice ? Math.min(choice.to, sections.length - 1) : 0;
   const loop = choice && sections.length ? loopOf(sections, from, to) : null;
   const chart = loop ? trimChart(fullChart, loop) : fullChart;
+  // Learn mode: the whole song once, held at every note until it is played (game/learn.ts).
+  const learnRun = learn ? { loop: { start: 0, end: fullChart.duration }, sections: [], current: -1, label: 'Learn mode', wait: true, ladder: false, once: true, title: 'Learn mode' } : null;
   if (chart.notes.length === 0) {
     showError('Nothing to practise', 'These bars have no notes to play.', partPicker);
     return;
@@ -829,7 +891,7 @@ function play(): void {
   const timing = picker.timing;
   const judgeConfig: JudgeConfig = {
     ...DEFAULT_JUDGE_CONFIG, preset: timing, easy: runSettings.easy, wrongNotePenalty: runSettings.wrongNotePenalty,
-    failAt: runSettings.arcade && !autoplay && !loop ? 0 : null,
+    failAt: runSettings.arcade && !autoplay && !loop && !learnRun ? 0 : null,
     overhold: runSettings.letGo ? OVERHOLD_COST[difficulty] : null,
   };
   const sig = song.timeSigs[0]!;
@@ -863,6 +925,7 @@ function play(): void {
     }
     // In practice the session counts in before every pass itself.
     scheduler = new BackingScheduler(chart.backing, backingSynth, clock, {
+      drumChannels: song.drumChannels,
       mutedParts: muted,
       countIn: loop ? null : { beats: sig.numerator, beatSeconds: barSeconds / sig.numerator },
     });
@@ -874,16 +937,19 @@ function play(): void {
     relative, visibleSeconds, barSeconds, autoplay, countInBeats: sig.numerator,
     steadyBacking: trial, finishAtSongEnd: trial, disableStarPower: trial,
     barTimes,
+    markers: song.markers,
     effects: effectsOn,
     cue,
     tierText: runSettings.tierText,
     feedback: feedbackProfile,
+    timingGuides: runSettings.guides,
     hint: trial ? `First Lights · ${trialRate * 100} BPM · C4, E4, G4` : relative ? PlaySession.keysHint(window) : partName,
     ...(loop && choice ? {
       practice: { loop, sections, current: from, label: loopLabel(sections, from, to), wait: choice.wait, ladder: choice.ladder },
       // the count-in clicks of the scheduler's, on the band's drum channel
       click: (accent: boolean, when: number) => backingSynth?.noteOn(9, accent ? 76 : 37, accent ? 110 : 80, when),
     } : {}),
+    ...(learnRun ? { practice: learnRun } : {}),
   });
   const s = session;
   s.onPass = () => {
@@ -895,15 +961,16 @@ function play(): void {
     if (hudEl) setPracticeRate(hudEl, s.rate);
   };
   s.onWait = (waiting) => {
-    // Wait mode: the band is silent while the song is held, and picks up where it left off.
+    // Wait mode: the band is silent while the song is held, and picks up where it left off,
+    // with the notes that were sounding at the held onset (those on it included) struck again.
     if (!scheduler || s.status !== 'playing') return;
     if (waiting) scheduler.stop();
-    else scheduler.start();
+    else scheduler.start({ resound: true });
   };
   s.onOctave = (ev) => {
     if (ev.type === 'reoffset') {
-      toast(`Octave adjusted (${ev.delta > 0 ? '+' : ''}${ev.delta / 12}). Keep playing.`);
-      if (midi.selectedId) lowCByPort.set(midi.selectedId, window.low - s.octaveOffset);
+      toast(octaveShiftMessage(ev.delta), 'info', 6000);
+      if (midi.selectedId && ev.source === 'midi') lowCByPort.set(midi.selectedId, window.low - s.octaveOffset);
     } else {
       toast('Your keyboard seems transposed. Check its transpose setting.', 'error');
       if (midi.selectedId) lowCByPort.delete(midi.selectedId);
@@ -917,8 +984,30 @@ function play(): void {
       showStudentTrialResults({ result, sound: trialSound, rate: trialRate, autoplay: !!autoplay, onRetry: play, onSetup: trialSetup, onQuit: songSelect });
       return;
     }
+    if (learnRun && lib.id === TUTORIAL_SONG_ID) {
+      if (!tutorial) { songSelect(); return; }
+      tutorial = tutorialStep(tutorial, { type: 'played' });
+      tutorialScreen();
+      return;
+    }
+    if (learnRun) {
+      // Learn mode writes no bests or stars; reaching the end passes the song.
+      const passed = passesSong('learn', result);
+      if (passed && !autoplay) {
+        markLearned(offerStorage(), lib.id);
+        picker.mode = 'score';
+      }
+      const c = result.counts;
+      showLearnResults({
+        title: lib.title, passed, hit: c.perfect + c.great + c.good + c.late, total: result.total,
+        onScore: () => { picker.mode = 'score'; void startPlay(null); },
+        onLearn: () => { picker.mode = 'learn'; void startPlay(null); },
+        onQuit: songSelect,
+      });
+      return;
+    }
     if (result.practice) {
-      // Practice never writes bests or stars.
+      // Practice never writes bests or stars, and does not pass the song.
       showPracticeResults({
         title: lib.title,
         detail: `${partName} · ${DIFFICULTY_LABEL[difficulty]} · ${timing} timing`,
@@ -930,6 +1019,7 @@ function play(): void {
       });
       return;
     }
+    if (passesSong('score', result, !!autoplay)) markLearned(offerStorage(), lib.id);
     const badges = [...(result.failed ? ['Song failed'] : []), ...(runSettings.easy ? ['Easy mode'] : []), ...(runSettings.rate < 1 ? [`${Math.round(runSettings.rate * 100)}% speed`] : []), ...(autoplay ? ['Autoplay'] : [])];
     const detail = `${partName} · ${DIFFICULTY_LABEL[difficulty]} · ${timing} timing · ${Math.round(runSettings.rate * 100)}% speed`;
     const suggestion = suggestNextStep({
@@ -961,6 +1051,7 @@ function play(): void {
     feedback: feedbackProfile,
     reduceMotion: !effectsOn,
     ...(s.practice ? { practice: s.practice } : {}),
+    ...(s.guides ? { guides: s.guides } : {}),
   };
   runEffects = effectsOn;
   governor.reset();
@@ -996,8 +1087,8 @@ function takeSuggestion(s: Suggestion): void {
 function playHud(s: PlaySession): void {
   hudEl = showPlayHud({
     onPause: pause,
-    onSkip: !s.practice && s.chart.firstNoteTime > 8 ? () => { s.skipToFirstNote(); scheduler?.stop(); scheduler?.start(); } : null,
-    ...(s.practice ? { practice: { rate: s.rate, onStop: () => s.stopPractice() } } : {}),
+    onSkip: (!s.practice || s.opts.practice?.once) && s.chart.firstNoteTime > 8 ? () => { s.skipToFirstNote(); scheduler?.stop(); scheduler?.start(); } : null,
+    ...(s.practice ? { practice: { rate: s.rate, onStop: () => s.stopPractice(), learn: !!s.opts.practice?.once } } : {}),
   });
   // While wait mode holds the song the band stays quiet; the session starts it again.
   if (s.status === 'playing' && !s.practice?.waiting) scheduler?.start();
@@ -1017,31 +1108,215 @@ function stopBacking(): void {
   scheduler = null;
 }
 
+// ---------------------------------------------------------------------------
+// Tutorial (game/tutorial.ts)
+// ---------------------------------------------------------------------------
+let tutorial: TutorialState | null = null;
+
+function runTutorial(): void {
+  stopBacking();
+  session = null;
+  renderState = null;
+  tutorial = initialTutorial();
+  tutorialScreen();
+}
+
+function endTutorial(firstSong: boolean): void {
+  tutorial = null;
+  gateHandler = null;
+  synth?.allNotesOff(0);
+  if (firstSong && library.some((l) => l.id === FIRST_SONG_ID)) {
+    void openSong(FIRST_SONG_ID, { show: false }).then(() => {
+      // a song that would not load leaves its error on screen, and `current` on the tutorial song
+      if (current?.lib.id !== FIRST_SONG_ID) return;
+      current.picker.mode = 'learn';
+      void startPlay(null);
+    });
+  } else songSelect();
+}
+
+function tutorialScreen(): void {
+  if (!tutorial) return;
+  const t = tutorial;
+  gateHandler = null;
+  if (t.step === 'done') { endTutorial(false); return; }
+  if (t.step === 'play') { void playTutorialSong(); return; }
+  const firstSong = library.find((l) => l.id === FIRST_SONG_ID)?.title ?? 'your first song';
+  const el = showTutorial({
+    step: t.step, firstSong,
+    onNext: () => {
+      if (!tutorial) return;
+      const before = tutorial.step;
+      tutorial = tutorialStep(tutorial, { type: 'next' });
+      if (before === 'first-song') { endTutorial(true); return; }
+      tutorialScreen();
+    },
+    onSkip: () => {
+      if (!tutorial) return;
+      tutorial = tutorialStep(tutorial, { type: 'skip' });
+      endTutorial(false);
+    },
+  });
+  if (t.step !== 'keys') return;
+  // Step 1: every key lights up on the screen's keyboard and sounds, MIDI or computer keys.
+  const lowC = midi.selectedId ? lowCByPort.get(midi.selectedId) : undefined;
+  const base = lowC ?? (midi.selectedId ? 48 : keyboard.base);
+  const held = new Set<number>();
+  let last: number | null = null;
+  const draw = () => {
+    const win = keyboardWindow(last, base);
+    tutorialKeys(el, { ...win, lit: [...held], last, tried: tutorial?.pressed.length ?? 0, done: !!tutorial && keysDone(tutorial) });
+  };
+  draw();
+  gateHandler = (ev) => {
+    if (!tutorial || tutorial.step !== 'keys') return;
+    ensureAudio();
+    if (ev.type === 'on') {
+      held.add(ev.pitch);
+      last = ev.pitch;
+      if (settings.synth) synth?.noteOn(0, ev.pitch, ev.velocity, 0);
+      const wasDone = keysDone(tutorial);
+      tutorial = tutorialStep(tutorial, { type: 'key', pitch: ev.pitch });
+      // Steps past the first are skippable: the tutorial counts as seen from here.
+      if (!wasDone && keysDone(tutorial) && !settings.tutorialDone) {
+        settings.tutorialDone = true;
+        saveSettings(settings);
+      }
+    } else if (ev.type === 'off') {
+      held.delete(ev.pitch);
+      if (settings.synth) synth?.noteOff(0, ev.pitch, 0);
+    }
+    draw();
+  };
+}
+
+/** Step 2: four slow notes of the tutorial song, in learn mode. */
+async function playTutorialSong(): Promise<void> {
+  if (!library.some((l) => l.id === TUTORIAL_SONG_ID)) {
+    library.push({ id: TUTORIAL_SONG_ID, title: 'How to play', source: 'bundled', file: TUTORIAL_SONG_FILE, defaultParts: [{ track: 1, channel: 0 }], parts: [{ track: 1, channel: 0 }] });
+  }
+  await openSong(TUTORIAL_SONG_ID, { show: false });
+  if (!current || current.lib.id !== TUTORIAL_SONG_ID) return;
+  current.picker.mode = 'learn';
+  current.picker.difficulty = 'easy';
+  await startPlay(null);
+}
+
+/**
+ * "I don't have a keyboard": stop listening to the auto-picked port for this page, so later songs
+ * don't ask for a C again. Settings can enable MIDI again, or the next page load can pick it.
+ */
+function useComputerKeys(): void {
+  midi.useComputerKeys();
+  updateKeyboardBanner(midi);
+}
+
+/** How long "Got it! That was C3." stays on screen before the game goes on. */
+const GOT_IT_MS = 900;
+/** With no keyboard or no key for this long, offer "check the cable, then refresh". */
+const STUCK_MS = 10_000;
+
+/**
+ * First-run setup (game/setup.ts): one question per screen. With a keyboard connected the way
+ * on is pressing its far-left C, which also lines up the octave for this page session.
+ */
+function runSetup(onDone: (kb: KeyboardSize, soundSelf: boolean) => void): void {
+  let st = initialSetup(midi.status, !!midi.selectedId, midi.selectedId);
+  let shown: { step: SetupStep; midi: string } | null = null;
+  let stuckTimer: ReturnType<typeof setTimeout> | undefined;
+  let finished = false;
+  // MIDI access and plugging in arrive without a callback of ours (main's onChange selects the port).
+  const poll = setInterval(() => {
+    if (midi.status !== st.midi || midi.selectedId !== (st.portId ?? null)) {
+      st = withMidi(st, midi.status, midi.selectedId);
+      render();
+    }
+  }, 300);
+  const render = (): void => {
+    // A late callback (the "Got it!" pause, a MIDI retry) after setup is over does nothing.
+    if (finished) return;
+    const step = setupStep(st);
+    if (step === 'done') {
+      finished = true;
+      clearInterval(poll);
+      clearTimeout(stuckTimer);
+      gateHandler = null;
+      const r = setupResult(st);
+      onDone(r.kb, r.soundSelf);
+      return;
+    }
+    if (shown?.step === step && shown.midi === st.midi) return;
+    shown = { step, midi: st.midi };
+    const el = showSetup({
+      step, midi: st.midi,
+      onNoKeyboard: () => {
+        useComputerKeys();
+        st = { ...st, noKeyboard: true };
+        render();
+      },
+      onRetry: () => void requestMidi().then(() => { st = withMidi(st, midi.status, midi.selectedId); shown = null; render(); }),
+      onKb: (kb) => { st = { ...st, kb }; render(); },
+      onSound: (soundSelf) => { st = { ...st, soundSelf }; render(); },
+    });
+    gateHandler = null;
+    clearTimeout(stuckTimer);
+    if (step === 'connect' || step === 'press') stuckTimer = setTimeout(() => setupStuck(el), STUCK_MS);
+    if (step !== 'press') return;
+    let counted = false;
+    gateHandler = (ev) => {
+      if (ev.type !== 'on' || ev.source !== 'midi' || counted) return;
+      clearTimeout(stuckTimer); // a key arrived: the keyboard works
+      const verdict = lowCVerdict(ev.pitch);
+      setupMessage(el, verdict);
+      if (!verdict.ok) return;
+      counted = true;
+      if (midi.selectedId) lowCByPort.set(midi.selectedId, ev.pitch);
+      const port = midi.selectedId;
+      setTimeout(() => {
+        // Unplugged or swapped during the pause: that C no longer counts.
+        if (setupStep(st) !== 'press' || midi.selectedId !== port) return;
+        st = { ...st, lowC: ev.pitch };
+        render();
+      }, GOT_IT_MS);
+    };
+  };
+  render();
+}
+
 /** "Press your lowest C": learns the octave shift and the input channel, then resumes. */
 function runGate(window: PitchWindow, s: PlaySession): void {
   const el = showGate({
     keysHint: PlaySession.keysHint(window),
     onSkip: () => {
+      useComputerKeys();
       gateHandler = null;
       s.resume();
       playHud(s);
     },
   });
-  gateHandler = (ev) => {
+  const stuck = setTimeout(() => setupStuck(el), STUCK_MS);
+  const handler = (ev: InputEvent): void => {
     if (ev.type !== 'on' || ev.source !== 'midi') return;
-    if (ev.pitch % 12 !== 0) {
-      gateMessage(el, `That was ${['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'][ev.pitch % 12]} — press a C.`);
-      return;
-    }
+    clearTimeout(stuck);
+    const verdict = lowCVerdict(ev.pitch);
+    setupMessage(el, verdict);
+    if (!verdict.ok) return;
     const offset = window.low - ev.pitch;
     s.octaveOffset = offset;
     s.filter.lock(ev.channel);
     if (midi.selectedId) lowCByPort.set(midi.selectedId, ev.pitch);
-    gateHandler = null;
-    toast(offset === 0 ? 'Keyboard lined up.' : `Keyboard lined up (octave ${offset > 0 ? '+' : ''}${offset / 12}).`);
-    s.resume();
-    playHud(s);
+    // "Got it! That was C3." stays up a moment, so the student sees the key counted.
+    const counted = (): void => undefined;
+    gateHandler = counted;
+    setTimeout(() => {
+      if (gateHandler === counted && session === s && s.status === 'paused') {
+        gateHandler = null;
+        s.resume();
+        playHud(s);
+      }
+    }, GOT_IT_MS);
   };
+  gateHandler = handler;
 }
 
 function pause(): void {
@@ -1215,19 +1490,19 @@ async function boot(): Promise<void> {
         return;
       }
     }
-    songSelect();
+    // A direct song or file link that did not load still goes to the song list, not the tutorial.
+    if (shouldShowTutorial({ tutorialDone: settings.tutorialDone, directLink: !!(quick || filePath) })) runTutorial();
+    else songSelect();
     void midiReady.then(() => {
-      if (!session && !current) songSelect();
+      if (!session && !current && !tutorial) songSelect();
     });
   };
   if (!settings.firstRunDone) {
-    showFirstRun({
-      onDone: (kb, soundSelf) => {
-        settings = { ...settings, kb, synth: !soundSelf, feedbackSound: soundSelf ? 'off' : 'chart', firstRunDone: true };
-        trialSound = soundSelf ? 'off' : 'press';
-        saveSettings(settings);
-        void start();
-      },
+    runSetup((kb, soundSelf) => {
+      settings = { ...settings, kb, synth: !soundSelf, feedbackSound: soundSelf ? 'off' : 'chart', firstRunDone: true };
+      trialSound = soundSelf ? 'off' : 'press';
+      saveSettings(settings);
+      void start();
     });
   } else if (!midi.supported) {
     showUnsupported({ reason: 'nomidi', onContinue: () => void start() });

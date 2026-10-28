@@ -2,6 +2,7 @@ import type { Chart, ChartNote } from '../midi/chart.ts';
 import type { BeatLine } from '../midi/parse.ts';
 import { canvasDpr, fitCanvas } from './canvas.ts';
 import { Tint, type FxState } from './fx.ts';
+import { GUIDES, landedRow, TimingGuides, type GuideState } from './guides.ts';
 import { HitFeel } from './hitFeel.ts';
 import { isBlackKey, layoutKeys, noteName, type KeyboardLayout } from './layout.ts';
 import type { PracticeView } from './practice.ts';
@@ -72,6 +73,8 @@ export interface RenderState {
   reduceMotion?: boolean;
   /** the frame-time fallback is at its lowest level: skip the lights (venue, charge, rails, fog) */
   lowFx?: boolean;
+  /** timing guides (strike zone, landing pads, early/late, locked grid; see guides.ts); absent = off */
+  guides?: GuideState;
 }
 
 export const theme = {
@@ -254,19 +257,23 @@ export class PracticeVenueVisuals {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.font = 'bold 14px system-ui';
-    ctx.fillText(section?.label ?? 'Practice', 22, 117, w - 20);
+    ctx.fillText(section?.label ?? p.title ?? 'Practice', 22, 117, w - 20);
     ctx.fillStyle = theme.text;
     ctx.font = '12px system-ui';
-    ctx.fillText(this.passes.get(p.passes), 22, 140, w - 20);
+    ctx.fillText(p.title ? 'Play the glowing key' : this.passes.get(p.passes), 22, 140, w - 20);
   }
 }
 
 const PRACTICE_COLOR = '#54e4e8';
+/** beat and bar lines with the timing guides on */
+export const GUIDE_BEAT = `rgba(255,255,255,${GUIDES.beatAlpha})`;
+export const GUIDE_BAR = `rgba(255,255,255,${GUIDES.barAlpha})`;
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private practiceVenue = new PracticeVenueVisuals();
   private feel = new HitFeel();
+  private guides = new TimingGuides();
   private keyWhite = new Float32Array(128);
   private low = false;
   /** lane of a pitch at the hit line, for the light columns */
@@ -368,6 +375,7 @@ export class Renderer {
     const hitY = height - keyboardH;
     const pps = s.pixelsPerSecond;
     const star = fx.meters.starActive;
+    const guides = s.guides;
 
     ctx.fillStyle = theme.highway;
     ctx.fillRect(0, 0, width, hitY);
@@ -418,12 +426,15 @@ export class Renderer {
       if (b.time < s.time - 0.1) continue;
       if (b.time > s.time + visibleSec) break;
       const y = Math.round(hitY - (b.time - s.time) * pps) + 0.5;
-      ctx.strokeStyle = b.isBar ? (star ? 'rgba(255,210,63,0.4)' : theme.bar) : theme.beat;
+      ctx.strokeStyle = b.isBar ? (star ? 'rgba(255,210,63,0.4)' : guides ? GUIDE_BAR : theme.bar) : guides ? GUIDE_BEAT : theme.beat;
+      ctx.lineWidth = guides && b.isBar ? GUIDES.barWidth : 1;
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(width, y);
       ctx.stroke();
     }
+    ctx.lineWidth = 1;
+    if (guides) this.guides.drawZone(ctx, guides, width, (dt) => hitY - dt * pps);
     this.feel.update(fx, lines, Math.max(0, this.beatCursor - 2), s.time, this.reduceMotion);
 
     this.drawStreak(fx, width, hitY);
@@ -437,6 +448,7 @@ export class Renderer {
     this.cursorTime = earliest;
     const until = s.time + visibleSec + 0.5;
     this.passingCount = 0;
+    this.guides.begin();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     for (let i = this.cursor; i < notes.length; i++) {
@@ -448,6 +460,7 @@ export class Renderer {
       if (vis?.state === 'hit' && vis.hold !== 'holding' && vis.hold !== 'released' && s.time - (vis.holdEnd ?? vis.hitTime) > HIT_FADE) continue;
       if (n.time + n.duration < s.time - 0.5) continue;
       if (vis?.state === 'missed' && n.time < s.time && this.passingCount < MAX_PASSING) this.passing[this.passingCount++] = i;
+      if (guides && vis?.state === 'pending') this.guides.note(n.pitch, n.time - s.time, n.hand === 'L');
       this.drawNote(n, col, vis, s, hitY, star);
     }
 
@@ -463,12 +476,15 @@ export class Renderer {
     }
     this.drawHitLine(fx, layout, width, hitY, star, s.practice?.waiting === true);
     this.feel.drawLinePulse(ctx, width, hitY, star ? theme.star : '#9fc0ff');
+    if (guides) this.guides.drawPads(ctx, this.colOf, hitY);
     this.drawKeyboard(s, layout, hitY, keyboardH);
     this.drawPassing(s, layout, hitY);
     this.drawEffects(fx, layout, hitY);
     this.drawPopups(s, hitY);
+    if (guides) this.guides.drawTags(ctx, guides, s.time, this.xOf, hitY);
     this.drawGlow(fx, width, height);
     this.drawHud(s, width, hitY);
+    if (guides) this.guides.drawMeter(ctx, guides, s.time, width);
     this.practiceVenue.drawHud(ctx, s, width);
     this.drawCallouts(fx, width, hitY);
     this.drawCountdown(fx, width, hitY);
@@ -484,8 +500,10 @@ export class Renderer {
   ): void {
     const ctx = this.ctx;
     const pps = s.pixelsPerSecond;
-    const yTop = hitY - (n.time + n.duration - s.time) * pps;
-    const yBottom = hitY - (n.time - s.time) * pps;
+    const pending = s.guides !== undefined && (!vis || vis.state === 'pending');
+    // With the guides on, a note that is due sits on the hit line until it is played or missed.
+    const yBottom = landedRow(hitY - (n.time - s.time) * pps, hitY, pending);
+    const yTop = Math.min(hitY - (n.time + n.duration - s.time) * pps, yBottom);
     let h = Math.max(MIN_NOTE_HEIGHT, yBottom - yTop);
     let y = yBottom - h;
     if (y > hitY + 40 || y + h < -10) return;

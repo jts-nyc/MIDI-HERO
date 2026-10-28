@@ -1,15 +1,16 @@
 import type { GameClock } from '../audio/clock.ts';
 import type { SfxCue } from '../audio/sfx.ts';
 import { FEEDBACK_CHANNEL, FEEDBACK_CHANNELS, type Synth } from '../audio/synth.ts';
-import { ChannelFilter, OctaveTracker, type InputEvent, type OctaveEvent } from '../input/normalize.ts';
+import { ChannelFilter, OctaveTracker, type InputEvent, type InputSource, type OctaveEvent } from '../input/normalize.ts';
 import type { CarriedNote, Chart } from '../midi/chart.ts';
 import {
-  createFx, emitBreak, emitCallout, emitDrop, emitHit, emitLevel, emitMilestone, emitMiss, emitSpark, emitStar, emitStreak, emitWrong, setCountdown, stepFx,
+  clearCallouts, createFx, emitBreak, emitCallout, emitDrop, emitHit, emitLevel, emitMilestone, emitMiss, emitSpark, emitStar, emitStreak, emitWrong, setCountdown, stepFx,
   type FxState,
 } from '../render/fx.ts';
 import { noteName } from '../render/layout.ts';
 import { capTier, FULL_FEEDBACK, type FeedbackProfile } from './feedback.ts';
 import type { PracticeSection, PracticeView } from '../render/practice.ts';
+import { pushMark, type GuideState } from '../render/guides.ts';
 import type { Hud, KeyVisual, NoteVisual, Popup } from '../render/renderer.ts';
 import { theme } from '../render/renderer.ts';
 import { Judge, TIMING_SCALE, type Counts, type JudgeConfig, type Judgment } from './judge.ts';
@@ -31,6 +32,13 @@ export interface PracticeOptions {
   wait: boolean;
   /** step the rate up after two clean passes, down after two failed ones */
   ladder: boolean;
+  /**
+   * Learn mode: one pass through the whole song in wait mode, with the normal lead-in and
+   * count-in instead of a loop; the session finishes at the song's end like a normal play.
+   */
+  once?: boolean;
+  /** shown on the highway in place of the section label (learn mode) */
+  title?: string;
 }
 
 /** What a practice session reports at the end. */
@@ -59,11 +67,16 @@ export type FeedbackSound = 'chart' | 'press' | 'off';
  */
 export type TierText = 'all' | 'perfect' | 'off';
 
-/** The word a hit of this tier shows, or null to hit silently. */
-export function tierWord(judgment: Judgment, tierText: TierText): string | null {
+/**
+ * The word a hit of this tier shows, or null to hit silently. The 'late' tier is any hit just
+ * outside the Good window, either side: `delta` (press minus note time) says which, so a press
+ * that came too early says "Early", not "Late".
+ */
+export function tierWord(judgment: Judgment, tierText: TierText, delta = 0): string | null {
   if (judgment === 'miss') return JUDGMENT_LABEL.miss;
-  if (tierText === 'all') return JUDGMENT_LABEL[judgment];
-  if (tierText === 'perfect' && (judgment === 'perfect' || judgment === 'late')) return JUDGMENT_LABEL[judgment];
+  const label = judgment === 'late' && delta < 0 ? 'Early' : JUDGMENT_LABEL[judgment];
+  if (tierText === 'all') return label;
+  if (tierText === 'perfect' && (judgment === 'perfect' || judgment === 'late')) return label;
   return null;
 }
 
@@ -102,6 +115,8 @@ export interface SessionOptions {
   hint: string;
   /** bar-line times in seconds, for the per-section accuracy of the result */
   barTimes?: readonly number[];
+  /** the song's markers: when they cut it into parts, the result's sections are those parts */
+  markers?: readonly { time: number; text: string }[];
   /** clicks of the count-in, for the countdown on screen; default 4 */
   countInBeats?: number;
   /** particles and other moving effects; default on. Meters and counters always show. */
@@ -116,6 +131,8 @@ export interface SessionOptions {
   click?: (accent: boolean, when: number) => void;
   /** a short cue for a game moment: star power, a milestone, a level-up, a long streak broken (audio/sfx.ts) */
   cue?: (cue: SfxCue) => void;
+  /** timing guides on the highway: strike zone, landing pads, early/late (render/guides.ts); default off */
+  timingGuides?: boolean;
 }
 
 export interface PlayResult {
@@ -167,6 +184,8 @@ export class PlaySession {
   readonly popups: Popup[] = [];
   /** effects and meters for the renderer */
   readonly fx: FxState = createFx();
+  /** timing guides for the renderer: the judge's windows and the last hits; undefined when off */
+  readonly guides: GuideState | undefined;
   readonly profile: FeedbackProfile;
   readonly filter = new ChannelFilter();
   readonly tracker = new OctaveTracker(3);
@@ -174,7 +193,8 @@ export class PlaySession {
   octaveOffset = 0;
   status: SessionStatus = 'playing';
   readonly leadIn: number;
-  onOctave: (ev: OctaveEvent) => void = () => {};
+  /** `source`: the input of the press that completed the streak (a computer-key shift is not the MIDI keyboard's) */
+  onOctave: (ev: OctaveEvent & { source: InputSource }) => void = () => {};
   onFinished: (result: PlayResult) => void = () => {};
   private autoCursor = 0;
   private autoOffs: { time: number; pitch: number }[] = [];
@@ -212,10 +232,17 @@ export class PlaySession {
     if (practice) {
       this.run = startRun(opts.rate, practice.ladder);
       this.rate = runRate(this.run);
-      this.practice = { sections: practice.sections, current: practice.current, loop: practice.loop, passes: 0, waiting: false, waitingFor: this.owed };
+      this.practice = {
+        sections: practice.sections, current: practice.current, loop: practice.once ? null : practice.loop, passes: 0, waiting: false, waitingFor: this.owed,
+        ...(practice.title ? { title: practice.title } : {}),
+      };
       opts.chart.notes.forEach((n, i) => n.star && this.starNotes.push(i));
     }
     this.judge = new Judge(opts.chart, opts.judgeConfig, this.rate);
+    if (opts.timingGuides) {
+      this.guides = { perfect: 0, great: 0, good: 0, miss: 0, marks: [] };
+      this.syncGuides();
+    }
     this.fx.enabled = opts.effects ?? true;
     this.fx.meters.canFail = (opts.judgeConfig.failAt ?? null) !== null;
     this.syncMeters();
@@ -237,7 +264,7 @@ export class PlaySession {
       this.autoJitter = opts.chart.notes.map(() => (Math.random() * 2 - 1) * j);
     }
     opts.clock.setRate(this.rate);
-    if (practice) {
+    if (practice && !practice.once) {
       opts.clock.start(practice.loop.start - opts.barSeconds);
       this.armCountIn();
     } else opts.clock.start(-this.leadIn);
@@ -249,6 +276,14 @@ export class PlaySession {
     const beats = this.opts.countInBeats ?? 4;
     this.clicks.length = 0;
     for (let i = 0; i < beats; i++) this.clicks.push(loop.start - ((beats - i) * this.opts.barSeconds) / beats);
+  }
+
+  /** The count-in clicks of this pass from song time `from` on (a pause silenced the ones scheduled). */
+  private rearmClicks(from: number): void {
+    const loop = this.opts.practice!.loop;
+    if (from >= loop.start) return;
+    this.armCountIn();
+    while (this.clicks.length && this.clicks[0]! < from) this.clicks.shift();
   }
 
   /** Sound the count-in clicks that fall due, at their exact time on the audio clock. */
@@ -350,7 +385,8 @@ export class PlaySession {
         : { state: 'hit', hitTime: this.now(), judgment: result.judgment };
       this.keyVisuals.set(pitch, { kind: result.judgment, since: t });
       // Wait mode has no timing judgment: a hit is a hit, shown by its particles alone.
-      const word = tierWord(result.judgment, this.opts.practice?.wait ? 'off' : capTier(this.opts.tierText ?? 'perfect', this.profile));
+      const word = tierWord(result.judgment, this.opts.practice?.wait ? 'off' : capTier(this.opts.tierText ?? 'perfect', this.profile), result.delta);
+      if (this.guides && !this.opts.practice?.wait) pushMark(this.guides.marks, { pitch, delta: result.delta, time: this.now() });
       if (word && (result.judgment !== 'miss' || this.profile.missWord)) {
         this.popups.push({ text: word, pitch, time: this.now(), color: JUDGMENT_COLOR[result.judgment] });
       }
@@ -366,7 +402,7 @@ export class PlaySession {
         const oev = this.tracker.observe(false, delta);
         if (oev) {
           if (oev.type === 'reoffset') this.octaveOffset += oev.delta;
-          this.onOctave(oev);
+          this.onOctave({ ...oev, source: ev.source });
         }
       }
     }
@@ -426,16 +462,17 @@ export class PlaySession {
     this.sounding.length = kept;
   }
 
-  /** If a pending note of the same pitch class is due now, its pitch minus the played pitch; else 0. */
-  private pendingOctaveDelta(pitch: number, t: number): number {
+  /** If a pending note of the same pitch class is due now, its pitch minus the played pitch; else 0, or null when nothing is due. */
+  private pendingOctaveDelta(pitch: number, t: number): number | null {
     const notes = this.chart.notes;
-    let best = 0;
+    let best: number | null = null;
     let bestAbs = Infinity;
     for (let i = 0; i < notes.length; i++) {
       const n = notes[i]!;
       if (n.time < t - 0.3) continue;
       if (n.time > t + 0.3) break;
       if (this.judge.states[i] !== 'pending') continue;
+      best ??= 0;
       if (((n.pitch - pitch) % 12 + 12) % 12 !== 0 || n.pitch === pitch) continue;
       const d = Math.abs(n.time - t);
       if (d < bestAbs) {
@@ -532,6 +569,16 @@ export class PlaySession {
     }
   }
 
+  /** The guides show the judge's windows, which move with the practice ladder's rate. */
+  private syncGuides(): void {
+    const g = this.guides!;
+    const w = this.judge.timingWindows;
+    g.perfect = w.perfect;
+    g.great = w.great;
+    g.good = w.good;
+    g.miss = w.miss;
+  }
+
   private syncMeters(): void {
     const j = this.judge;
     const m = this.fx.meters;
@@ -572,7 +619,7 @@ export class PlaySession {
       if (!this.heldKeys.has(pitch) && now - kv.since > KEY_FLASH) this.keyVisuals.delete(pitch);
     }
     this.trimPopups();
-    if (this.practice) {
+    if (this.practice && !this.opts.practice!.once) {
       this.checkPassEnd(now);
       return;
     }
@@ -661,6 +708,8 @@ export class PlaySession {
     this.run = endPass(before, clean);
     view.passes = this.run.passes;
     const rate = runRate(this.run);
+    // One call-out says how the pass went: the streak and star words of its last notes go.
+    clearCallouts(this.fx);
     if (rate !== this.rate) {
       this.rate = rate;
       this.opts.clock.setRate(rate);
@@ -668,6 +717,10 @@ export class PlaySession {
     } else emitCallout(this.fx, clean ? 'CLEAN PASS!' : `PASS ${this.run.passes}`, clean ? 'star' : 'milestone', 1.2);
     for (const i of this.starNotes) this.chart.notes[i]!.star = true; // a phrase spoiled last pass is a star phrase again
     this.judge = new Judge(this.chart, this.opts.judgeConfig, this.rate);
+    if (this.guides) {
+      this.guides.marks.length = 0;
+      this.syncGuides();
+    }
     for (let i = 0; i < this.noteVisuals.length; i++) {
       const v = this.noteVisuals[i]!;
       v.state = 'pending';
@@ -743,6 +796,9 @@ export class PlaySession {
     this.heldKeys.clear();
     this.opts.clock.pause();
     this.status = 'paused';
+    // Clicks already handed to the synth but not yet heard are silenced with the band; count
+    // them in again so the pass still gets its full count-in when the song resumes.
+    if (this.practice) this.rearmClicks(this.now());
     this.sounding.length = 0;
     this.earned.length = 0;
     this.opts.synth?.allNotesOff(0);
@@ -779,7 +835,7 @@ export class PlaySession {
       score: j.score, accuracy: j.accuracy, maxCombo: j.maxCombo, counts: { ...j.counts }, total: j.total, judged: j.judged,
       failed: j.failed, progress: Math.min(1, Math.max(0, this.now() / this.chart.duration)),
       overholdLoss: j.overholdLoss,
-      sections: sectionResults(buildSections(this.opts.barTimes ?? [], this.chart.duration), this.chart.notes, j.judgments),
+      sections: sectionResults(buildSections(this.opts.barTimes ?? [], this.chart.duration, undefined, this.opts.markers), this.chart.notes, j.judgments),
       ...(this.run && this.opts.practice ? { practice: this.practiceResult() } : {}),
     };
   }

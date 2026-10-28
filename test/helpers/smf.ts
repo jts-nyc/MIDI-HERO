@@ -27,6 +27,7 @@ export const tempo = (tick: number, bpm: number): AbsEvent => ({
 export const timeSig = (tick: number, num: number, den: number): AbsEvent => ({
   tick, ev: { deltaTime: 0, meta: true, type: 'timeSignature', numerator: num, denominator: den, metronome: 24, thirtyseconds: 8 },
 });
+export const marker = (tick: number, text: string): AbsEvent => ({ tick, ev: { deltaTime: 0, meta: true, type: 'marker', text } });
 export const name = (text: string): AbsEvent => ({ tick: 0, ev: { deltaTime: 0, meta: true, type: 'trackName', text } });
 export const program = (tick: number, channel: number, programNumber: number): AbsEvent => ({
   tick, ev: { deltaTime: 0, type: 'programChange', channel, programNumber },
