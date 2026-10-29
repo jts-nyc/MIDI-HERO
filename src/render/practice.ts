@@ -14,7 +14,7 @@ export interface PracticeSection {
 export interface PracticeView {
   /** sections of the song, in order; empty when practice mode is off */
   sections: readonly PracticeSection[];
-  /** index into `sections` being practised, -1 for none */
+  /** index into `sections` being practiced, -1 for none */
   current: number;
   /** A–B loop in song seconds, or null; the renderer marks both ends on the highway */
   loop: { start: number; end: number } | null;
