@@ -23,7 +23,7 @@ export type SessionStatus = 'playing' | 'paused' | 'finished';
 export interface PracticeOptions {
   /** A–B loop in song seconds; the chart must already be trimmed to it (practice.ts trimChart) */
   loop: Loop;
-  /** every section of the song, for the renderer, and the one being practised */
+  /** every section of the song, for the renderer, and the one being practiced */
   sections: readonly PracticeSection[];
   current: number;
   /** "Bars 9–16" */

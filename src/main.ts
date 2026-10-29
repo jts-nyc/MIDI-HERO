@@ -6,7 +6,7 @@ import { setDprCap } from './render/canvas.ts';
 import { FrameGovernor, frameStamp, type EffectsLevel } from './render/feel.ts';
 import { DEFAULT_JUDGE_CONFIG, OVERHOLD_COST, type JudgeConfig, type TimingPreset } from './game/judge.ts';
 import { calibrationBeats, calibrationOffered, markCalibrationOffered, shouldOfferCalibration, type OfferStorage } from './game/calibration.ts';
-import { isPlayMode, learnedSongs, markLearned, openingMode, passesSong, type PlayMode } from './game/learn.ts';
+import { isNewSong, isPlayMode, learnedSongs, markLearned, openingMode, passesSong, practiceWaitDefault, type PlayMode } from './game/learn.ts';
 import { loopLabel, loopOf, practiceSections, trimChart, type PracticeSectionInfo } from './game/practice.ts';
 import { keyLevelOf, listKeyLevel, RATES, songStars, starsByLevel, suggestNextStep, TOP_LEVEL, unlockedLevels, UNLOCK_STARS, type LevelBest, type Suggestion } from './game/results.ts';
 import { PlaySession } from './game/session.ts';
@@ -100,6 +100,8 @@ interface Current {
   picker: PartPickerState;
   /** the song's bests on this machine, when its pack unlocks levels in order (stars per level of a selection) */
   levelBests: LevelBest[] | null;
+  /** not passed yet on this device (game/learn.ts): Practice opens with "Wait for me" ticked */
+  newSong: boolean;
 }
 
 const base = import.meta.env.BASE_URL;
@@ -603,11 +605,8 @@ async function openSong(id: string, opts: { wait?: boolean; show?: boolean } = {
     if (urlPart && keys.has(urlPart)) selected = [urlPart];
     // A new song opens in learn mode until it has been passed once (game/learn.ts).
     const bests = await bestsForSong(lib.id).catch(() => [] as BestScore[]);
-    const mode = openingMode({
-      learned: learnedSongs(offerStorage()).has(lib.id),
-      bestAccuracy: bests.length ? Math.max(...bests.map((b) => b.accuracy)) : null,
-      urlMode: urlMode ?? (params.get('autoplay') ? 'score' : null),
-    });
+    const history = { learned: learnedSongs(offerStorage()).has(lib.id), bestAccuracy: bests.length ? Math.max(...bests.map((b) => b.accuracy)) : null };
+    const mode = openingMode({ ...history, urlMode: urlMode ?? (params.get('autoplay') ? 'score' : null) });
     current = {
       lib, song, parts,
       picker: {
@@ -615,6 +614,7 @@ async function openSong(id: string, opts: { wait?: boolean; show?: boolean } = {
         difficulty: urlDifficulty ?? lib.difficulty ?? DEFAULT_DIFFICULTY, mode,
       },
       levelBests: null,
+      newSong: isNewSong(history),
     };
     if (lib.id === STUDENT_TRIAL_ID) {
       current.picker = { selected: new Set(['1:0']), split: 60, hands: ['L', 'R'], timing: 'normal', guideTrack: false, difficulty: 'easy', mode: 'score' };
@@ -706,7 +706,7 @@ function partPicker(): void {
     kb: settings.kb,
     onChange: () => partPicker(),
     onPlay: () => void startPlay(null),
-    onPractise: () => practicePicker(),
+    onPractice: () => practicePicker(),
     onBack: songSelect,
   });
 }
@@ -781,10 +781,13 @@ function practicePicker(sectionStart?: number, opening: { wholeSongWait?: boolea
     level: DIFFICULTY_LABEL[level],
     sections,
     rates: RATES,
-    choice: { from, to, wait: opening.wholeSongWait || settings.practiceWait, ladder: settings.practiceLadder, rate: prev?.rate ?? nearestRate(settings.rate) },
+    choice: {
+      from, to, wait: opening.wholeSongWait || practiceWaitDefault({ newSong: current.newSong, saved: settings.practiceWait }),
+      ladder: settings.practiceLadder, rate: prev?.rate ?? nearestRate(settings.rate),
+    },
     onStart: (choice) => {
-      // Wait mode preset for a new import is not the player's own default for other songs.
-      if (!opening.wholeSongWait) settings.practiceWait = choice.wait;
+      // The wait preset for a new or just-imported song is not the player's own default for other songs.
+      if (!opening.wholeSongWait && !current?.newSong) settings.practiceWait = choice.wait;
       settings.practiceLadder = choice.ladder;
       saveSettings(settings);
       void startPlay(null, choice);
@@ -884,7 +887,7 @@ function play(): void {
   // Learn mode: the whole song once, held at every note until it is played (game/learn.ts).
   const learnRun = learn ? { loop: { start: 0, end: fullChart.duration }, sections: [], current: -1, label: 'Learn mode', wait: true, ladder: false, once: true, title: 'Learn mode' } : null;
   if (chart.notes.length === 0) {
-    showError('Nothing to practise', 'These bars have no notes to play.', partPicker);
+    showError('Nothing to practice', 'These bars have no notes to play.', partPicker);
     return;
   }
   const rate = choice ? choice.rate : runSettings.rate;
@@ -995,6 +998,7 @@ function play(): void {
       const passed = passesSong('learn', result);
       if (passed && !autoplay) {
         markLearned(offerStorage(), lib.id);
+        if (current) current.newSong = false;
         picker.mode = 'score';
       }
       const c = result.counts;
@@ -1019,7 +1023,10 @@ function play(): void {
       });
       return;
     }
-    if (passesSong('score', result, !!autoplay)) markLearned(offerStorage(), lib.id);
+    if (passesSong('score', result, !!autoplay)) {
+      markLearned(offerStorage(), lib.id);
+      if (current) current.newSong = false;
+    }
     const badges = [...(result.failed ? ['Song failed'] : []), ...(runSettings.easy ? ['Easy mode'] : []), ...(runSettings.rate < 1 ? [`${Math.round(runSettings.rate * 100)}% speed`] : []), ...(autoplay ? ['Autoplay'] : [])];
     const detail = `${partName} · ${DIFFICULTY_LABEL[difficulty]} · ${timing} timing · ${Math.round(runSettings.rate * 100)}% speed`;
     const suggestion = suggestNextStep({
@@ -1028,7 +1035,7 @@ function play(): void {
     const show = (extra: string[], previousBest: number | null) =>
       showResults({
         title: lib.title, detail, result, badges: [...badges, ...extra], previousBest, suggestion,
-        onSuggestion: takeSuggestion, onPractise: (sg) => practicePicker(sg.section?.start), onRetry: play, onQuit: songSelect,
+        onSuggestion: takeSuggestion, onPractice: (sg) => practicePicker(sg.section?.start), onRetry: play, onQuit: songSelect,
         sound: (c, step) => cue(c, step),
       });
     if (autoplay || result.failed) show([], null);

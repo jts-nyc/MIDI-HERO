@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { GameClock } from '../src/audio/clock.ts';
 import { DEFAULT_JUDGE_CONFIG } from '../src/game/judge.ts';
-import { LEARNED_KEY, learnedSongs, markLearned, openingMode, PASS_ACCURACY, passesSong, type LearnStorage } from '../src/game/learn.ts';
+import {
+  isNewSong, LEARNED_KEY, learnedSongs, markLearned, openingMode, PASS_ACCURACY, passesSong, practiceWaitDefault, type LearnStorage,
+} from '../src/game/learn.ts';
 import { PlaySession, type PracticeOptions } from '../src/game/session.ts';
 import { buildChart } from '../src/midi/chart.ts';
 import { parseSong } from '../src/midi/parse.ts';
@@ -29,6 +31,25 @@ describe('the mode a song opens in', () => {
   it('the URL choice wins either way', () => {
     expect(openingMode({ learned: true, bestAccuracy: 0.9, urlMode: 'learn' })).toBe('learn');
     expect(openingMode({ learned: false, bestAccuracy: null, urlMode: 'score' })).toBe('score');
+  });
+});
+
+describe('Practice on a new song', () => {
+  it('a song not passed yet is new; a learn pass or a two-star best makes it known', () => {
+    expect(isNewSong({ learned: false, bestAccuracy: null })).toBe(true);
+    expect(isNewSong({ learned: false, bestAccuracy: 0.3 })).toBe(true);
+    expect(isNewSong({ learned: true, bestAccuracy: null })).toBe(false);
+    expect(isNewSong({ learned: false, bestAccuracy: PASS_ACCURACY })).toBe(false);
+  });
+
+  it('opens with "Wait for me" ticked on a new song, whatever the player chose before', () => {
+    expect(practiceWaitDefault({ newSong: true, saved: false })).toBe(true);
+    expect(practiceWaitDefault({ newSong: true, saved: true })).toBe(true);
+  });
+
+  it('a known song keeps the player\'s own last choice', () => {
+    expect(practiceWaitDefault({ newSong: false, saved: false })).toBe(false);
+    expect(practiceWaitDefault({ newSong: false, saved: true })).toBe(true);
   });
 });
 

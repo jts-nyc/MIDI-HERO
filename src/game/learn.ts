@@ -45,8 +45,20 @@ export function markLearned(store: LearnStorage | null, songId: string): void {
  */
 export function openingMode(o: { learned: boolean; bestAccuracy: number | null; urlMode?: PlayMode | null }): PlayMode {
   if (o.urlMode) return o.urlMode;
-  if (o.learned || (o.bestAccuracy !== null && o.bestAccuracy >= PASS_ACCURACY)) return 'score';
-  return 'learn';
+  return isNewSong(o) ? 'learn' : 'score';
+}
+
+/** Not passed yet on this device: no learn run to the end, no scored best of PASS_ACCURACY. */
+export function isNewSong(o: { learned: boolean; bestAccuracy: number | null }): boolean {
+  return !o.learned && !(o.bestAccuracy !== null && o.bestAccuracy >= PASS_ACCURACY);
+}
+
+/**
+ * Whether Practice opens with "Wait for me" ticked: always for a new song, so a student who is
+ * still finding the notes is not met with misses; else the player's own last choice.
+ */
+export function practiceWaitDefault(o: { newSong: boolean; saved: boolean }): boolean {
+  return o.newSong || o.saved;
 }
 
 /**

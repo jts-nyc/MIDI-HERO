@@ -361,7 +361,7 @@ export interface PartPickerOptions {
   /** start in the picker's mode; the other mode's button sets `state.mode` first */
   onPlay: () => void;
   /** open practice mode on the selection */
-  onPractise: () => void;
+  onPractice: () => void;
   onBack: () => void;
 }
 
@@ -425,7 +425,7 @@ export function showPartPicker(o: PartPickerOptions): void {
       </select></label>
       <span style="flex:1"></span>
       <button id="back">Back</button>
-      <button id="practise" ${st.selected.size ? '' : 'disabled'} title="Loop a few bars, slower, until they are clean">Practise…</button>
+      <button id="practice" ${st.selected.size ? '' : 'disabled'} title="Loop a few bars, slower, until they are clean">Practice…</button>
       ${st.mode === 'learn'
         ? `<button class="big" id="other" ${st.selected.size ? '' : 'disabled'} title="A normal play with a score">Play for score</button>
       <button class="primary big" id="play" ${st.selected.size ? '' : 'disabled'} title="The song waits at every note until you play it">Learn it ▶</button>`
@@ -475,7 +475,7 @@ export function showPartPicker(o: PartPickerOptions): void {
     st.mode = st.mode === 'learn' ? 'score' : 'learn';
     o.onPlay();
   });
-  el.querySelector('#practise')!.addEventListener('click', o.onPractise);
+  el.querySelector('#practice')!.addEventListener('click', o.onPractice);
 }
 
 // ---------------------------------------------------------------------------
@@ -492,7 +492,7 @@ export interface PracticeChoice {
 
 export interface PracticePickerOptions {
   title: string;
-  /** the level being practised, e.g. "Medium" */
+  /** the level being practiced, e.g. "Medium" */
   level: string;
   sections: readonly PracticeSectionInfo[];
   choice: PracticeChoice;
@@ -504,7 +504,7 @@ export interface PracticePickerOptions {
 export function showPracticePicker(o: PracticePickerOptions): void {
   const c = { ...o.choice };
   const el = screen(`<div class="panel" style="width:min(640px,100%)">
-    <h2>Practise: ${esc(o.title)}</h2>
+    <h2>Practice: ${esc(o.title)}</h2>
     <p>Pick the bars to loop (${esc(o.level)}). Click a section; shift-click another to loop a run of them. Each pass starts with a one-bar count-in. Practice never changes your best scores.</p>
     <div class="list" id="sections" role="listbox" aria-multiselectable="true">${o.sections.map((s, i) =>
       `<button class="item" role="option" data-i="${i}"><span>${esc(s.label)}</span><span class="meta">${s.notes} notes · ${s.notesPerSec.toFixed(1)}/s</span></button>`).join('')}</div>
@@ -569,7 +569,7 @@ export function showPracticeResults(o: PracticeResultsOptions): void {
     </table>
     <p class="next">${p.cleanPasses > 0 ? (p.rate >= 1 ? 'Clean at full speed: try it in the whole song.' : 'Clean passes! Keep going, or play the whole song.') : 'A clean pass has no missed or wrong notes. Slow down if it keeps slipping.'}</p>
     <div class="row" style="justify-content:center">
-      <button class="primary big" id="again">Practise again</button>
+      <button class="primary big" id="again">Practice again</button>
       <button id="song">Play the whole song</button>
       <button id="quit">Song select</button>
     </div>
@@ -737,7 +737,7 @@ export interface ResultsOptions {
   suggestion?: Suggestion | null;
   onSuggestion?: (s: Suggestion) => void;
   /** open practice mode on the suggested section */
-  onPractise?: (s: Suggestion) => void;
+  onPractice?: (s: Suggestion) => void;
   onRetry: () => void;
   onQuit: () => void;
   /** a chime as each star lands (`step` 0..4), and a fanfare after the last one on a new best or 4+ stars */
@@ -797,14 +797,14 @@ export function showResults(o: ResultsOptions): void {
     ${sug ? `<p class="next">Next step: <b>${esc(sug.text)}</b></p>` : ''}
     <div class="row" style="justify-content:center">
       ${sug && (sug.difficulty || sug.rate) ? `<button class="primary big" id="next">${esc(sug.text)}</button><button id="retry">Play again</button>` : '<button class="primary big" id="retry">Play again</button>'}
-      ${sug?.section && o.onPractise ? `<button id="practise">Practise ${esc(sectionLabel(sug.section).toLowerCase())}</button>` : ''}
+      ${sug?.section && o.onPractice ? `<button id="practice">Practice ${esc(sectionLabel(sug.section).toLowerCase())}</button>` : ''}
       <button id="quit">Song select</button>
     </div>
   </div>`);
   el.querySelector('#retry')!.addEventListener('click', o.onRetry);
   el.querySelector('#quit')!.addEventListener('click', o.onQuit);
   el.querySelector('#next')?.addEventListener('click', () => o.onSuggestion?.(sug!));
-  el.querySelector('#practise')?.addEventListener('click', () => o.onPractise?.(sug!));
+  el.querySelector('#practice')?.addEventListener('click', () => o.onPractice?.(sug!));
   if (still) return;
   // Each star chimes as it lands; a new best or four stars and up get confetti and a fanfare.
   const celebrate = n >= 4 || better || o.badges.includes('New best!');
