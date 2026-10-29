@@ -16,7 +16,7 @@ describe('tutorial gating', () => {
     expect(canSkip(s)).toBe(false);
     expect(run([{ type: 'skip' }]).step).toBe('keys');
     expect(run([{ type: 'next' }]).step).toBe('keys');
-    expect(run([{ type: 'played' }]).step).toBe('keys');
+    expect(run([{ type: 'played', completed: true }]).step).toBe('keys');
   });
 
   it(`needs ${KEYS_TO_TRY} different keys; pressing the same key again does not count`, () => {
@@ -39,11 +39,23 @@ describe('tutorial gating', () => {
   });
 
   it('runs keys → notes → play → first song → done', () => {
-    const s = run([...keys(48, 50, 52), { type: 'next' }, { type: 'next' }, { type: 'played' }]);
+    const s = run([...keys(48, 50, 52), { type: 'next' }, { type: 'next' }, { type: 'played', completed: true }]);
     expect(s.step).toBe('first-song');
     expect(run([{ type: 'next' }], s).step).toBe('done');
     // keys pressed after step 1 are ignored
     expect(run(keys(70), s).pressed).toEqual([48, 50, 52]);
+  });
+
+  it('returns an interrupted play to the explanation, with retry and skip still available', () => {
+    const playing = run([...keys(48, 50, 52), { type: 'next' }, { type: 'next' }]);
+    const stopped = run([{ type: 'played', completed: false }], playing);
+    expect(stopped.step).toBe('notes');
+    expect(stopped.pressed).toEqual(playing.pressed);
+    expect(canSkip(stopped)).toBe(true);
+    expect(run([{ type: 'skip' }], stopped).step).toBe('done');
+    const retried = run([{ type: 'next' }], stopped);
+    expect(retried.step).toBe('play');
+    expect(run([{ type: 'played', completed: true }], retried).step).toBe('first-song');
   });
 
   it('opens by itself once per browser, never on a direct song link', () => {

@@ -26,8 +26,8 @@ export type TutorialEvent =
   | { type: 'key'; pitch: number }
   | { type: 'next' }
   | { type: 'skip' }
-  /** the four-note play ended, played through or stopped */
-  | { type: 'played' };
+  /** The four-note play ended; stopping before all notes were played offers another try. */
+  | { type: 'played'; completed: boolean };
 
 /** Skip only after the first step: every student presses a key and sees it light up first. */
 export const canSkip = (s: TutorialState): boolean => s.step !== 'keys' && s.step !== 'done';
@@ -46,7 +46,7 @@ export function tutorialStep(s: TutorialState, e: TutorialEvent): TutorialState 
       if (s.step === 'first-song') return { ...s, step: 'done' };
       return s;
     case 'played':
-      return s.step === 'play' ? { ...s, step: 'first-song' } : s;
+      return s.step === 'play' ? { ...s, step: e.completed ? 'first-song' : 'notes' } : s;
     case 'skip':
       return canSkip(s) ? { ...s, step: 'done' } : s;
   }

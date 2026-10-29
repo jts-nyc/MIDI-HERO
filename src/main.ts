@@ -986,7 +986,7 @@ function play(): void {
     }
     if (learnRun && lib.id === TUTORIAL_SONG_ID) {
       if (!tutorial) { songSelect(); return; }
-      tutorial = tutorialStep(tutorial, { type: 'played' });
+      tutorial = tutorialStep(tutorial, { type: 'played', completed: passesSong('learn', result) });
       tutorialScreen();
       return;
     }
