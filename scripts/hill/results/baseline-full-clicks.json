@@ -1,0 +1,819 @@
+{
+  "hill": "setup-survives-clicking",
+  "page": "full",
+  "keys": 0,
+  "runs": 50,
+  "seconds": 20,
+  "workers": 4,
+  "firstSeed": 1,
+  "score": 0,
+  "playable": 0,
+  "medianSecondsToPlayable": null,
+  "failureReasons": {
+    "no session (screen: This is your keyboard, on the screen)": 50
+  },
+  "browser": "156.0.8078.80",
+  "platform": "darwin",
+  "results": [
+    {
+      "seed": 1,
+      "ok": false,
+      "ms": 20046,
+      "actions": 77,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 2,
+      "ok": false,
+      "ms": 20132,
+      "actions": 74,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 3,
+      "ok": false,
+      "ms": 20259,
+      "actions": 73,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 4,
+      "ok": false,
+      "ms": 20259,
+      "actions": 72,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 5,
+      "ok": false,
+      "ms": 20047,
+      "actions": 77,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 590,598",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 383,529"
+      ]
+    },
+    {
+      "seed": 6,
+      "ok": false,
+      "ms": 20400,
+      "actions": 75,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 1280,617",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 1069,191",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 7,
+      "ok": false,
+      "ms": 20293,
+      "actions": 73,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 391,340"
+      ]
+    },
+    {
+      "seed": 8,
+      "ok": false,
+      "ms": 20165,
+      "actions": 72,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 124,190",
+        "point 356,283",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 9,
+      "ok": false,
+      "ms": 20219,
+      "actions": 70,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "point 855,80",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 58,237"
+      ]
+    },
+    {
+      "seed": 10,
+      "ok": false,
+      "ms": 20047,
+      "actions": 75,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "point 307,279",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 11,
+      "ok": false,
+      "ms": 20064,
+      "actions": 76,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 120,609",
+        "canvas \"\"",
+        "point 1142,176",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 12,
+      "ok": false,
+      "ms": 20201,
+      "actions": 78,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "point 931,457",
+        "point 1054,459",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 13,
+      "ok": false,
+      "ms": 20109,
+      "actions": 78,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 1221,630",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 14,
+      "ok": false,
+      "ms": 20206,
+      "actions": 74,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 15,
+      "ok": false,
+      "ms": 20130,
+      "actions": 74,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 1061,451",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 16,
+      "ok": false,
+      "ms": 20318,
+      "actions": 74,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "point 1324,246",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 17,
+      "ok": false,
+      "ms": 20065,
+      "actions": 80,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 1022,591"
+      ]
+    },
+    {
+      "seed": 18,
+      "ok": false,
+      "ms": 20107,
+      "actions": 76,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 19,
+      "ok": false,
+      "ms": 20313,
+      "actions": 73,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 1171,415",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 125,627",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 20,
+      "ok": false,
+      "ms": 20106,
+      "actions": 79,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 21,
+      "ok": false,
+      "ms": 20155,
+      "actions": 78,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 424,7",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 22,
+      "ok": false,
+      "ms": 20127,
+      "actions": 78,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "point 1112,0",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 23,
+      "ok": false,
+      "ms": 20183,
+      "actions": 74,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 716,506",
+        "point 1093,617",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 24,
+      "ok": false,
+      "ms": 20036,
+      "actions": 78,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 812,196",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 25,
+      "ok": false,
+      "ms": 20052,
+      "actions": 73,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 26,
+      "ok": false,
+      "ms": 20018,
+      "actions": 75,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 27,
+      "ok": false,
+      "ms": 20182,
+      "actions": 77,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 198,414"
+      ]
+    },
+    {
+      "seed": 28,
+      "ok": false,
+      "ms": 20166,
+      "actions": 71,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 293,639",
+        "point 176,427",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 29,
+      "ok": false,
+      "ms": 20233,
+      "actions": 75,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 449,546",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 30,
+      "ok": false,
+      "ms": 20207,
+      "actions": 73,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 31,
+      "ok": false,
+      "ms": 20059,
+      "actions": 75,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 938,496",
+        "point 133,623",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 32,
+      "ok": false,
+      "ms": 20199,
+      "actions": 78,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 434,226",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 33,
+      "ok": false,
+      "ms": 20061,
+      "actions": 72,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 34,
+      "ok": false,
+      "ms": 20079,
+      "actions": 78,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 35,
+      "ok": false,
+      "ms": 20163,
+      "actions": 81,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 1176,250"
+      ]
+    },
+    {
+      "seed": 36,
+      "ok": false,
+      "ms": 20141,
+      "actions": 78,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 37,
+      "ok": false,
+      "ms": 20211,
+      "actions": 77,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "point 656,386",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 38,
+      "ok": false,
+      "ms": 20026,
+      "actions": 76,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 116,375",
+        "point 456,238",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 39,
+      "ok": false,
+      "ms": 20076,
+      "actions": 73,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 40,
+      "ok": false,
+      "ms": 20250,
+      "actions": 74,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 1255,97",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 41,
+      "ok": false,
+      "ms": 20035,
+      "actions": 77,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "point 1256,239",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 42,
+      "ok": false,
+      "ms": 20198,
+      "actions": 71,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 43,
+      "ok": false,
+      "ms": 20026,
+      "actions": 73,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 955,144",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 44,
+      "ok": false,
+      "ms": 20043,
+      "actions": 78,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 408,578",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 45,
+      "ok": false,
+      "ms": 20176,
+      "actions": 75,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 46,
+      "ok": false,
+      "ms": 20008,
+      "actions": 74,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 1212,586",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 47,
+      "ok": false,
+      "ms": 20280,
+      "actions": 83,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 799,553",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 48,
+      "ok": false,
+      "ms": 20068,
+      "actions": 79,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "point 367,445",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 49,
+      "ok": false,
+      "ms": 20382,
+      "actions": 77,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 50,
+      "ok": false,
+      "ms": 20063,
+      "actions": 80,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 491,416",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    }
+  ]
+}

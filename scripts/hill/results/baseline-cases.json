@@ -1,0 +1,84 @@
+{
+  "hill": "classroom-cases-1017",
+  "score": "3/4",
+  "browser": "156.0.8078.80",
+  "results": [
+    {
+      "name": "through-default",
+      "pass": true,
+      "detail": {
+        "full": {
+          "listening": [
+            "oxygen-1",
+            "oxygen-2",
+            "oxygen-3"
+          ],
+          "throughClosed": true,
+          "keyboardOpen": true,
+          "before": "Press the C at the far left of your keyboard",
+          "movedOn": true
+        },
+        "simple": {
+          "listening": [
+            "oxygen-1",
+            "oxygen-2",
+            "oxygen-3"
+          ],
+          "throughClosed": true,
+          "keyboardOpen": true
+        }
+      }
+    },
+    {
+      "name": "hot-plug",
+      "pass": true,
+      "detail": {
+        "before": "Plug in your keyboard",
+        "noticed": true,
+        "tookC": true,
+        "after": "How many keys does your keyboard have?"
+      }
+    },
+    {
+      "name": "octave-recovery",
+      "pass": true,
+      "detail": {
+        "steps": [
+          "Play",
+          "Skip, just play",
+          "C3"
+        ],
+        "trueOffset": 0,
+        "offsetBefore": 0,
+        "offsetAfter": 12,
+        "warmedUp": true,
+        "notesToRecover": 3,
+        "hits": "1111110001111111111111",
+        "ended": false
+      }
+    },
+    {
+      "name": "skipped-setup",
+      "pass": false,
+      "detail": {
+        "steps": [
+          "computer key",
+          "I don't have a keyboard",
+          "computer key",
+          "computer key",
+          "computer key",
+          "computer key",
+          "Next ▶",
+          "Skip the tutorial",
+          "Play",
+          "Play for score",
+          "Skip, just play"
+        ],
+        "song": "MIDI Hero — C Five-Finger Exercise (70 bpm)",
+        "trueOffset": 0,
+        "hits": "000000000",
+        "ended": false
+      }
+    }
+  ]
+}

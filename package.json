@@ -13,7 +13,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "gen-songs": "node scripts/gen-songs.ts",
-    "bench": "node scripts/bench.mjs"
+    "bench": "node scripts/bench.mjs",
+    "hill:setup": "node scripts/hill/setup-clicks.mjs",
+    "hill:cases": "node scripts/hill/classroom-cases.mjs"
   },
   "dependencies": {
     "midi-file": "^1.2.4"
