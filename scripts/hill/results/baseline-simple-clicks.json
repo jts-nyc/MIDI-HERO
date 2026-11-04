@@ -1,0 +1,820 @@
+{
+  "hill": "setup-survives-clicking",
+  "page": "simple",
+  "keys": 0,
+  "runs": 50,
+  "seconds": 20,
+  "workers": 4,
+  "firstSeed": 1,
+  "score": 0,
+  "playable": 0,
+  "medianSecondsToPlayable": null,
+  "failureReasons": {
+    "no session (screen: Keyboard check)": 35,
+    "no session (screen: MIDI Hero)": 15
+  },
+  "browser": "156.0.8078.80",
+  "platform": "darwin",
+  "results": [
+    {
+      "seed": 1,
+      "ok": false,
+      "ms": 20030,
+      "actions": 76,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Rhythm: The PocketTwo drums, C\"",
+        "button \"Back\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 2,
+      "ok": false,
+      "ms": 20061,
+      "actions": 73,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Normal\"",
+        "button \"Rhythm: The PocketTwo drums, C\"",
+        "button \"Back\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 3,
+      "ok": false,
+      "ms": 20234,
+      "actions": 72,
+      "why": "no session (screen: MIDI Hero)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Back\"",
+        "button \"First LightsThree notes: C, E \"",
+        "canvas \"\"",
+        "button \"Back\"",
+        "button \"Warm-upFive fingers, one hand\""
+      ]
+    },
+    {
+      "seed": 4,
+      "ok": false,
+      "ms": 20134,
+      "actions": 71,
+      "why": "no session (screen: MIDI Hero)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 980,506",
+        "canvas \"\"",
+        "canvas \"\"",
+        "button \"Back\"",
+        "button \"First LightsThree notes: C, E \""
+      ]
+    },
+    {
+      "seed": 5,
+      "ok": false,
+      "ms": 20247,
+      "actions": 78,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Warm-upFive fingers, one hand\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 383,529",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 6,
+      "ok": false,
+      "ms": 20356,
+      "actions": 75,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 1280,617",
+        "button \"Back\"",
+        "button \"Warm-upFive fingers, one hand\"",
+        "point 1069,191",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 7,
+      "ok": false,
+      "ms": 20104,
+      "actions": 72,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Back\"",
+        "button \"Normal\"",
+        "button \"Easy\"",
+        "button \"Twinkle TwinkleThe first song\"",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 8,
+      "ok": false,
+      "ms": 20234,
+      "actions": 72,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Back\"",
+        "button \"Rhythm: The PocketTwo drums, C\"",
+        "point 124,190",
+        "point 356,283",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 9,
+      "ok": false,
+      "ms": 20209,
+      "actions": 69,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "button \"Back\"",
+        "point 855,80",
+        "button \"When the SaintsA marching tune\"",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 10,
+      "ok": false,
+      "ms": 20207,
+      "actions": 75,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Back\"",
+        "point 307,279",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 11,
+      "ok": false,
+      "ms": 20106,
+      "actions": 76,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 120,609",
+        "canvas \"\"",
+        "point 1142,176",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 12,
+      "ok": false,
+      "ms": 20062,
+      "actions": 77,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 1109,344",
+        "button \"Back\"",
+        "point 931,457",
+        "point 1054,459",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 13,
+      "ok": false,
+      "ms": 20115,
+      "actions": 76,
+      "why": "no session (screen: MIDI Hero)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 1260,609",
+        "canvas \"\"",
+        "point 1221,630",
+        "button \"Back\"",
+        "button \"Normal\""
+      ]
+    },
+    {
+      "seed": 14,
+      "ok": false,
+      "ms": 20076,
+      "actions": 74,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 15,
+      "ok": false,
+      "ms": 20148,
+      "actions": 74,
+      "why": "no session (screen: MIDI Hero)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Normal\"",
+        "button \"Warm-upFive fingers, one hand\"",
+        "point 1061,451",
+        "button \"Back\"",
+        "button \"Ode to JoySteady and calm\""
+      ]
+    },
+    {
+      "seed": 16,
+      "ok": false,
+      "ms": 20158,
+      "actions": 73,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Back\"",
+        "button \"Normal\"",
+        "point 1324,246",
+        "button \"Twinkle TwinkleThe first song\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 17,
+      "ok": false,
+      "ms": 20154,
+      "actions": 79,
+      "why": "no session (screen: MIDI Hero)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Back\"",
+        "button \"Twinkle TwinkleThe first song\"",
+        "canvas \"\"",
+        "button \"Back\"",
+        "button \"Easy\""
+      ]
+    },
+    {
+      "seed": 18,
+      "ok": false,
+      "ms": 20019,
+      "actions": 74,
+      "why": "no session (screen: MIDI Hero)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Back\"",
+        "button \"Normal\"",
+        "button \"Ode to JoySteady and calm\"",
+        "button \"Back\"",
+        "button \"Normal\""
+      ]
+    },
+    {
+      "seed": 19,
+      "ok": false,
+      "ms": 20191,
+      "actions": 71,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 366,575",
+        "button \"Twinkle TwinkleThe first song\"",
+        "point 1171,415",
+        "canvas \"\"",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 20,
+      "ok": false,
+      "ms": 20249,
+      "actions": 79,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 21,
+      "ok": false,
+      "ms": 20219,
+      "actions": 78,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Warm-upFive fingers, one hand\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 424,7",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 22,
+      "ok": false,
+      "ms": 20161,
+      "actions": 78,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "point 1112,0",
+        "canvas \"\"",
+        "canvas \"\"",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 23,
+      "ok": false,
+      "ms": 20348,
+      "actions": 74,
+      "why": "no session (screen: MIDI Hero)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 716,506",
+        "point 1093,617",
+        "button \"When the SaintsA marching tune\""
+      ]
+    },
+    {
+      "seed": 24,
+      "ok": false,
+      "ms": 20191,
+      "actions": 78,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 812,196",
+        "button \"Back\"",
+        "button \"Normal\"",
+        "button \"Twinkle TwinkleThe first song\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 25,
+      "ok": false,
+      "ms": 20210,
+      "actions": 73,
+      "why": "no session (screen: MIDI Hero)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Normal\"",
+        "button \"Rhythm: The PocketTwo drums, C\"",
+        "button \"Back\"",
+        "button \"Normal\"",
+        "button \"Warm-upFive fingers, one hand\""
+      ]
+    },
+    {
+      "seed": 26,
+      "ok": false,
+      "ms": 20055,
+      "actions": 75,
+      "why": "no session (screen: MIDI Hero)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "button \"Back\"",
+        "button \"Ode to JoySteady and calm\"",
+        "button \"Back\"",
+        "button \"Twinkle TwinkleThe first song\""
+      ]
+    },
+    {
+      "seed": 27,
+      "ok": false,
+      "ms": 20128,
+      "actions": 77,
+      "why": "no session (screen: MIDI Hero)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Twinkle TwinkleThe first song\"",
+        "button \"Back\"",
+        "button \"When the SaintsA marching tune\"",
+        "button \"Back\"",
+        "point 198,414"
+      ]
+    },
+    {
+      "seed": 28,
+      "ok": false,
+      "ms": 20274,
+      "actions": 71,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Back\"",
+        "button \"Rhythm: The PocketTwo drums, C\"",
+        "point 293,639",
+        "point 176,427",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 29,
+      "ok": false,
+      "ms": 20190,
+      "actions": 75,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Rhythm: The PocketTwo drums, C\"",
+        "button \"Back\"",
+        "button \"Twinkle TwinkleThe first song\"",
+        "point 449,546",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 30,
+      "ok": false,
+      "ms": 20260,
+      "actions": 73,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "button \"Back\"",
+        "button \"Twinkle TwinkleThe first song\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 31,
+      "ok": false,
+      "ms": 20193,
+      "actions": 75,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Back\"",
+        "button \"Warm-upFive fingers, one hand\"",
+        "point 938,496",
+        "point 133,623",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 32,
+      "ok": false,
+      "ms": 20333,
+      "actions": 78,
+      "why": "no session (screen: MIDI Hero)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 434,226",
+        "canvas \"\"",
+        "canvas \"\"",
+        "button \"Back\"",
+        "button \"Ode to JoySteady and calm\""
+      ]
+    },
+    {
+      "seed": 33,
+      "ok": false,
+      "ms": 20036,
+      "actions": 71,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "button \"Back\"",
+        "button \"Twinkle TwinkleThe first song\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 34,
+      "ok": false,
+      "ms": 20113,
+      "actions": 78,
+      "why": "no session (screen: MIDI Hero)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "button \"Back\"",
+        "button \"Normal\""
+      ]
+    },
+    {
+      "seed": 35,
+      "ok": false,
+      "ms": 20213,
+      "actions": 82,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 1176,250",
+        "point 624,300"
+      ]
+    },
+    {
+      "seed": 36,
+      "ok": false,
+      "ms": 20326,
+      "actions": 78,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "button \"Back\"",
+        "button \"When the SaintsA marching tune\"",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 37,
+      "ok": false,
+      "ms": 20240,
+      "actions": 77,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Back\"",
+        "point 656,386",
+        "canvas \"\"",
+        "canvas \"\"",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 38,
+      "ok": false,
+      "ms": 20131,
+      "actions": 76,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Back\"",
+        "button \"When the SaintsA marching tune\"",
+        "point 116,375",
+        "point 456,238",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 39,
+      "ok": false,
+      "ms": 20093,
+      "actions": 73,
+      "why": "no session (screen: MIDI Hero)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"First LightsThree notes: C, E \"",
+        "button \"Back\"",
+        "button \"Twinkle TwinkleThe first song\"",
+        "button \"Back\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 40,
+      "ok": false,
+      "ms": 20017,
+      "actions": 73,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 412,580",
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 1255,97",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 41,
+      "ok": false,
+      "ms": 20049,
+      "actions": 76,
+      "why": "no session (screen: MIDI Hero)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"When the SaintsA marching tune\"",
+        "button \"Back\"",
+        "point 1256,239",
+        "button \"Easy\"",
+        "button \"First LightsThree notes: C, E \""
+      ]
+    },
+    {
+      "seed": 42,
+      "ok": false,
+      "ms": 20108,
+      "actions": 70,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"When the SaintsA marching tune\"",
+        "button \"Back\"",
+        "button \"When the SaintsA marching tune\"",
+        "canvas \"\"",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 43,
+      "ok": false,
+      "ms": 20106,
+      "actions": 73,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Back\"",
+        "button \"When the SaintsA marching tune\"",
+        "canvas \"\"",
+        "point 955,144",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 44,
+      "ok": false,
+      "ms": 20110,
+      "actions": 77,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "button \"Back\"",
+        "canvas \"\"",
+        "point 408,578"
+      ]
+    },
+    {
+      "seed": 45,
+      "ok": false,
+      "ms": 20127,
+      "actions": 72,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Normal\"",
+        "point 1004,283",
+        "point 148,333",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 46,
+      "ok": false,
+      "ms": 20128,
+      "actions": 72,
+      "why": "no session (screen: MIDI Hero)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Back\"",
+        "point 878,189",
+        "button \"Rhythm: The PocketTwo drums, C\"",
+        "button \"Back\"",
+        "point 1212,586"
+      ]
+    },
+    {
+      "seed": 47,
+      "ok": false,
+      "ms": 20087,
+      "actions": 80,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Twinkle TwinkleThe first song\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 48,
+      "ok": false,
+      "ms": 20074,
+      "actions": 76,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "button \"Ode to JoySteady and calm\"",
+        "canvas \"\"",
+        "button \"Back\"",
+        "button \"Rhythm: The PocketTwo drums, C\"",
+        "point 367,445"
+      ]
+    },
+    {
+      "seed": 49,
+      "ok": false,
+      "ms": 20094,
+      "actions": 75,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "button \"Back\"",
+        "button \"When the SaintsA marching tune\"",
+        "canvas \"\"",
+        "button \"Back\""
+      ]
+    },
+    {
+      "seed": 50,
+      "ok": false,
+      "ms": 20128,
+      "actions": 80,
+      "why": "no session (screen: Keyboard check)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 491,416",
+        "button \"Back\"",
+        "button \"Ode to JoySteady and calm\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    }
+  ]
+}

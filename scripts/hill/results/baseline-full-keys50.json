@@ -1,0 +1,819 @@
+{
+  "hill": "setup-survives-clicking",
+  "page": "full",
+  "keys": 0.5,
+  "runs": 50,
+  "seconds": 20,
+  "workers": 4,
+  "firstSeed": 1,
+  "score": 0.1,
+  "playable": 5,
+  "medianSecondsToPlayable": 10.8,
+  "failureReasons": {
+    "no session (screen: This is your keyboard, on the screen)": 45
+  },
+  "browser": "156.0.8078.80",
+  "platform": "darwin",
+  "results": [
+    {
+      "seed": 1,
+      "ok": true,
+      "ms": 10774,
+      "actions": 38,
+      "why": "ok",
+      "song": "MIDI Hero — How to play",
+      "errors": [],
+      "lastClicks": [
+        "key 54",
+        "canvas \"\"",
+        "key 58",
+        "key 70",
+        "button \"Try it ▶\""
+      ]
+    },
+    {
+      "seed": 2,
+      "ok": false,
+      "ms": 20169,
+      "actions": 77,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 56",
+        "key 51",
+        "canvas \"\"",
+        "key 66",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 3,
+      "ok": true,
+      "ms": 6222,
+      "actions": 20,
+      "why": "ok",
+      "song": "MIDI Hero — How to play",
+      "errors": [],
+      "lastClicks": [
+        "key 65",
+        "key 72",
+        "button \"Next ▶\"",
+        "key 49",
+        "button \"Try it ▶\""
+      ]
+    },
+    {
+      "seed": 4,
+      "ok": false,
+      "ms": 20188,
+      "actions": 70,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 60",
+        "canvas \"\"",
+        "key 72",
+        "key 71",
+        "key 67"
+      ]
+    },
+    {
+      "seed": 5,
+      "ok": false,
+      "ms": 20103,
+      "actions": 79,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 67",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 6,
+      "ok": false,
+      "ms": 20223,
+      "actions": 78,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 63",
+        "canvas \"\"",
+        "canvas \"\"",
+        "key 62",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 7,
+      "ok": false,
+      "ms": 20173,
+      "actions": 73,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 66",
+        "key 70",
+        "canvas \"\"",
+        "key 59",
+        "key 50"
+      ]
+    },
+    {
+      "seed": 8,
+      "ok": true,
+      "ms": 15531,
+      "actions": 60,
+      "why": "ok",
+      "song": "MIDI Hero — C Five-Finger Exercise (70 bpm)",
+      "errors": [],
+      "lastClicks": [
+        "key 57",
+        "key 67",
+        "canvas \"\"",
+        "key 56",
+        "button \"Skip, just play\""
+      ]
+    },
+    {
+      "seed": 9,
+      "ok": false,
+      "ms": 20020,
+      "actions": 74,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "key 55",
+        "canvas \"\"",
+        "canvas \"\"",
+        "key 64"
+      ]
+    },
+    {
+      "seed": 10,
+      "ok": false,
+      "ms": 20238,
+      "actions": 75,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 70",
+        "key 71",
+        "key 56",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 11,
+      "ok": false,
+      "ms": 20175,
+      "actions": 75,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "key 53",
+        "key 50",
+        "key 53"
+      ]
+    },
+    {
+      "seed": 12,
+      "ok": false,
+      "ms": 20207,
+      "actions": 79,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "key 60",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 13,
+      "ok": false,
+      "ms": 20185,
+      "actions": 73,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 58",
+        "canvas \"\"",
+        "point 987,216",
+        "key 69",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 14,
+      "ok": false,
+      "ms": 20151,
+      "actions": 79,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 67",
+        "key 53",
+        "key 63",
+        "key 68",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 15,
+      "ok": false,
+      "ms": 20198,
+      "actions": 73,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 60",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 16,
+      "ok": false,
+      "ms": 20051,
+      "actions": 73,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "key 61",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 17,
+      "ok": false,
+      "ms": 20072,
+      "actions": 77,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 66",
+        "key 52",
+        "point 224,89",
+        "canvas \"\"",
+        "point 1212,101"
+      ]
+    },
+    {
+      "seed": 18,
+      "ok": false,
+      "ms": 20161,
+      "actions": 77,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 62",
+        "canvas \"\"",
+        "key 70",
+        "key 60",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 19,
+      "ok": false,
+      "ms": 20134,
+      "actions": 77,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 63",
+        "key 52",
+        "key 49",
+        "key 59",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 20,
+      "ok": false,
+      "ms": 20048,
+      "actions": 74,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 67",
+        "key 53",
+        "canvas \"\"",
+        "key 66",
+        "key 65"
+      ]
+    },
+    {
+      "seed": 21,
+      "ok": false,
+      "ms": 20060,
+      "actions": 75,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 53",
+        "canvas \"\"",
+        "canvas \"\"",
+        "key 71",
+        "key 60"
+      ]
+    },
+    {
+      "seed": 22,
+      "ok": false,
+      "ms": 20023,
+      "actions": 78,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "key 62",
+        "key 52",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 23,
+      "ok": false,
+      "ms": 20160,
+      "actions": 76,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 56",
+        "canvas \"\"",
+        "point 917,186",
+        "point 756,521",
+        "key 63"
+      ]
+    },
+    {
+      "seed": 24,
+      "ok": false,
+      "ms": 20074,
+      "actions": 77,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 57",
+        "canvas \"\"",
+        "key 58",
+        "key 72",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 25,
+      "ok": false,
+      "ms": 20126,
+      "actions": 77,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "point 1325,32",
+        "canvas \"\"",
+        "point 38,410"
+      ]
+    },
+    {
+      "seed": 26,
+      "ok": false,
+      "ms": 20248,
+      "actions": 75,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 61",
+        "key 63",
+        "key 56",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 27,
+      "ok": false,
+      "ms": 20127,
+      "actions": 85,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 951,22",
+        "canvas \"\"",
+        "key 56",
+        "key 51",
+        "key 56"
+      ]
+    },
+    {
+      "seed": 28,
+      "ok": false,
+      "ms": 20152,
+      "actions": 77,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "key 54",
+        "key 52",
+        "point 241,504",
+        "point 705,457"
+      ]
+    },
+    {
+      "seed": 29,
+      "ok": false,
+      "ms": 20247,
+      "actions": 76,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 48",
+        "key 66",
+        "key 67",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 30,
+      "ok": false,
+      "ms": 20151,
+      "actions": 75,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "key 58",
+        "key 57",
+        "key 53",
+        "point 408,300"
+      ]
+    },
+    {
+      "seed": 31,
+      "ok": false,
+      "ms": 20107,
+      "actions": 76,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "key 72",
+        "key 64",
+        "key 66",
+        "key 70"
+      ]
+    },
+    {
+      "seed": 32,
+      "ok": false,
+      "ms": 20300,
+      "actions": 75,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "point 1303,353",
+        "canvas \"\"",
+        "key 68",
+        "key 67"
+      ]
+    },
+    {
+      "seed": 33,
+      "ok": false,
+      "ms": 20041,
+      "actions": 77,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "point 1225,496",
+        "canvas \"\"",
+        "key 69",
+        "key 69"
+      ]
+    },
+    {
+      "seed": 34,
+      "ok": true,
+      "ms": 6059,
+      "actions": 21,
+      "why": "ok",
+      "song": "MIDI Hero — How to play",
+      "errors": [],
+      "lastClicks": [
+        "key 68",
+        "key 53",
+        "key 51",
+        "button \"Next ▶\"",
+        "button \"Try it ▶\""
+      ]
+    },
+    {
+      "seed": 35,
+      "ok": false,
+      "ms": 20341,
+      "actions": 78,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "key 70",
+        "canvas \"\"",
+        "key 50",
+        "key 64"
+      ]
+    },
+    {
+      "seed": 36,
+      "ok": false,
+      "ms": 20024,
+      "actions": 74,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 696,112",
+        "key 62",
+        "canvas \"\"",
+        "key 67",
+        "key 49"
+      ]
+    },
+    {
+      "seed": 37,
+      "ok": false,
+      "ms": 20265,
+      "actions": 79,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "key 54",
+        "key 65",
+        "point 212,458"
+      ]
+    },
+    {
+      "seed": 38,
+      "ok": false,
+      "ms": 20197,
+      "actions": 74,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 53",
+        "key 71",
+        "key 52",
+        "point 110,63",
+        "key 71"
+      ]
+    },
+    {
+      "seed": 39,
+      "ok": false,
+      "ms": 20190,
+      "actions": 71,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 68",
+        "key 70",
+        "key 70",
+        "key 69",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 40,
+      "ok": false,
+      "ms": 20131,
+      "actions": 72,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 53",
+        "key 49",
+        "key 52",
+        "key 55",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 41,
+      "ok": false,
+      "ms": 20343,
+      "actions": 76,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "point 1115,21",
+        "key 63",
+        "canvas \"\"",
+        "key 71"
+      ]
+    },
+    {
+      "seed": 42,
+      "ok": false,
+      "ms": 20131,
+      "actions": 80,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 1320,487",
+        "canvas \"\"",
+        "key 49",
+        "key 54",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 43,
+      "ok": false,
+      "ms": 20161,
+      "actions": 74,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 500,201",
+        "canvas \"\"",
+        "key 68",
+        "key 72",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 44,
+      "ok": false,
+      "ms": 20253,
+      "actions": 74,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 53",
+        "canvas \"\"",
+        "canvas \"\"",
+        "key 67",
+        "key 67"
+      ]
+    },
+    {
+      "seed": 45,
+      "ok": false,
+      "ms": 20029,
+      "actions": 76,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 1185,342",
+        "canvas \"\"",
+        "key 62",
+        "key 56",
+        "key 66"
+      ]
+    },
+    {
+      "seed": 46,
+      "ok": false,
+      "ms": 20109,
+      "actions": 76,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "canvas \"\"",
+        "canvas \"\"",
+        "key 72",
+        "key 61",
+        "point 842,350"
+      ]
+    },
+    {
+      "seed": 47,
+      "ok": false,
+      "ms": 20200,
+      "actions": 79,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 62",
+        "key 51",
+        "key 55",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    },
+    {
+      "seed": 48,
+      "ok": false,
+      "ms": 20013,
+      "actions": 75,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "point 779,335",
+        "key 62",
+        "canvas \"\"",
+        "key 70",
+        "key 53"
+      ]
+    },
+    {
+      "seed": 49,
+      "ok": true,
+      "ms": 19078,
+      "actions": 68,
+      "why": "ok",
+      "song": "MIDI Hero — Twinkle Twinkle Little Star",
+      "errors": [],
+      "lastClicks": [
+        "key 50",
+        "label \"Timing \n        strictnormalre\"",
+        "button \"Easy24 notes · 0.7/s\"",
+        "key 71",
+        "button \"Learn it ▶\""
+      ]
+    },
+    {
+      "seed": 50,
+      "ok": false,
+      "ms": 20141,
+      "actions": 76,
+      "why": "no session (screen: This is your keyboard, on the screen)",
+      "song": null,
+      "errors": [],
+      "lastClicks": [
+        "key 63",
+        "point 709,388",
+        "canvas \"\"",
+        "canvas \"\"",
+        "canvas \"\""
+      ]
+    }
+  ]
+}
